@@ -10,7 +10,6 @@ whereas <x> is the following:
 measureDMD -- DMD cost, ie, sum of square roots of data access distances, byte-level boundaries
 measureDMDSquared -- squared DMD cost, ie, sum of raw data access distances (each distance is the square of the corresponding sqrt(d) DMD term), always integer-valued
 byteReadTrace - list of byte access distances, in order of read
-
 """
 
 class _TrackedContext:
@@ -22,45 +21,29 @@ class _TrackedContext:
         self.accesses = []  # list of distances
         self._counter = 0
 
-    def register(self, key, size):
-        """Allocate or move a block to the top (MRU) of the stack."""
-        self.memory.pop(key, None)
-        self.memory[key] = size
-
-    def read(self, key):
-        """Record byte distances for a variable at its current stack position."""
-        if key not in self.memory:
-            return
-        depth = 0
-        size = self.memory[key]
-        for k in reversed(list(self.memory)):
-            if k == key:
-                self.accesses.extend(depth + size - i for i in range(size))
-                break
-            depth += self.memory[k]
-
-    def move_to_top(self, key):
-        """Move a variable to the top (MRU) of the stack."""
-        if key in self.memory:
-            self.register(key, self.memory[key])
+    def allocate(self, size):
+        """Allocate a new block at the top of the stack and return its key."""
+        self._counter += 1
+        self.memory[self._counter] = size
+        return self._counter
 
     def read_all_then_move(self, keys):
         """Read all operands at current distances, then move all to top."""
-        for k in keys:
-            self.read(k)
-        for k in keys:
-            self.move_to_top(k)
-
-    def next_key(self):
-        """Return a unique key."""
-        self._counter += 1
-        return self._counter
-
-    def push_result(self, size):
-        """Allocate a new block at the top of the stack and return its key."""
-        key = self.next_key()
-        self.register(key, size)
-        return key
+        items = list(self.memory.items())
+        for key in keys:
+            if key not in self.memory:
+                continue
+            depth = 0
+            size = self.memory[key]
+            for k, v in reversed(items):
+                if k == key:
+                    self.accesses.extend(range(depth + size, depth, -1))
+                    break
+                depth += v
+                
+        for key in keys:
+            if key in self.memory:
+                self.memory[key] = self.memory.pop(key)
 
 
 class _TrackedValue:
@@ -80,13 +63,17 @@ class _TrackedValue:
 
         # Read operands: all distances computed before any LRU update
         keys = [other_key, self._key] if reverse else [self._key, other_key]
-        self._ctx.read_all_then_move([k for k in keys if k is not None])
+        self._ctx.read_all_then_move(keys)
 
         res_size = 1 if is_compare else max(self.nbytes, other_nb)
-        res_key = self._ctx.push_result(res_size)
-
         val1, val2 = (other_val, self.value) if reverse else (self.value, other_val)
-        return _TrackedValue(self._ctx, res_key, op_func(val1, val2), res_size)
+        
+        return _TrackedValue(
+            self._ctx, 
+            self._ctx.allocate(res_size), 
+            op_func(val1, val2), 
+            res_size
+        )
 
     def __add__(self, o): return self._do_op(o, operator.add)
     def __radd__(self, o): return self._do_op(o, operator.add, reverse=True)
@@ -104,8 +91,12 @@ class _TrackedValue:
 
     def __neg__(self):
         self._ctx.read_all_then_move([self._key])
-        res_key = self._ctx.push_result(self.nbytes)
-        return _TrackedValue(self._ctx, res_key, -self.value, self.nbytes)
+        return _TrackedValue(
+            self._ctx, 
+            self._ctx.allocate(self.nbytes), 
+            -self.value, 
+            self.nbytes
+        )
 
 
 class _TrackedArray:
@@ -134,36 +125,25 @@ def _is_array(val):
 def _register_elements(ctx, val, elem_size):
     """Recursively register array elements on the LRU stack. Returns keys structure."""
     if getattr(val, 'ndim', 0) > 1:
-        return [_register_elements(ctx, val[j], elem_size) for j in range(len(val))]
-    else:
-        keys = []
-        for j in range(len(val)):
-            key = ctx.next_key()
-            ctx.register(key, elem_size)
-            keys.append(key)
-        return keys
+        return [_register_elements(ctx, v, elem_size) for v in val]
+    return [ctx.allocate(elem_size) for _ in range(len(val))]
 
 
 def _simulate(func, args):
     """Run func with traced arguments.
-
-    Returns (accesses, result) where accesses is a list of distances
-    and result is the function's return value.
+    Returns (accesses, result) where accesses is a list of distances.
     """
     ctx = _TrackedContext()
-    arg_names = func.__code__.co_varnames[:func.__code__.co_argcount]
     traced_args = []
 
-    for name, val in zip(arg_names, args):
+    for val in args:
         if _is_array(val):
             elem_size = val.dtype.itemsize
             keys = _register_elements(ctx, val, elem_size)
             traced_args.append(_TrackedArray(ctx, keys, val, elem_size))
         else:
             size = getattr(val, 'nbytes', 1)
-            key = ctx.next_key()
-            ctx.register(key, size)
-            traced_args.append(_TrackedValue(ctx, key, val, size))
+            traced_args.append(_TrackedValue(ctx, ctx.allocate(size), val, size))
 
     ret = func(*traced_args)
     if isinstance(ret, _TrackedValue):
@@ -178,8 +158,7 @@ def measureDMD(func, *args):
     byte read, and result is the function's return value.
     """
     accesses, result = _simulate(func, args)
-    cost = sum(math.sqrt(d) for d in accesses)
-    return cost, result
+    return sum(math.sqrt(d) for d in accesses), result
 
 
 def measureDMDSquared(func, *args):
@@ -192,13 +171,11 @@ def measureDMDSquared(func, *args):
     Returns (cost, result).
     """
     accesses, result = _simulate(func, args)
-    cost = sum(accesses)
-    return cost, result
+    return sum(accesses), result
 
 
 def byteReadTrace(func, *args):
     """Return (trace, result) where trace is a list of distances for each byte
     read, and result is the function's return value.
     """
-    accesses, result = _simulate(func, args)
-    return accesses, result
+    return _simulate(func, args)
