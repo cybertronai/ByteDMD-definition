@@ -128,12 +128,6 @@ $$
 C(b) + C(c) = (\sqrt{4} + \sqrt{5}) + (\sqrt{2} + \sqrt{3}).
 $$
 
-Equivalently,
-
-$$
-\sqrt{5} + \sqrt{4} + \sqrt{3} + \sqrt{2}.
-$$
-
 The post-instruction block order is still
 
 ```text
