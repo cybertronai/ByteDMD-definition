@@ -7,25 +7,25 @@ TLDR;
 
 ## Motivation
 
-Modern architectures spend more energy moving data than doing arithmetic, hence FLOP count is no longer representative of real-life cost. ByteDMD is intended as a more represenative scalar replacement of FLOP count. 
+Modern architectures spend more energy moving data than doing arithmetic, hence FLOP count is no longer representative of real-life cost. ByteDMD is intended as a more representative scalar replacement of FLOP count. 
 
 Bill Dally ([ACM Opinion](https://cacm.acm.org/opinion/on-the-model-of-computation-point/)) proposed a spatial model in which bytes live on a 2D grid and movement is penalized by Manhattan distance to the processor. Manually assigning spatial coordinates makes that model awkward for classical algorithms, so we replace manual placement with an automatic rule.
 
-A natural starting point is the "geometric stack" introduced by Ding and Smith ([Beyond Time Complexity, 2022](https://arxiv.org/abs/2203.02536)). In that model, memory is represented as an infinitely layered LRU stack, and accessing depth $d$ costs $\sqrt{d}$. This can be viewed as as Dally's Manhattan distance approach applied to cache arranged in concentric circles in 2D.
+A natural starting point is the "geometric stack" introduced by Ding and Smith ([Beyond Time Complexity, 2022](https://arxiv.org/abs/2203.02536)). In that model, memory is represented as an infinitely layered LRU stack, and accessing depth $d$ costs $\sqrt{d}$. This can be viewed as Dally's Manhattan distance approach applied to cache arranged in concentric circles in 2D. We refer to this cost as the Data Movement Distance (DMD).
 
-The original DMD treats values abstractly. ByteDMD refines the model to the byte level: a $k$-byte value occupies $k$ consecutive positions in the stack. This reward algorithms that prefer smaller data-types like `int8` instead of `float32`.
+The original DMD treats values abstractly. ByteDMD refines the model to the byte level: a $k$-byte value occupies $k$ consecutive positions in the stack. This rewards algorithms that prefer smaller data-types like `int8` instead of `float32`.
 
 ![ByteDMD](dmd.png)
 
 ## Computation model
 
-We model an idealized single processor with infinite registers, a byte-level LRU stack, and a fixed set of instructions. Instructions and writes are free. The only charged operation is reading existing bytes from the stack.
+We model an idealized single processor with a byte-level LRU stack and a fixed set of instructions. Instructions and writes are free. The only charged operation is reading existing bytes from the stack.
 
 ### Stack state
 
-The stack is ordered from least recently used on the left to most recently used on the right. Distances are counted in bytes from the top, so the rightmost byte has depth 1.
+The stack is ordered from least recently used at the bottom to most recently used at the top. Depths are counted in bytes from the top, so the topmost byte has depth 1.
 
-Each live value $x$ of size $|x|$ bytes occupies a contiguous block of $|x|$ byte positions.
+Each value $x$ of size $|x|$ bytes occupies a contiguous block of $|x|$ byte positions.
 
 ### Initialization
 
@@ -35,7 +35,7 @@ On function entry, the arguments are placed on the stack in call order, so the l
 [a, b, c, d]
 ```
 
-with `right = top/Most Recently Used` gives depths `d=1`, `c=2`, `b=3`, `a=4` when each argument is 1 byte.
+The top is the most recently used end, giving depths `d=1`, `c=2`, `b=3`, `a=4` when each argument is 1 byte.
 
 ### Cost of reading a value
 
@@ -61,7 +61,7 @@ $$
 
    If the same input appears twice, it is charged twice.
 
-2. **Update recency.** After all read costs are computed, move each distinct input block to the top of the stack, preserving the order of its last occurrence in the input list.
+2. **Update recency.** After all read costs are computed, move each input to the top of the stack sequentially in read order. If an input appears twice, it is simply moved to the top twice, leaving it at the top.
 
 3. **Push outputs.** Allocate the outputs as fresh blocks and push them onto the top of the stack at zero cost.
 
@@ -84,7 +84,7 @@ with 1-byte arguments.
 [a, b, c, d]
 ```
 
-with `right = top/Most Recently Used`, so `d=1`, `c=2`, `b=3`, `a=4`.
+Top is MRU, so `d=1`, `c=2`, `b=3`, `a=4`.
 
 **Read cost of `b + c`**
 
@@ -158,9 +158,7 @@ If an instruction reads the same value twice, it is charged twice because the in
 A[i][j] * A[i][j]
 ```
 
-the value `A[i][j]` contributes its read cost twice.
-
-Under the convention above, both charges are computed from the stack state at the start of the instruction, and the block is moved to the top only once when recency is updated.
+the value `A[i][j]` contributes its read cost twice. Both charges are computed from the stack state at the start of the instruction.
 
 ## Future work
 
