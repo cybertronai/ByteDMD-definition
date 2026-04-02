@@ -63,7 +63,7 @@ Cost: 0
 
 ### 2. Multi-Byte Variables
 
-Consider executing `b + c` where `b` and `c` are 2-byte `int16` integers, while `a` and `d` are 1-byte `int8` integers.
+Consider executing `myAdd(a,b,c,d)` where `b` and `c` are 2-byte `int16` integers, while `a` and `d` are 1-byte `int8` integers.
 
 Initial Stack Distances (Top-Down):
 - d (1 byte): distance 1
