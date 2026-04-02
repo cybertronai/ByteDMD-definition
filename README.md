@@ -5,7 +5,7 @@
 TLDR;
 - Memory wall means that reducing data movement is more important than reducing arithmetic
 - Implement a cost function which measures the cost of data movement 
-- Apply VLSI heuristic that cost of reading from cache of size $L$ on a 2D chip scales in proportion to $\sqrt{L}$.
+- Apply VLSI heuristic that reading from cache of size $L$ scales in proportion to $\sqrt{L}$.
 
 ## Motivation
 
