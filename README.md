@@ -177,8 +177,6 @@ Under the convention above, both charges are computed from the stack state at th
 To avoid floating point arithmetic we use the ceiling of the square root function (aka "upper integer square root") defined as follows
 ```python
 def isqrt_ceil(x):
-    if x <= 0:
-        return 0
     return math.isqrt(x - 1) + 1
 ```
 

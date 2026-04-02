@@ -3,8 +3,6 @@ import operator
 
 
 def isqrt_ceil(x):
-    if x <= 0:
-        return 0
     return math.isqrt(x - 1) + 1
 
 """
