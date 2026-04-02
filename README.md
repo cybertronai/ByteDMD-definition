@@ -55,9 +55,9 @@ Consider an instruction with input list $x_1, \ldots, x_m$ and outputs $y_1, \ld
 
 1. **Price the reads.** Each input occurrence $x_j$ is charged against the stack state at the **start** of the instruction:
 
-   $$
-   \mathrm{cost} = \sum_{j=1}^{m} C(x_j).
-   $$
+$$
+\mathrm{cost} = \sum_{j=1}^{m} C(x_j).
+$$
 
    If the same input appears twice, it is charged twice.
 
