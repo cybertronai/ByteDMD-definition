@@ -34,11 +34,11 @@ Execution proceeds as follows:
 Consider calling the following function with four 1-byte (`int8`) values:
 
 ```python
-def add(a, b, c, d):
+def myAdd(a, b, c, d):
     return b + c
 ```
 
-**Step 1: Load Arguments**
+**1. Initialization**
 
 Stack (right is top/MRU): [a, b, c, d]
 
@@ -46,21 +46,20 @@ Distances: d=1, c=2, b=3, a=4
 
 Cost: 0
 
-**Step 2: Evaluate b + c** (Distances are evaluated before the stack updates)
+**2. Instruction Execution** (`b + c`)
 
-Read b: distance 3 $\rightarrow$ cost $\sqrt{3}$
+- **Reads inputs into the registers:** (Distances are evaluated before the stack updates)
+  - Read b: distance 3 $\rightarrow$ cost $\sqrt{3}$
+  - Read c: distance 2 $\rightarrow$ cost $\sqrt{2}$
+  - Total Read Cost: $\sqrt{3} + \sqrt{2}$
 
-Read c: distance 2 $\rightarrow$ cost $\sqrt{2}$
+- **Updates LRU:**
+  - Move inputs to the top of the stack in order of reading: [a, d, b, c]
 
-Total Read Cost: $\sqrt{3} + \sqrt{2}$
+- **Pushes Result:**
+  - Push the new computed value to the top of the stack (allocated as _r0): [a, d, b, c, _r0]
 
-**Step 3: Update Stack & Write Result**
-
-Move read arguments to the top of the stack in read order: [a, d, b, c]
-
-Push the new computed value (allocated as _r0): [a, d, b, c, _r0]
-
-(This cost can be measured programmatically in Python via `cost, result = measureDMD(add, a, b, c, d)`).
+(This cost can be measured programmatically in Python via `cost, result = measureDMD(myAdd, a, b, c, d)`).
 
 ### 2. Multi-Byte Variables
 
