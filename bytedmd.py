@@ -2,14 +2,13 @@ import math
 import operator
 
 """
-Examples and checks for the ByteDMD metric of complexity described in README.md
+Implements ByteDMD metric from README.md: measureDMD, measureDMDSquared, and byteReadTrace.
 
-Each of the functions below takes a function func, arguments, calls func and returns a tuple [<x>, result]
+measureDMD(sum, 1, 2) calls sum(1, 2) and returns (sqrt(1) + sqrt(2), 3) where sqrt(1) + sqrt(2) is DMD cost and 3 is the result of running the function
 
-whereas <x> is the following:
-measureDMD -- DMD cost, ie, sum of square roots of data access distances, byte-level boundaries
-measureDMDSquared -- squared DMD cost, ie, sum of raw data access distances (each distance is the square of the corresponding sqrt(d) DMD term), always integer-valued
-byteReadTrace - list of byte access distances, in order of read
+These are are provided for additional testing:
+measureDMDSquared omits square root in distance calculations, giving integer-valued distance measure
+byteReadTrace: instead of distance, gives a list of integers with byte-access distances
 """
 
 class _TrackedContext:
@@ -152,30 +151,14 @@ def _simulate(func, args):
 
 
 def measureDMD(func, *args):
-    """Measure ByteDMD cost and call func.
-
-    Returns (cost, result) where cost is the sum of sqrt(distance) for each
-    byte read, and result is the function's return value.
-    """
     accesses, result = _simulate(func, args)
     return sum(math.sqrt(d) for d in accesses), result
 
 
 def measureDMDSquared(func, *args):
-    """Squared variant of measureDMD: sums raw distances d instead of sqrt(d).
-
-    Since DMD costs are sqrt(d), this is equivalent to summing the squares of
-    individual DMD costs: d = (sqrt(d))^2. Always integer-valued for
-    integer-byte-sized types.
-
-    Returns (cost, result).
-    """
     accesses, result = _simulate(func, args)
     return sum(accesses), result
 
 
 def byteReadTrace(func, *args):
-    """Return (trace, result) where trace is a list of distances for each byte
-    read, and result is the function's return value.
-    """
     return _simulate(func, args)
