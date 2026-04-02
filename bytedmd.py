@@ -6,7 +6,7 @@ Implements ByteDMD metric from README.md: measureDMD, measureDMDSquared, and byt
 
 measureDMD(sum, 1, 2) calls sum(1, 2) and returns (sqrt(1) + sqrt(2), 3) where sqrt(1) + sqrt(2) is DMD cost and 3 is the result of running the function
 
-These are are provided for additional testing:
+These are provided for additional testing:
 measureDMDSquared omits square root in distance calculations, giving integer-valued distance measure
 byteReadTrace: instead of distance, gives a list of integers with byte-access distances
 """
@@ -15,34 +15,37 @@ class _TrackedContext:
     """Shared LRU context used during traced execution."""
 
     def __init__(self):
-        # Python 3.7+ dict maintains insertion order (LRU stack, rightmost = MRU)
-        self.memory = {}  # key (int) -> size in bytes
-        self.accesses = []  # list of distances
+        self.stack = []     # LRU stack (rightmost = MRU)
+        self.sizes = {}     # key -> size in bytes
+        self.accesses = []  # list of distance accesses
         self._counter = 0
 
     def allocate(self, size):
         """Allocate a new block at the top of the stack and return its key."""
         self._counter += 1
-        self.memory[self._counter] = size
-        return self._counter
+        key = self._counter
+        self.sizes[key] = size
+        self.stack.append(key)
+        return key
 
     def read_all_then_move(self, keys):
         """Read all operands at current distances, then move all to top."""
-        items = list(self.memory.items())
         for key in keys:
-            if key not in self.memory:
+            if key not in self.sizes:
                 continue
             depth = 0
-            size = self.memory[key]
-            for k, v in reversed(items):
+            size = self.sizes[key]
+            for k in reversed(self.stack):
                 if k == key:
                     self.accesses.extend(range(depth + size, depth, -1))
                     break
-                depth += v
+                depth += self.sizes[k]
                 
+        # Update LRU stack
         for key in keys:
-            if key in self.memory:
-                self.memory[key] = self.memory.pop(key)
+            if key in self.sizes:
+                self.stack.remove(key)
+                self.stack.append(key)
 
 
 class _TrackedValue:
@@ -54,23 +57,24 @@ class _TrackedValue:
         self.value = value
         self.nbytes = nbytes
 
-    def _do_op(self, other, op_func, is_compare=False, reverse=False):
+    def _do_op(self, other, op_func, reverse=False):
         if isinstance(other, _TrackedValue):
-            other_key, other_val, other_nb = other._key, other.value, other.nbytes
+            other_key, other_val = other._key, other.value
         else:
-            other_key, other_val, other_nb = None, other, 1
+            other_key, other_val = None, other
 
         # Read operands: all distances computed before any LRU update
         keys = [other_key, self._key] if reverse else [self._key, other_key]
         self._ctx.read_all_then_move(keys)
 
-        res_size = 1 if is_compare else max(self.nbytes, other_nb)
         val1, val2 = (other_val, self.value) if reverse else (self.value, other_val)
+        res_val = op_func(val1, val2)
+        res_size = getattr(res_val, 'nbytes', 1)
         
         return _TrackedValue(
             self._ctx, 
             self._ctx.allocate(res_size), 
-            op_func(val1, val2), 
+            res_val, 
             res_size
         )
 
@@ -82,50 +86,41 @@ class _TrackedValue:
     def __rmul__(self, o): return self._do_op(o, operator.mul, reverse=True)
     def __truediv__(self, o): return self._do_op(o, operator.truediv)
     def __rtruediv__(self, o): return self._do_op(o, operator.truediv, reverse=True)
-
-    def __gt__(self, o): return self._do_op(o, operator.gt, is_compare=True)
-    def __lt__(self, o): return self._do_op(o, operator.lt, is_compare=True)
-    def __ge__(self, o): return self._do_op(o, operator.ge, is_compare=True)
-    def __le__(self, o): return self._do_op(o, operator.le, is_compare=True)
+    
+    def __gt__(self, o): return self._do_op(o, operator.gt)
+    def __lt__(self, o): return self._do_op(o, operator.lt)
+    def __ge__(self, o): return self._do_op(o, operator.ge)
+    def __le__(self, o): return self._do_op(o, operator.le)
 
     def __neg__(self):
         self._ctx.read_all_then_move([self._key])
+        res_val = -self.value
+        res_size = getattr(res_val, 'nbytes', 1)
         return _TrackedValue(
             self._ctx, 
-            self._ctx.allocate(self.nbytes), 
-            -self.value, 
-            self.nbytes
+            self._ctx.allocate(res_size), 
+            res_val, 
+            res_size
         )
 
 
-class _TrackedArray:
-    """Array whose element accesses are tracked on a shared LRU stack."""
-
-    def __init__(self, ctx, keys, values, elem_nbytes):
-        self._ctx = ctx
-        self._keys = keys
-        self._values = values
-        self._elem_nbytes = elem_nbytes
-
-    def __getitem__(self, idx):
-        val = self._values[idx]
-        if _is_array(val):
-            return _TrackedArray(self._ctx, self._keys[idx], val, self._elem_nbytes)
-        return _TrackedValue(self._ctx, self._keys[idx], val, self._elem_nbytes)
-
-    def __len__(self):
-        return len(self._values)
+def _wrap(ctx, val):
+    """Recursively convert ndarrays/lists of items into nested lists of tracked scalars."""
+    if getattr(val, 'ndim', 0) > 0 or isinstance(val, (list, tuple)):
+        return [_wrap(ctx, v) for v in val]
+    size = getattr(val, 'nbytes', 1)
+    return _TrackedValue(ctx, ctx.allocate(size), val, size)
 
 
-def _is_array(val):
-    return hasattr(val, '__len__') and hasattr(val, '__getitem__') and hasattr(val, 'dtype')
-
-
-def _register_elements(ctx, val, elem_size):
-    """Recursively register array elements on the LRU stack. Returns keys structure."""
-    if getattr(val, 'ndim', 0) > 1:
-        return [_register_elements(ctx, v, elem_size) for v in val]
-    return [ctx.allocate(elem_size) for _ in range(len(val))]
+def _unwrap(val):
+    """Recursively safely unwrap returned _TrackedValue scalars back to python primitives."""
+    if isinstance(val, list):
+        return [_unwrap(v) for v in val]
+    if isinstance(val, tuple):
+        return tuple(_unwrap(v) for v in val)
+    if isinstance(val, _TrackedValue):
+        return val.value
+    return val
 
 
 def _simulate(func, args):
@@ -133,21 +128,10 @@ def _simulate(func, args):
     Returns (accesses, result) where accesses is a list of distances.
     """
     ctx = _TrackedContext()
-    traced_args = []
-
-    for val in args:
-        if _is_array(val):
-            elem_size = val.dtype.itemsize
-            keys = _register_elements(ctx, val, elem_size)
-            traced_args.append(_TrackedArray(ctx, keys, val, elem_size))
-        else:
-            size = getattr(val, 'nbytes', 1)
-            traced_args.append(_TrackedValue(ctx, ctx.allocate(size), val, size))
-
+    traced_args = [_wrap(ctx, val) for val in args]
+    
     ret = func(*traced_args)
-    if isinstance(ret, _TrackedValue):
-        ret = ret.value
-    return ctx.accesses, ret
+    return ctx.accesses, _unwrap(ret)
 
 
 def measureDMD(func, *args):
