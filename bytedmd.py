@@ -119,9 +119,8 @@ def traced_eval(func, args):
     return ctx.trace, _unwrap(ret)
 
 
-def bytedmd(func, args, bits_per_element=8):
+def bytedmd(func, args, bytes_per_element=1):
     trace, result = traced_eval(func, args)
-    bytes_per_element = bits_per_element / 8
     return sum(usqrt(int(d * bytes_per_element)) for d in trace)
 
 

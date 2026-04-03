@@ -12,7 +12,7 @@
 
 Modern architectures spend more energy moving data than doing arithmetic, making FLOP counts an outdated cost metric. Bill Dally ([ACM Opinion](https://cacm.acm.org/opinion/on-the-model-of-computation-point/)) proposed penalizing data movement based on 2D spatial distance to the processor. To avoid manual spatial mapping, Ding and Smith ([Beyond Time Complexity, 2022](https://arxiv.org/abs/2203.02536)) automated this via Data Movement Distance (DMD): a rule treating memory as an LRU stack where reading depth $d$ costs $\sqrt{d}$, modeling a cache laid out in 2D.
 
-The original DMD treats values abstractly. ByteDMD refines this to the element level: each scalar occupies one stack position, and a configurable `bits_per_element` parameter (default 8) scales distances to model different data-type widths.
+The original DMD treats values abstractly. ByteDMD counts accesses at byte level. This rewards algorithms that use smaller data types.
 
 ## Computation Model
 
@@ -20,7 +20,7 @@ An idealized processor operates directly on an element-level LRU stack. **Comput
 
 - **Stack State:** Ordered from least recently used (bottom) to most recently used (top). Depth is measured in elements from the top (topmost element = depth 1). Each scalar occupies one position.
 - **Initialization:** On function entry, arguments are pushed to the top in call order.
-- **Read Cost:** Reading a value at element depth $d$ costs $\lceil\sqrt{d \cdot B/8}\rceil$ where $B$ is `bits_per_element` (default 8).
+- **Read Cost:** Reading a value at element depth $d$ costs $\lceil\sqrt{d \cdot B}\rceil$ where $B$ is `bytes_per_element` (default 1).
 
 ### Instruction Semantics
 
@@ -47,7 +47,7 @@ Arguments are pushed in call order `[a, b, c, d]`, yielding element depths from 
 - `a`: depth 4
 
 **2. Read Cost**  
-Inputs are priced simultaneously against the initial stack state (with default `bits_per_element=8`, each element is 1 byte):
+Inputs are priced simultaneously against the initial stack state:
 
 $$C(b) + C(c) = \lceil\sqrt{3}\rceil + \lceil\sqrt{2}\rceil = 2 + 2 = 4$$
 
