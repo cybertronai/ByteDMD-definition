@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 import numpy as np
 from bytedmd import measure_dmd, traced_eval
 
@@ -120,3 +121,6 @@ def test_vecmat4():
     assert cost == 191
 
 
+if __name__ == "__main__":
+    import pytest
+    pytest.main([__file__, "-v"])
