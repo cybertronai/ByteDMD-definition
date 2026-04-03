@@ -1,14 +1,35 @@
 # A cost model of complexity for the 21st century: ByteDMD
 
-**TL;DR**
-- The memory wall makes reducing data movement more important than reducing arithmetic.
-- Instead of FLOP count, focus on the cost of data movement.
-- Manage data using continuous LRU stack, use wire length to model the cost of reads
+To improve on FLOPs, focus on data movement. Recently used bytes can be cached, incurring smaller read cost.
 
+$$\text{cost of read}=\sum_{b \in bytes} \sqrt{D(b)}$$
+
+where $D(b)$ is the depth of byte $b$ in the LRU stack.
+
+## Usage
+
+```python
+from bytedmd import bytedmd
+
+def dot(a, b):
+    return sum(i1*i2 for (i1,i2) in zip(a,b))
+
+a = [0, 1]
+b = [2, 3]
+print("Dot product:  ", dot(a,b))             # 3
+print("ByteDMD cost: ", bytedmd(dot, (a, b))) # 14
+```
+
+## Motivation
 
 ![ByteDMD](docs/illustration.gif)
 
-## Motivation
+
+**TL;DR**
+- The memory wall makes reducing data movement more important than reducing arithmetic.
+- Instead of FLOP count, focus on the cost of data movement.
+- Manage data using continuous LRU stack, use wire length in 2D to model the cost of reads
+
 
 Modern architectures spend more energy moving data than doing arithmetic, making FLOP counts an outdated cost metric. Bill Dally ([ACM Opinion](https://cacm.acm.org/opinion/on-the-model-of-computation-point/)) proposed penalizing data movement based on 2D spatial distance to the processor. To avoid manual spatial mapping, Ding and Smith ([Beyond Time Complexity, 2022](https://arxiv.org/abs/2203.02536)) automated this via Data Movement Distance (DMD): a rule treating memory as an LRU stack where reading depth $d$ costs $\sqrt{d}$, modeling a cache laid out in 2D.
 
