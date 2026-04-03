@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 import numpy as np
-from bytedmd import measure_dmd, traced_eval
+from bytedmd import bytedmd, traced_eval
 
 
 def my_add(a, b, c, d):
@@ -9,7 +9,7 @@ def my_add(a, b, c, d):
 
 def test_my_add_int8():
     a, b, c, d = np.int8(1), np.int8(2), np.int8(3), np.int8(4)
-    cost, result = measure_dmd(my_add, (a, b, c, d))
+    cost, result = bytedmd(my_add, (a, b, c, d))
     assert cost == 4
     assert result == np.int8(5)
 
@@ -32,7 +32,7 @@ def test_my_composite_func():
     a, b, c, d = np.int8(1), np.int16(2), np.int16(3), np.int8(4)
     trace, result = traced_eval(my_composite_func, (a, b, c, d))
     assert trace == [5, 4, 3, 2, 8, 7, 5, 4, 1]
-    cost, result = measure_dmd(my_composite_func, (a, b, c, d))
+    cost, result = bytedmd(my_composite_func, (a, b, c, d))
     assert cost == 21
 
 
@@ -96,28 +96,28 @@ def matmul4_tiled(A, B):
 def test_matmul4():
     A = np.ones((4, 4), dtype=np.int8)
     B = np.ones((4, 4), dtype=np.int8)
-    cost, result = measure_dmd(matmul4, (A, B))
+    cost, result = bytedmd(matmul4, (A, B))
     assert cost == 948
 
 
 def test_matmul4_tiled():
     A = np.ones((4, 4), dtype=np.int8)
     B = np.ones((4, 4), dtype=np.int8)
-    cost, result = measure_dmd(matmul4_tiled, (A, B))
+    cost, result = bytedmd(matmul4_tiled, (A, B))
     assert cost == 947
 
 
 def test_matvec4():
     A = np.ones((4, 4), dtype=np.int8)
     x = np.ones(4, dtype=np.int8)
-    cost, result = measure_dmd(matvec4, (A, x))
+    cost, result = bytedmd(matvec4, (A, x))
     assert cost == 194
 
 
 def test_vecmat4():
     A = np.ones((4, 4), dtype=np.int8)
     x = np.ones(4, dtype=np.int8)
-    cost, result = measure_dmd(vecmat4, (A, x))
+    cost, result = bytedmd(vecmat4, (A, x))
     assert cost == 191
 
 
