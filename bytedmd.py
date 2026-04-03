@@ -1,15 +1,17 @@
+"""
+Implements ByteDMD cost model
+
+measure_dmd(add, (1, 2)) calls add(1, 2) and returns (ByteDMD_cost, 3)
+"""
+
 import math
 import operator
 
 
 def usqrt(x):
+    """Ceiling of square root."""
     return math.isqrt(x - 1) + 1
 
-"""
-Implements ByteDMD cost model from README.md
-
-measure_dmd(add, (1, 2)) calls add(1, 2) and returns (ByteDMD_cost, 3)
-"""
 
 class _TrackedContext:
     """Shared LRU context used during traced execution."""

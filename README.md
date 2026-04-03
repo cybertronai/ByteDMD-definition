@@ -3,10 +3,10 @@
 **TL;DR**
 - The memory wall makes reducing data movement more important than reducing arithmetic.
 - Instead of FLOP count, focus on the cost of data movement.
-- Use wire length to model the cost of reads, place data automatically according to LRU heuristic
+- Manage data using continuous LRU stack, use wire length to model the cost of reads
 
 
-![ByteDMD](docs/dmd_animated.gif)
+![ByteDMD](docs/illustration.gif)
 
 ## Motivation
 
