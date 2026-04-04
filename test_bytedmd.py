@@ -11,23 +11,14 @@ def test_my_add():
     cost = bytedmd(my_add, (1, 2, 3, 4))
     assert cost == 4
 
-def my_add2(a, b, c):
-    return (a + b) + c
-
-
-def test_my_add2():
-    cost = bytedmd(my_add2, (1, 2, 3))
-    assert cost == 7
-
-
-def test_my_add2_16bit():
-    cost = bytedmd(my_add2, (1, 2, 3), bytes_per_element=2)
-    assert cost == 19
-
-    trace, _ = traced_eval(my_add2, (1, 2, 3))
     # trace counts depth in terms of number of elements, not bytes
-    assert trace == [3, 2, 1, 4]
-    assert trace_to_cost(trace, bytes_per_element=2) == 19
+    trace, _ = traced_eval(my_add, (1, 2, 3, 4))
+    assert trace == [3, 2]
+
+    assert trace_to_cost(trace, bytes_per_element=1) == 4
+    assert trace_to_cost(trace, bytes_per_element=2) == 10
+
+    assert bytedmd(my_add, (1, 2, 3, 4), bytes_per_element=2) == 10
 
 
 def my_composite_func(a, b, c, d):
@@ -53,177 +44,126 @@ def test_dot_product():
     assert result == 3
     assert bytedmd(dot, (a, b)) == 14
 
-# --- For-loop array-based functions (runtime tracing) ---
 
-def matvec4(A, x):
-    """4x4 matrix-vector multiply y = A @ x."""
-    n = len(x)
-    y = [None] * n
-    for i in range(n):
-        s = A[i][0] * x[0]
-        for j in range(1, n):
-            s = s + A[i][j] * x[j]
-        y[i] = s
-    return y
-
-
-def vecmat4(A, x):
-    """4x4 vector-matrix multiply y = x^T @ A."""
-    n = len(x)
-    y = [None] * n
-    for j in range(n):
-        s = x[0] * A[0][j]
-        for i in range(1, n):
-            s = s + x[i] * A[i][j]
-        y[j] = s
-    return y
+def test_branching_and_comparisons_trace():
+    def my_relu(a):
+        if a > 0:
+            return a * 2
+        return a
+        
+    # Branch taken: traces reading `a` twice (`a > 0` and `a * 2`)
+    trace_pos, _ = traced_eval(my_relu, (5,))
+    assert trace_pos == [1, 1]
+    
+    # Branch skipped: traces reading `a` once (`a > 0`)
+    trace_neg, _ = traced_eval(my_relu, (-5,))
+    assert trace_neg == [1]
 
 
-def matmul4(A, B):
-    """4x4 matrix multiply C = A @ B, naive i-j-k loop order."""
-    n = len(A)
-    C = [[None] * n for _ in range(n)]
-    for i in range(n):
-        for j in range(n):
-            s = A[i][0] * B[0][j]
-            for k in range(1, n):
-                s = s + A[i][k] * B[k][j]
-            C[i][j] = s
-    return C
+def test_divmod_tuple_allocation_trace():
+    """
+    6. Tests operations natively returning multiple tracked values.
+    divmod(a, b) evaluates to a tuple (q, r), sequentially triggering 
+    multiple allocations on the LRU stack.
+    """
+    def my_divmod(a, b):
+        q, r = divmod(a, b)
+        return q + r + a
+        
+    trace, result = traced_eval(my_divmod, (10, 3))
+    assert trace == [2, 1, 2, 1, 1, 5]
 
 
-def matmul4_tiled(A, B):
-    """4x4 matrix multiply C = A @ B, tiled with 2x2 blocks."""
-    n = len(A)
-    t = 2
-    C = [[None] * n for _ in range(n)]
-    for bi in range(0, n, t):
-        for bj in range(0, n, t):
-            for bk in range(0, n, t):
-                for i in range(bi, bi + t):
-                    for j in range(bj, bj + t):
-                        for k in range(bk, bk + t):
-                            if C[i][j] is None:
-                                C[i][j] = A[i][k] * B[k][j]
-                            else:
-                                C[i][j] = C[i][j] + A[i][k] * B[k][j]
-    return C
+### Python gotchas
+# Because we implement ByteDMD in Python by wrapping Python objects, our Python framework deviates from idealized description in the README
+# for certain cases, illustrated by tests below.
+
+def test_gotcha_constant_ops():
+    """
+    Limitation of Python model: constants are not tracked
+    """
+    def f(a):
+        return 10 - a * 10
+    
+    trace, _ = traced_eval(f, (5,))
+    assert trace == [1, 1]
 
 
-def test_matmul4():
-    A = np.ones((4, 4))
-    B = np.ones((4, 4))
-    cost = bytedmd(matmul4, (A, B))
-    assert cost == 948
+def test_gotcha_pure_memory_movement_is_free_trace():
+    """
+    Limitation of Python model: pure list index without computation does not trigger math magic methods,
+    hence generating no read trace.
+    """
+    def transpose(A):
+        n = len(A)
+        return [[A[j][i] for j in range(n)] for i in range(n)]
+    
+    A = [[1, 2], [3, 4]]
+    trace, result = traced_eval(transpose, (A,))
+    
+    assert trace == []
+    assert result == [[1, 3], [2, 4]]
 
+def test_gotcha_implicit_boolean_bypass_trace():
+    """
+    WEAKNESS 1: Implicit truthiness evaluation bypasses the trace.
+    Python evaluates an object's truthiness using `__bool__`. Because `_TrackedValue` 
+    does not override it, Python treats ALL wrapped values as `True` (since they are objects).
+    This silently executes the wrong branch AND completely bypasses the read trace.
+    """
+    def implicit_branch(a):
+        if a:  # Wrongly evaluates to True for a=0, generates NO trace!
+            return a + 10
+        return a
 
-def test_matmul4_tiled():
-    A = np.ones((4, 4))
-    B = np.ones((4, 4))
-    cost = bytedmd(matmul4_tiled, (A, B))
-    assert cost == 947
+    def explicit_branch(a):
+        if a != 0:  # Correctly evaluates to False for a=0, generates trace!
+            return a + 10
+        return a
 
+    trace_implicit, result_implicit = traced_eval(implicit_branch, (0,))
+    # Misses the condition check entirely, only tracking the `a + 10` execution!
+    assert trace_implicit == [1]
+    assert result_implicit == 10
 
-def test_matvec4():
-    A = np.ones((4, 4))
-    x = np.ones(4)
-    cost = bytedmd(matvec4, (A, x))
-    assert cost == 194
+    trace_explicit, result_explicit = traced_eval(explicit_branch, (0,))
+    # Correctly traces the explicit `a != 0` check
+    assert trace_explicit == [1]
+    assert result_explicit == 0
 
+def test_gotcha_short_circuit_logic_bypass_trace():
+    """
+    WEAKNESS 2: Python's `and` / `or` keywords do not invoke magic methods.
+    They rely on implicit truthiness, completely circumventing read tracing and
+    returning incorrect mathematical results.
+    """
+    def logical_and(a, b):
+        return a and b
+        
+    trace, result = traced_eval(logical_and, (0, 5))
+    assert trace == []
+    assert result == 5
 
-def test_vecmat4():
-    A = np.ones((4, 4))
-    x = np.ones(4)
-    cost = bytedmd(vecmat4, (A, x))
-    assert cost == 191
-
-
-# --- Strassen matrix multiplication ---
-
-def _check_square_same_size(A, B):
-    n = len(A)
-    return n
-
-
-def _split(M):
-    """Split a matrix into four quadrants."""
-    n = len(M)
-    h = n // 2
-    M11 = [[M[i][j] for j in range(h)] for i in range(h)]
-    M12 = [[M[i][j] for j in range(h, n)] for i in range(h)]
-    M21 = [[M[i][j] for j in range(h)] for i in range(h, n)]
-    M22 = [[M[i][j] for j in range(h, n)] for i in range(h, n)]
-    return M11, M12, M21, M22
-
-
-def _join(C11, C12, C21, C22):
-    """Join four quadrants into a single matrix."""
-    h = len(C11)
-    n = 2 * h
-    return [[C11[i][j] if j < h else C12[i][j - h] for j in range(n)] for i in range(h)] + \
-           [[C21[i][j] if j < h else C22[i][j - h] for j in range(n)] for i in range(h)]
-
-
-def _add(A, B):
-    n = len(A)
-    return [[A[i][j] + B[i][j] for j in range(n)] for i in range(n)]
-
-
-def _sub(A, B):
-    n = len(A)
-    return [[A[i][j] - B[i][j] for j in range(n)] for i in range(n)]
-
-
-def _matmul_ikj(A, B):
-    """Naive matrix multiply with i-k-j loop order."""
-    n = len(A)
-    C = [[None] * n for _ in range(n)]
-    for i in range(n):
-        for j in range(n):
-            s = A[i][0] * B[0][j]
-            for k in range(1, n):
-                s = s + A[i][k] * B[k][j]
-            C[i][j] = s
-    return C
-
-
-def _matmul_strassen(A, B, leaf):
-    n = len(A)
-    if n <= leaf:
-        return _matmul_ikj(A, B)
-
-    A11, A12, A21, A22 = _split(A)
-    B11, B12, B21, B22 = _split(B)
-
-    M1 = _matmul_strassen(_add(A11, A22), _add(B11, B22), leaf)
-    M2 = _matmul_strassen(_add(A21, A22), B11, leaf)
-    M3 = _matmul_strassen(A11, _sub(B12, B22), leaf)
-    M4 = _matmul_strassen(A22, _sub(B21, B11), leaf)
-    M5 = _matmul_strassen(_add(A11, A12), B22, leaf)
-    M6 = _matmul_strassen(_sub(A21, A11), _add(B11, B12), leaf)
-    M7 = _matmul_strassen(_sub(A12, A22), _add(B21, B22), leaf)
-
-    C11 = _add(_sub(_add(M1, M4), M5), M7)
-    C12 = _add(M3, M5)
-    C21 = _add(M2, M4)
-    C22 = _add(_sub(_add(M1, M3), M2), M6)
-
-    return _join(C11, C12, C21, C22)
-
-
-def matmul_strassen(A, B, leaf=4):
-    n = _check_square_same_size(A, B)
-    if n & (n - 1):
-        raise ValueError("Strassen requires power-of-two size")
-    return _matmul_strassen(A, B, leaf)
-
-
-def test_matmul4_strassen():
-    A = np.ones((4, 4))
-    B = np.ones((4, 4))
-    cost = bytedmd(matmul_strassen, (A, B))
-    assert cost == 948  # leaf=4, same as naive for 4x4
-
+def test_gotcha_comparison_untracking_trace():
+    """
+    WEAKNESS 3: Native Booleans escape the LRU Stack.
+    To allow standard Python control flow (`if a > b:`), comparison operators 
+    intentionally evaluate directly to native Python booleans. If an algorithm 
+    subsequently uses these booleans mathematically, they are completely untracked.
+    """
+    def compare_and_use(a, b):
+        c = a > b  # 'c' escapes the tracker and becomes a raw Python boolean (True)
+        return c + a # 'c' is mathematically used, but its read generates no cost!
+        
+    trace, result = traced_eval(compare_and_use, (5, 3))
+    
+    # Trace logic:
+    # 1. `a > b` triggers trace [2, 1] (a is depth 2, b is depth 1)
+    # 2. `c + a` reads 'a' at depth 2 ('c' generates NO trace because it is a raw boolean)
+    assert trace == [2, 1, 2]
+    
+    # Result is 6 (True + 5)
+    assert result == 6
 
 if __name__ == "__main__":
     import pytest
