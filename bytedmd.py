@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 """
 Implements ByteDMD cost model
 
@@ -5,11 +6,7 @@ bytedmd(add, (1, 2)) calls add(1, 2) and returns ByteDMD_cost
 """
 
 import math
-
-
-def usqrt(x):
-    """Ceiling of square root."""
-    return math.isqrt(x - 1) + 1 if x > 0 else 0
+import numpy as np
 
 
 class _TrackedContext:
@@ -106,7 +103,34 @@ def traced_eval(func, args):
     return ctx.trace, _unwrap(func(*[_wrap(ctx, val) for val in args]))
 
 
+
+def usqrt(x):
+    """Ceiling of square root."""
+    return math.isqrt(x - 1) + 1 if x > 0 else 0
+
+
+def _sum_usqrt(N):
+    """
+    Closed-form mathematically exact sum of ceil(sqrt(k)) for k=1 to N.
+    Allows for instantaneous O(1) evaluation of arbitrarily large multi-byte elements.
+    """
+    if N <= 0:
+        return 0
+    M = math.isqrt(N - 1) + 1
+    # Evaluates the definite sum of the step function mathematically
+    return (M - 1) * M * (4 * M - 5) // 6 + M * (N - (M - 1)**2)
+
+
+def trace_to_cost(trace, bytes_per_element):
+    """Convert a trace (list of element depths) to ByteDMD cost."""
+    return sum(
+        _sum_usqrt(d * bytes_per_element) - _sum_usqrt((d - 1) * bytes_per_element)
+        for d in trace
+    )
+
+
 def bytedmd(func, args, bytes_per_element=1):
     """Evaluate ByteDMD cost of running func with args."""
     trace, _ = traced_eval(func, args)
-    return sum(usqrt(int(d * bytes_per_element)) for d in trace)
+    return trace_to_cost(trace, bytes_per_element)
+    

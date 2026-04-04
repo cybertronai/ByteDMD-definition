@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 import numpy as np
-from bytedmd import bytedmd, traced_eval
+from bytedmd import bytedmd, traced_eval, trace_to_cost
 
 
 def my_add(a, b, c, d):
@@ -10,6 +10,24 @@ def my_add(a, b, c, d):
 def test_my_add():
     cost = bytedmd(my_add, (1, 2, 3, 4))
     assert cost == 4
+
+def my_add2(a, b, c):
+    return (a + b) + c
+
+
+def test_my_add2():
+    cost = bytedmd(my_add2, (1, 2, 3))
+    assert cost == 7
+
+
+def test_my_add2_16bit():
+    cost = bytedmd(my_add2, (1, 2, 3), bytes_per_element=2)
+    assert cost == 19
+
+    trace, _ = traced_eval(my_add2, (1, 2, 3))
+    # trace counts depth in terms of number of elements, not bytes
+    assert trace == [3, 2, 1, 4]
+    assert trace_to_cost(trace, bytes_per_element=2) == 19
 
 
 def my_composite_func(a, b, c, d):
@@ -24,6 +42,16 @@ def test_my_composite_func():
     cost = bytedmd(my_composite_func, (1, 2, 3, 4))
     assert cost == 12
 
+def test_dot_product():
+    def dot(a, b):
+        return sum(i1 * i2 for i1, i2 in zip(a, b))
+        
+    a, b = [0, 1], [2, 3]
+    trace, result = traced_eval(dot, (a, b))
+
+    assert trace == [4, 2, 1, 6, 5, 4, 1]
+    assert result == 3
+    assert bytedmd(dot, (a, b)) == 14
 
 # --- For-loop array-based functions (runtime tracing) ---
 
