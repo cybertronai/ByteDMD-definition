@@ -17,11 +17,11 @@ usqrt_vals = np.array([usqrt(t) for t in t_vals])
 fig, ax = plt.subplots(figsize=(8, 5))
 
 # Plot both
-ax.plot(t_vals, sqrt_vals, label=r'$\sqrt{\mathrm{depth}}$', color='blue', lw=2)
-ax.scatter(t_vals, usqrt_vals, label=r'$\lceil\sqrt{\mathrm{depth}}\rceil$', color='darkorange', s=60, zorder=3)
+ax.plot(t_vals, sqrt_vals, label=r'$\sqrt{d}$', color='blue', lw=2)
+ax.scatter(t_vals, usqrt_vals, label=r'$\lceil\sqrt{d}\rceil$', color='darkorange', s=60, zorder=3)
 
 ax.set_title("Read cost", fontsize=14)
-ax.set_xlabel("Byte depth", fontsize=12)
+ax.set_xlabel("d", fontsize=12)
 ax.set_ylabel("Cost", fontsize=12)
 ax.legend(fontsize=11)
 ax.grid(True, linestyle=':', alpha=0.7)

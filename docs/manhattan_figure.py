@@ -87,7 +87,7 @@ def render_frame(d, n_short=40, table_size=13):
 
     table = ax2.table(
         cellText=table_data,
-        colLabels=['Stack Depth', 'Wire length'],
+        colLabels=['d', 'Wire length'],
         cellLoc='center',
         bbox=[0, 0, 1, 1]
     )
