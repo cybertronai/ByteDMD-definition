@@ -115,7 +115,7 @@ Based on [Karpathy's microGPT](https://gist.github.com/karpathy/8627fe009c40f575
 | microGPT (1 layer, embd=4) | single token forward | 7047 |
 
 # Python Gotcha's
-This version implements ByteDMD by wrapping Python objects. This means that "Instruction Set" of this metric corresponds to Python built-ins, documented under docs/python_instruction_set.md.
+This version implements ByteDMD by wrapping Python objects. This means that "Instruction Set" of this metric corresponds to Python built-ins, documented under [docs/instruction_set.md](docs/instruction_set.md).
 
 Python behavior means this implementation occasionally doesn't match README semantics and it's possible to escaping the wrapping mechanism occasionally, known failures cases are documented as test_gotchas.py .
 
