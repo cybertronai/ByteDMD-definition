@@ -85,7 +85,7 @@ Inputs move to the top sequentially in read order (`b`, then `c`), followed by t
 ```
 
 
-## ByteDMD Costs for 4x4 Linear Algebra
+## ByteDMD Costs for higher-level ops
 
 ### Matrix-vector (4x4 matrix, 4-vector)
 
@@ -107,7 +107,8 @@ Inputs move to the top sequentially in read order (`b`, then `c`), followed by t
 
 ### microGPT single-token forward pass
 
-Architecture: vocab=4, embd=4, heads=2, head_dim=2, 1 layer, block_size=4. Based on [Karpathy's microGPT](https://gist.github.com/karpathy/8627fe009c40f57531cb18360106ce95).
+Architecture: `vocab=4, embd=4, heads=2, head_dim=2, 1 layer, block_size=4`.
+Based on [Karpathy's microGPT](https://gist.github.com/karpathy/8627fe009c40f57531cb18360106ce95).
 
 | Algorithm | Operation | ByteDMD Cost |
 |-----------|-----------|-------------|
