@@ -41,15 +41,14 @@ def test_my_composite_func():
 
 def test_dot_product():
     def dot(a, b):
-        return sum(i1 * i2 for i1, i2 in zip(a, b))
-        
+        return a[0]*b[0] + a[1]*b[1]
+
     a, b = [0, 1], [2, 3]
     trace, result = traced_eval(dot, (a, b))
 
-    # List iteration and constant tracking generate additional reads
-    assert trace == [4, 3, 2, 1, 1, 2, 7, 7, 2, 1, 4, 1, 9, 6, 9, 7]
+    assert trace == [4, 2, 5, 4, 4, 1]
     assert result == 3
-    assert bytedmd(dot, (a, b)) == 34
+    assert bytedmd(dot, (a, b)) == 12
 
 
 def test_branching_and_comparisons_trace():
@@ -58,13 +57,13 @@ def test_branching_and_comparisons_trace():
             return a * 2
         return a
         
-    # Branch taken: a > 0 reads [a, const_0], __bool__ reads result, then a * 2 reads [a, const_2]
+    # Branch taken: a > 0 reads a, __bool__ reads result, then a * 2 reads a
     trace_pos, _ = traced_eval(my_relu, (5,))
-    assert trace_pos == [2, 1, 1, 4, 1]
+    assert trace_pos == [1, 1, 2]
 
-    # Branch skipped: a > 0 reads [a, const_0], __bool__ reads result
+    # Branch skipped: a > 0 reads a, __bool__ reads result
     trace_neg, _ = traced_eval(my_relu, (-5,))
-    assert trace_neg == [2, 1, 1]
+    assert trace_neg == [1, 1]
 
 
 def test_divmod_tuple_allocation_trace():
@@ -78,8 +77,7 @@ def test_divmod_tuple_allocation_trace():
         return q + r + a
         
     trace, result = traced_eval(my_divmod, (10, 3))
-    # divmod reads [a, b], tuple unpacking reads q and r, then q + r reads [q, r], + a reads [prev, a]
-    assert trace == [2, 1, 2, 2, 2, 1, 1, 5]
+    assert trace == [2, 1, 2, 1, 1, 5]
 
 
 def test_implicit_boolean_is_traced():
@@ -103,8 +101,8 @@ def test_implicit_boolean_is_traced():
     assert result_implicit == 0
 
     trace_explicit, result_explicit = traced_eval(explicit_branch, (0,))
-    # a != 0 reads [a, const_0], __bool__ reads the comparison result
-    assert trace_explicit == [2, 1, 1]
+    # a != 0 reads a, __bool__ reads the comparison result
+    assert trace_explicit == [1, 1]
     assert result_explicit == 0
 
 
@@ -113,9 +111,8 @@ def test_index_protocol_works():
     assert trace == [1]
     assert result == [0, 1, 2]
 
-    # _TrackedList.__getitem__ generates reads for index and accessed element
     trace, result = traced_eval(lambda xs, i: xs[i], ([10, 20, 30], 1))
-    assert trace == [1, 3, 4, 2, 4]
+    assert trace == [1]
     assert result == 20
 
 

@@ -49,6 +49,8 @@ An idealized processor operates directly on an element-level LRU stack. **Comput
 
 ### Instruction Semantics
 
+See [Instruction Set](docs/instruction_set.md) for the complete list of supported instructions.
+
 For an instruction with inputs $x_1, \dots, x_m$ and outputs $y_1, \dots, y_n$ with $m\ge 1, n\ge 0$
 
 1. **Price reads:** Evaluate $\sum C(x_j)$ against the stack state *before* the instruction begins. Repeated inputs are charged per occurrence (e.g., `a + a` charges for reading `a` twice).
@@ -102,6 +104,12 @@ Inputs move to the top sequentially in read order (`b`, then `c`), followed by t
 | matmul (2x2 tiled) | C = A @ B | 947 |
 | Strassen (leaf=1) | C = A @ B | 2435 |
 | Winograd | C = A @ B | 2178 |
+
+# Python Gotcha's
+This version implements ByteDMD by wrapping Python objects. This means that "Instruction Set" of this metric corresponds to Python built-ins, documented under docs/python_instruction_set.md.
+
+Python behavior means this implementation occasionally doesn't match README semantics, known failures cases are documented as test_gotchas.py
+
 
 [Original Google Doc](https://docs.google.com/document/d/1sj5NqOg6Yqh10bXzGVEF5uIzSjFWAnqqTE75AMng2-s/edit?tab=t.0#heading=h.ujy6ygk7sjmb)
 
