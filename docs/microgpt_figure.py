@@ -1,125 +1,87 @@
-import matplotlib.pyplot as plt
-import matplotlib.patches as mpatches
+import graphviz
 
-fig, ax = plt.subplots(figsize=(8, 12))
-ax.set_xlim(0, 10)
-ax.set_ylim(0, 20)
-ax.axis('off')
+def create_microgpt_diagram():
+    # Initialize the directed graph
+    dot = graphviz.Digraph('microGPT', format='png')
+    dot.attr(rankdir='TB', splines='ortho', nodesep='0.6', ranksep='0.8')
 
-# Colors
-EMB_COLOR = '#a8d8ea'
-NORM_COLOR = '#e8e8e8'
-LINEAR_COLOR = '#ffd3b6'
-ATTN_COLOR = '#ffaaa5'
-MLP_COLOR = '#98d1a0'
-HEAD_COLOR = '#d5aaff'
-RESIDUAL_COLOR = '#cccccc'
+    # Global node styles
+    dot.attr('node', shape='box', style='rounded,filled', fillcolor='#e1f5fe',
+             fontname='Helvetica', penwidth='1.5', color='#0288d1')
+    dot.attr('edge', fontname='Helvetica', fontsize='10', color='#455a64', penwidth='1.5')
 
-def box(y, label, color, width=4, height=0.7, x=3):
-    rect = mpatches.FancyBboxPatch((x, y), width, height,
-                                    boxstyle="round,pad=0.1",
-                                    facecolor=color, edgecolor='black', lw=1.2)
-    ax.add_patch(rect)
-    ax.text(x + width/2, y + height/2, label, ha='center', va='center', fontsize=9, fontweight='bold')
+    # --- INPUTS ---
+    dot.node('token_id', 'Token ID', fillcolor='#f5f5f5', shape='ellipse')
+    dot.node('pos_id', 'Position ID', fillcolor='#f5f5f5', shape='ellipse')
 
-def arrow(y_from, y_to, x=5):
-    ax.annotate('', xy=(x, y_to + 0.7), xytext=(x, y_from),
-                arrowprops=dict(arrowstyle='->', color='black', lw=1.5))
+    # --- EMBEDDINGS ---
+    dot.node('wte', 'Token Embedding\n(wte)')
+    dot.node('wpe', 'Positional Embedding\n(wpe)')
+    dot.node('add_emb', 'Add (+)', shape='circle', fillcolor='#fff9c4', color='#fbc02d')
+    dot.node('emb_norm', 'RMSNorm\n(Pre-Norm)')
 
-def side_label(y, label, x=7.5):
-    ax.text(x, y + 0.35, label, ha='left', va='center', fontsize=8, color='#555555')
+    dot.edges([('token_id', 'wte'), ('pos_id', 'wpe')])
+    dot.edges([('wte', 'add_emb'), ('wpe', 'add_emb')])
+    dot.edge('add_emb', 'emb_norm')
 
-# Title
-ax.text(5, 19.3, 'microGPT Architecture (test config)', ha='center', va='center',
-        fontsize=13, fontweight='bold')
-ax.text(5, 18.7, 'vocab=4, embd=4, heads=2, head_dim=2, 1 layer', ha='center', va='center',
-        fontsize=9, color='#666666')
+    # --- ATTENTION BLOCK ---
+    with dot.subgraph(name='cluster_attn') as c:
+        c.attr(label='Attention Block', style='dashed', color='#1976d2',
+               fontname='Helvetica-Bold', bgcolor='#f3e5f5')
 
-# Input
-y = 17.5
-box(y, 'Token Embedding', EMB_COLOR)
-side_label(y, 'wte[token_id]  4x4 -> [4]')
-arrow(y, y - 0.9)
+        c.node('attn_norm', 'RMSNorm')
+        c.node('qkv', 'Linear Projections\n(wq, wk, wv)')
+        c.node('attn_core', 'Self-Attention\n(Single Position: softmax(q\xb7k/\u221ad) = 1.0)')
+        c.node('attn_wo', 'Linear Projection\n(wo)')
+        c.node('add_attn', 'Add (+)', shape='circle', fillcolor='#fff9c4', color='#fbc02d')
 
-y = 16.3
-box(y, 'Position Embedding', EMB_COLOR)
-side_label(y, 'wpe[pos_id]  4x4 -> [4]')
-arrow(y, y - 0.9)
+        c.edge('attn_norm', 'qkv')
+        c.edge('qkv', 'attn_core', label=' q, k, v')
+        c.edge('attn_core', 'attn_wo', label=' x_attn')
+        c.edge('attn_wo', 'add_attn')
 
-y = 15.1
-box(y, 'Add + RMSNorm', NORM_COLOR)
-side_label(y, 'x = rmsnorm(tok + pos)  [4]')
-arrow(y, y - 0.9)
+    # Connections to/around Attention Block
+    dot.edge('emb_norm', 'attn_norm')
+    dot.edge('emb_norm', 'add_attn', style='dashed', label=' x_residual') # Residual connection
 
-# Attention block
-y = 13.9
-box(y, 'RMSNorm', NORM_COLOR)
-side_label(y, '[4] -> [4]')
-arrow(y, y - 0.9)
+    # --- MLP BLOCK ---
+    with dot.subgraph(name='cluster_mlp') as c:
+        c.attr(label='MLP Block', style='dashed', color='#388e3c',
+               fontname='Helvetica-Bold', bgcolor='#e8f5e9')
 
-y = 12.7
-box(y, 'Q = Linear(x, Wq)', LINEAR_COLOR)
-side_label(y, 'Wq: 4x4  [4] -> [4]')
+        c.node('mlp_norm', 'RMSNorm')
+        c.node('fc1', 'Linear\n(mlp_fc1)')
+        c.node('relu', 'ReLU\n(x * (1 if x > 0 else 0))')
+        c.node('fc2', 'Linear\n(mlp_fc2)')
+        c.node('add_mlp', 'Add (+)', shape='circle', fillcolor='#fff9c4', color='#fbc02d')
 
-y = 11.8
-box(y, 'K = Linear(x, Wk)', LINEAR_COLOR)
-side_label(y, 'Wk: 4x4  [4] -> [4]')
+        c.edge('mlp_norm', 'fc1')
+        c.edge('fc1', 'relu')
+        c.edge('relu', 'fc2')
+        c.edge('fc2', 'add_mlp')
 
-y = 10.9
-box(y, 'V = Linear(x, Wv)', LINEAR_COLOR)
-side_label(y, 'Wv: 4x4  [4] -> [4]')
-arrow(10.9, 10.0)
+    # Connections to/around MLP Block
+    dot.edge('add_attn', 'mlp_norm')
+    dot.edge('add_attn', 'add_mlp', style='dashed', label=' x_residual') # Residual connection
 
-y = 9.6
-box(y, 'Multi-Head Attention', ATTN_COLOR)
-side_label(y, '2 heads x dim 2, Q*K/sqrt(2)')
-arrow(y, y - 0.9)
+    # --- OUTPUT ---
+    dot.node('lm_head', 'Linear\n(lm_head)')
+    dot.node('logits', 'Logits', fillcolor='#f5f5f5', shape='ellipse')
 
-y = 8.4
-box(y, 'Linear(attn, Wo)', LINEAR_COLOR)
-side_label(y, 'Wo: 4x4  [4] -> [4]')
-arrow(y, y - 0.9)
+    dot.edge('add_mlp', 'lm_head')
+    dot.edge('lm_head', 'logits')
 
-y = 7.2
-box(y, 'Residual Add', RESIDUAL_COLOR)
-side_label(y, 'x = attn_out + x_residual  [4]')
-arrow(y, y - 0.9)
+    return dot
 
-# MLP block
-y = 6.0
-box(y, 'RMSNorm', NORM_COLOR)
-side_label(y, '[4] -> [4]')
-arrow(y, y - 0.9)
+if __name__ == '__main__':
+    print("Generating microGPT architecture diagram...")
+    diagram = create_microgpt_diagram()
 
-y = 4.8
-box(y, 'Linear(x, fc1)', MLP_COLOR)
-side_label(y, 'fc1: 16x4  [4] -> [16]')
-arrow(y, y - 0.9)
+    output_path = 'microgpt_figure'
+    diagram.render(output_path, cleanup=True)
 
-y = 3.6
-box(y, 'ReLU', MLP_COLOR)
-side_label(y, '[16] -> [16]')
-arrow(y, y - 0.9)
+    # Also render SVG
+    diagram.format = 'svg'
+    diagram.render(output_path, cleanup=True)
 
-y = 2.4
-box(y, 'Linear(x, fc2)', MLP_COLOR)
-side_label(y, 'fc2: 4x16  [16] -> [4]')
-arrow(y, y - 0.9)
-
-y = 1.2
-box(y, 'Residual Add', RESIDUAL_COLOR)
-side_label(y, 'x = mlp_out + x_residual  [4]')
-arrow(y, y - 0.9)
-
-y = 0.0
-box(y, 'Linear(x, lm_head)', HEAD_COLOR)
-side_label(y, 'lm_head: 4x4  [4] -> [4] logits')
-
-# Cost annotation
-ax.text(5, -1.0, 'ByteDMD cost = 7047', ha='center', va='center',
-        fontsize=11, fontweight='bold', color='#cc0000')
-
-plt.savefig('microgpt_figure.svg', bbox_inches='tight')
-plt.savefig('microgpt_figure.png', bbox_inches='tight', dpi=150)
-plt.close()
-print("Saved microgpt_figure.svg and microgpt_figure.png")
+    print(f"Saved {output_path}.png and {output_path}.svg")
