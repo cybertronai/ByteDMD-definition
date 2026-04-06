@@ -116,6 +116,16 @@ Based on [Karpathy's microGPT](https://gist.github.com/karpathy/8627fe009c40f575
 |-----------|-----------|-------------|
 | microGPT (1 layer, embd=4) | single token forward | 7047 |
 
+# Reports
+
+In-depth reports applying ByteDMD to specific algorithms and design questions:
+
+- [Tracing methods consolidation](docs/tracing_methods.md) — analysis of the seven historical tracer implementations and the path to the two-tracer design (regular + strict).
+- [Strassen vs naive matmul](docs/report-strassen-benchmarks/report.md) — at what matrix size does Strassen's recursive algorithm beat naive matmul under ByteDMD? Includes a crossover-point experiment.
+- [Modern flash attention vs naive attention](docs/report-modern-flash-attention/report.md) — full sweep across sequence length, head dim, and block size showing flash attention's advantage growing as O(sqrt(N/Bk)) under ByteDMD while FLOPs see no benefit. Uses an optimised tracer (`bytedmd_fast.py`).
+- [Antigravity flash attention experiments](docs/report-antigravity-flash-attention/report.md) — alternative flash attention implementations and their ByteDMD costs.
+- [Attention benchmark notes](benchmarks/attention_report.md) — the small-scale flash vs naive results that motivated the modern-attention deep dive.
+
 # Two tracers: regular and strict
 
 There are two ByteDMD tracers — see [docs/tracing_methods.md](docs/tracing_methods.md) for the full comparison.
