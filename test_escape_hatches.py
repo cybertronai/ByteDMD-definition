@@ -1,25 +1,23 @@
 #!/usr/bin/env python3
 """
-Escape hatch demonstrations for the bytecode-level settrace tracer.
+Escape hatch demonstrations for the strict (bytecode-level) ByteDMD tracer.
 
-The proxy-based tracer (bytedmd.py) operates at the dunder-method layer.
+The regular tracer (bytedmd.py) operates at the dunder-method layer.
 Adversarial code can perform untracked work by avoiding dunders entirely
-(local arrays, identity ops, f-strings, math.trunc, etc.). The strict
-variant (bytedmd_fx_strict_nopytorch.py) raises AssertionError on suspicious
-ops, but those can be wrapped in try/except.
+(local arrays, identity ops, f-strings, math.trunc, etc.).
 
-The settrace tracer in bytedmd_settrace.py operates at the CPython bytecode
+The strict tracer (bytedmd_strict.py) operates at the CPython bytecode
 layer via sys.settrace + frame.f_trace_opcodes. It charges reads on every
 LOAD_FAST, BINARY_OP, COMPARE_OP, FOR_ITER, CALL_*, etc. — operations that
-are completely invisible to the proxy. None of the 6 escape hatches can avoid
-being charged.
+are completely invisible to the proxy. None of the 6 escape hatches can
+avoid being charged.
 
 Each test below runs both tracers on the same adversarial function and
-asserts that the settrace tracer reports a meaningfully higher cost.
+asserts that the strict tracer reports a meaningfully higher cost.
 """
 import math
 import bytedmd
-import bytedmd_settrace
+import bytedmd_strict
 
 
 def _both(func, args):
@@ -31,7 +29,7 @@ def _both(func, args):
         proxy_cost = bytedmd.bytedmd(func, args)
     except AssertionError:
         proxy_cost = -1
-    settrace_cost = bytedmd_settrace.bytedmd(func, args)
+    settrace_cost = bytedmd_strict.bytedmd(func, args)
     return proxy_cost, settrace_cost
 
 
@@ -227,7 +225,7 @@ def test_print_summary_table():
         except Exception as e:
             p = f"err"
         try:
-            s = bytedmd_settrace.bytedmd(fn, args)
+            s = bytedmd_strict.bytedmd(fn, args)
         except Exception as e:
             s = f"err"
         print(f"{name:<45} {str(p):>15} {str(s):>15}")

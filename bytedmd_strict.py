@@ -1,14 +1,15 @@
 """
-ByteDMD tracer implemented via sys.settrace + frame.f_trace_opcodes.
+Strict ByteDMD tracer implemented via sys.settrace + frame.f_trace_opcodes.
 
-Unlike the proxy-based tracer in bytedmd.py, this tracer operates at the
-bytecode level. Every LOAD_FAST, BINARY_*, COMPARE_OP, FOR_ITER, etc. is
-intercepted before CPython executes it. Because tracking happens below the
-object/dunder layer, none of the proxy escape hatches apply:
+This is the slow-but-robust counterpart to the regular tracer in bytedmd.py.
+It operates at the CPython bytecode level: every LOAD_FAST, BINARY_*,
+COMPARE_OP, FOR_ITER, CALL_*, etc. is intercepted before CPython executes
+it. Because tracking happens below the object/dunder layer, none of the
+six proxy escape hatches apply:
 
   1. Local arrays/globals    -> LOAD_FAST + BINARY_SUBSCR + FOR_ITER are seen
   2. Exception side-channels -> BINARY_TRUE_DIVIDE charges before the divide
-  3. Catching AssertionError -> we never raise, branches charge unconditionally
+  3. Catching AssertionError -> we never raise; branches charge unconditionally
   4. Identity ops `is`       -> IS_OP charges both operands
   5. Stringification         -> FORMAT_VALUE / CALL_FUNCTION charges the arg
   6. math.trunc and friends  -> CALL_METHOD / CALL_FUNCTION charges the arg
@@ -16,10 +17,16 @@ object/dunder layer, none of the proxy escape hatches apply:
 The cost model (LRU stack, ceil(sqrt(depth)) per read) and the public API
 (traced_eval, bytedmd, trace_to_bytedmd) match bytedmd.py.
 
-The trace VALUES will not match the proxy tracer because the proxy allocates
-a new slot per intermediate operation result, while this tracer treats
-eval-stack temporaries as free (only named variables and container elements
-get LRU slots). The two tracers measure different things by design.
+The trace VALUES will not match the regular tracer exactly because the proxy
+allocates a new slot per intermediate operation result, while this tracer
+treats eval-stack temporaries as free (only named variables and container
+elements get LRU slots). The two tracers measure related but distinct
+quantities by design — use `verify()` to compare them on benign code.
+
+Use this tracer when:
+  - benchmarking against unfamiliar or adversarial code
+  - sanity-checking that the regular tracer is not silently undercounting
+  - performing security audits of cost claims
 """
 
 import dis
@@ -794,6 +801,50 @@ def bytedmd(func, args, bytes_per_element=1):
     """Evaluate ByteDMD cost via bytecode-level tracing."""
     trace, _ = traced_eval(func, args)
     return trace_to_bytedmd(trace, bytes_per_element)
+
+
+# ──────────────────────────── Cross-tracer verification ───────────────────
+
+def verify(func, args, bytes_per_element=1, tolerance=3.0, verbose=True):
+    """Run both the regular and strict tracers and warn on large divergence.
+
+    The two tracers measure related but distinct quantities (the regular
+    tracer allocates an LRU slot per intermediate operation result; the
+    strict tracer treats eval-stack temporaries as free). On benign code
+    they should report costs within a small constant factor of each other.
+    A larger ratio is a strong signal that the regular tracer is silently
+    undercounting some hidden data movement (e.g., a local array, a hidden
+    introspection, or a C-extension call).
+
+    Returns the tuple (regular_cost, strict_cost). Prints a warning if the
+    ratio exceeds `tolerance` (default 3x in either direction).
+    """
+    import bytedmd as _regular
+
+    try:
+        regular_cost = _regular.bytedmd(func, args, bytes_per_element)
+    except AssertionError as e:
+        regular_cost = None
+        if verbose:
+            print(f"verify: regular tracer refused: {e}")
+
+    strict_cost = bytedmd(func, args, bytes_per_element)
+
+    if verbose:
+        print(f"verify: regular = {regular_cost}, strict = {strict_cost}")
+
+    if regular_cost is not None and regular_cost > 0:
+        ratio = strict_cost / regular_cost
+        if ratio > tolerance or ratio < 1.0 / tolerance:
+            print(
+                f"verify: WARNING — strict/regular ratio = {ratio:.2f}x "
+                f"(threshold {tolerance}x). The regular tracer may be "
+                f"undercounting hidden data movement (local arrays, "
+                f"introspection, C-extensions, etc.). Inspect the function "
+                f"or use the strict cost for adversarial benchmarks."
+            )
+
+    return regular_cost, strict_cost
 
 
 # ──────────────────────────── Smoke test ──────────────────────────────────

@@ -1,5 +1,9 @@
 # ByteDMD Tracing Methods: Consolidation Report
 
+<begin> notes by yaroslavvb
+06apr26 I generated multiple implementations by using Gemini DeepThink with prompt (Find potential holes in this implementation and suggest ways to fix it), And then instructing others to implement the fixes. The result was multiple implementations analyzed below. This consultation report consolidates it back into two implementations. 
+(</end>> notes by yaroslav)
+
 ## Current Inventory
 
 The repo currently ships **seven** tracer implementations (~3,800 lines total). They split along three orthogonal axes: tracking mechanism, IR construction, and strictness.

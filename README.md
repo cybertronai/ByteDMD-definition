@@ -116,10 +116,20 @@ Based on [Karpathy's microGPT](https://gist.github.com/karpathy/8627fe009c40f575
 |-----------|-----------|-------------|
 | microGPT (1 layer, embd=4) | single token forward | 7047 |
 
-# Python Gotcha's
-This version implements ByteDMD by wrapping Python objects. This means that "Instruction Set" of this metric corresponds to Python built-ins, documented under [docs/instruction_set.md](docs/instruction_set.md).
+# Two tracers: regular and strict
 
-Python behavior means this implementation occasionally doesn't match README semantics and it's possible to escaping the wrapping mechanism occasionally, known failures cases are documented as test_gotchas.py .
+There are two ByteDMD tracers — see [docs/tracing_methods.md](docs/tracing_methods.md) for the full comparison.
+
+- **Regular** (`bytedmd.bytedmd`) — fast, proxy-based, easy to understand. Use this for everyday algorithm exploration and benchmarks. Wraps function arguments in `_Tracked` proxies and intercepts arithmetic, comparison, indexing, and branching via dunder methods. Documented escape hatches in `test_gotchas.py`.
+
+- **Strict** (`bytedmd_strict.bytedmd`) — slow, bytecode-level via `sys.settrace`. Use for adversarial code or to verify the regular tracer is not silently undercounting. Catches all six proxy escape hatches (local arrays, exception side-channels, identity ops, type introspection, f-strings, math coercions). Demonstrated in `test_escape_hatches.py`.
+
+To sanity-check a function, call `bytedmd_strict.verify(func, args)` — it runs both tracers and warns if they diverge by more than a configurable factor (default 3x).
+
+# Python Gotcha's
+The regular tracer implements ByteDMD by wrapping Python objects. This means that the "Instruction Set" of this metric corresponds to Python built-ins, documented under [docs/instruction_set.md](docs/instruction_set.md).
+
+Python behavior means this implementation occasionally doesn't match README semantics and it is possible to escape the wrapping mechanism. Known failure cases are documented in `test_gotchas.py`. The strict tracer (`bytedmd_strict`) closes all of these.
 
 
 [Original Google Doc](https://docs.google.com/document/d/1sj5NqOg6Yqh10bXzGVEF5uIzSjFWAnqqTE75AMng2-s/edit?tab=t.0#heading=h.ujy6ygk7sjmb)
