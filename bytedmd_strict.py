@@ -303,6 +303,7 @@ def _h_nop(ctx, sf, oparg, frame):
 # ---- Binary / unary ops ---------------------------------------------------
 
 _BINARY_OPS = (
+    'BINARY_OP',  # Python 3.12+ unified opcode
     'BINARY_ADD', 'BINARY_SUBTRACT', 'BINARY_MULTIPLY', 'BINARY_TRUE_DIVIDE',
     'BINARY_FLOOR_DIVIDE', 'BINARY_MODULO', 'BINARY_POWER',
     'BINARY_LSHIFT', 'BINARY_RSHIFT', 'BINARY_AND', 'BINARY_OR', 'BINARY_XOR',
