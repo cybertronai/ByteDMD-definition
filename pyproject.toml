@@ -1,0 +1,13 @@
+[project]
+name = "bytedmd"
+version = "0.1.0"
+description = "A cost model measuring data movement complexity via LRU stack depth"
+requires-python = ">=3.10"
+dependencies = []
+
+[project.optional-dependencies]
+test = ["pytest", "numpy"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
