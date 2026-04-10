@@ -272,15 +272,15 @@ if __name__ == '__main__':
     x = np.ones(4)
 
     results = [
-        measure("matvec (i-j)", "y = A @ x", matvec4, (A, x), 163),
-        measure("vecmat (j-i)", "y = x^T @ A", vecmat4, (A, x), 169),
-        measure("matmul (i-j-k)", "C = A @ B", matmul4, (A, B), 788),
-        measure("matmul (i-k-j)", "C = A @ B", matmul4_ikj, (A, B), 804),
-        measure("matmul (snake-j)", "C = A @ B", matmul4_snake_j, (A, B), 743),
-        measure("matmul (2x2 tiled)", "C = A @ B", matmul4_tiled, (A, B), 750),
-        measure("matmul (TSP)", "C = A @ B", matmul4_tsp, (A, B), 741),
-        measure("Strassen (leaf=1)", "C = A @ B", matmul_strassen, (A, B), 1905),
-        measure("Winograd", "C = A @ B", matmul_4x4_winograd, (A, B), 1946),
+        measure("matvec (i-j)", "y = A @ x", matvec4, (A, x), 187),
+        measure("vecmat (j-i)", "y = x^T @ A", vecmat4, (A, x), 181),
+        measure("matmul (i-j-k)", "C = A @ B", matmul4, (A, B), 830),
+        measure("matmul (i-k-j)", "C = A @ B", matmul4_ikj, (A, B), 865),
+        measure("matmul (snake-j)", "C = A @ B", matmul4_snake_j, (A, B), 797),
+        measure("matmul (2x2 tiled)", "C = A @ B", matmul4_tiled, (A, B), 835),
+        measure("matmul (TSP)", "C = A @ B", matmul4_tsp, (A, B), 803),
+        measure("Strassen (leaf=1)", "C = A @ B", matmul_strassen, (A, B), 2013),
+        measure("Winograd", "C = A @ B", matmul_4x4_winograd, (A, B), 1885),
     ]
 
     print(f"{'Algorithm':<25} {'Operation':<15} {'ByteDMD Cost':>12}")

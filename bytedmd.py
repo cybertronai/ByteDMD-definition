@@ -1,15 +1,17 @@
 """
-ByteDMD tracer — proxy-based, with refcount-driven LRU eviction.
+ByteDMD tracer — proxy-based, with liveness-driven tombstones.
 
 Wraps function arguments in `_Tracked` proxy objects that intercept
 arithmetic, comparison, and indexing via Python dunder methods. Each
 intercepted operation records a read against an LRU stack and the depth
 is later converted to a ByteDMD cost via ceil(sqrt(depth)).
 
-When a `_Tracked` proxy's CPython refcount drops to zero (including via
-explicit `del x`), `__del__` removes its slot from the LRU stack so dead
-temporaries don't keep burying live data. The user can also call
-`delete(v)` to evict a value early. This is the only computation model.
+The tracer performs **liveness analysis**: it first executes the function to
+record the full operation sequence, then replays it with perfect knowledge
+of each value's last read. After a value's final read, it is replaced by a
+tombstone at the top of the stack. Tombstones preserve the physical cache
+footprint (dead cache lines still occupy space until overwritten). Each new
+allocation recycles exactly one tombstone (the bottom-most).
 
 API:
     traced_eval(func, args)                   -> (trace, result)
@@ -17,7 +19,6 @@ API:
     trace_to_bytedmd(trace, bytes_per_element) -> int
     inspect_ir(func, args)                    -> list of IR events
     format_ir(ir)                             -> str  (pretty-printed IR)
-    delete(*values)                           -> None (free, removes from stack)
 """
 
 import math
@@ -39,9 +40,10 @@ class _Context:
         if not valid: return []
         depths = [len(self.stack) - self.stack.index(k) for k in valid]
         self.trace.extend(depths)
-        for k in valid:
+        for k, d in zip(valid, depths):
             self.stack.remove(k)
             self.stack.append(k)
+            self.ir.append(('READ', k, d))
         return depths
 
 
@@ -49,20 +51,6 @@ class _Tracked:
     __slots__ = ('_ctx', '_key', 'val')
     def __init__(self, ctx, key, val):
         self._ctx, self._key, self.val = ctx, key, val
-
-    def __del__(self):
-        # When CPython refcount drops to zero (including via explicit `del x`),
-        # release this value from the LRU stack so subsequent reads don't pay
-        # for dead garbage sitting above live data.
-        ctx = self._ctx
-        key = self._key
-        if ctx is None or key is None:
-            return
-        try:
-            ctx.stack.remove(key)
-            ctx.ir.append(('DROP', key))
-        except (ValueError, AttributeError):
-            pass
 
     def _rd(self):
         self._ctx.read([self._key])
@@ -187,35 +175,69 @@ def _unwrap(val, memo=None):
     return res
 
 
-def delete(*values):
-    """Remove tracked values from the LRU stack (free).
-
-    Accepts _Tracked objects, or nested lists / tuples / numpy arrays thereof.
-    Unwrapped or already-deleted values are silently ignored. Deleting a value
-    makes every element currently above it shift one slot shallower, so
-    subsequent reads pay less.
-    """
-    for v in values:
-        if isinstance(v, _Tracked):
-            if v._key is not None and v._ctx is not None:
-                try:
-                    v._ctx.stack.remove(v._key)
-                    v._ctx.ir.append(('DROP', v._key))
-                except ValueError:
-                    pass
-                v._key = None
-        elif isinstance(v, (list, tuple)):
-            for x in v:
-                delete(x)
-        elif type(v).__name__ == 'ndarray':
-            for x in v.flat:
-                delete(x)
-
-
 def _sum_usqrt(N):
     if N <= 0: return 0
     M = math.isqrt(N - 1) + 1
     return M * (6 * N - 2 * M * M + 3 * M - 1) // 6
+
+
+def _replay_with_liveness(raw_ir):
+    """Replay a pass-1 IR with liveness-based tombstones.
+
+    Pass 1 records the operation sequence (STOREs, READs, OPs) without any
+    eviction.  This function scans the full sequence to determine the last
+    read of every tracked key, then replays it on a fresh stack, inserting
+    a tombstone (at the top) immediately after each value's final read.
+    New allocations recycle one tombstone (the bottom-most).
+
+    Returns (trace, ir) — the depth trace and a new IR with correct depths
+    and DROP events.
+    """
+    # Find last read index of each key.
+    last_read = {}
+    read_idx = 0
+    for ev in raw_ir:
+        if ev[0] == 'READ':
+            last_read[ev[1]] = read_idx
+            read_idx += 1
+
+    stack = []
+    trace = []
+    ir = []
+    read_idx = 0
+
+    for ev in raw_ir:
+        tag = ev[0]
+
+        if tag == 'STORE':
+            key = ev[1]
+            try:
+                stack.remove(None)          # recycle one tombstone
+            except ValueError:
+                pass
+            stack.append(key)
+            ir.append(('STORE', key))
+
+        elif tag == 'READ':
+            key = ev[1]
+            depth = len(stack) - stack.index(key)
+            trace.append(depth)
+            stack.remove(key)
+            stack.append(key)
+            ir.append(('READ', key, depth))
+            if last_read[key] == read_idx:  # value is dead after this read
+                stack.remove(key)
+                stack.append(None)          # tombstone at top
+                ir.append(('DROP', key))
+            read_idx += 1
+
+        elif tag == 'OP':
+            _, name, keys, _old_depths, out_key = ev
+            n = len(keys)
+            new_depths = trace[-n:] if n > 0 else []
+            ir.append(('OP', name, keys, list(new_depths), out_key))
+
+    return trace, ir
 
 
 def traced_eval(func, args):
@@ -226,7 +248,8 @@ def traced_eval(func, args):
     for orig, wrapped in ctx.sync:
         if isinstance(orig, list): orig[:] = _unwrap(wrapped, memo)
         elif type(orig).__name__ == 'ndarray': orig[...] = _unwrap(wrapped, memo)
-    return ctx.trace, _unwrap(res, memo)
+    trace, _ = _replay_with_liveness(ctx.ir)
+    return trace, _unwrap(res, memo)
 
 
 def trace_to_bytedmd(trace, bytes_per_element):
@@ -239,28 +262,23 @@ def trace_to_bytedmd(trace, bytes_per_element):
 def inspect_ir(func, args):
     """Run func and return its ByteDMD intermediate representation.
 
-    The IR is a list of events showing every interaction with the LRU stack:
+    The tracer first executes the function to record the operation sequence,
+    then replays it with liveness analysis: each value is tombstoned after
+    its final read.
+
+    The IR is a list of events:
 
       ('STORE', k)                                — value vk allocated on top
-      ('OP',   name, [ki...], [di...], out_key)  — read each ki at depth di,
-                                                    LRU-bump in listed order;
-                                                    out_key (if not None) is
-                                                    materialized by the next
-                                                    STORE event
-      ('DROP', k)                                — vk removed (refcount=0
-                                                    via __del__, or explicit
-                                                    bytedmd.delete())
-
-    Op outputs are emitted as two events: an OP (charging the reads), then
-    a STORE that places the result on top of the stack.
+      ('READ',  k, d)                            — read vk at depth d, LRU-bump
+      ('OP',   name, [ki...], [di...], out_key)  — summary of the preceding reads
+      ('DROP', k)                                — vk tombstoned (last read done)
 
     Format with format_ir() for a human-readable listing.
     """
-    import gc
     ctx = _Context()
     func(*(_wrap(ctx, a) for a in args))
-    gc.collect()
-    return ctx.ir
+    _, ir = _replay_with_liveness(ctx.ir)
+    return ir
 
 
 def format_ir(ir):
@@ -272,6 +290,10 @@ def format_ir(ir):
             out.append(f"STORE v{ev[1]}")
         elif ev[0] == 'DROP':
             out.append(f"DROP  v{ev[1]}")
+        elif ev[0] == 'READ':
+            _, key, depth = ev
+            cost = math.isqrt(depth - 1) + 1
+            out.append(f"  READ v{key}@{depth}  cost={cost}")
         else:
             _, name, keys, depths, _ok = ev
             cost = sum(math.isqrt(d - 1) + 1 for d in depths)

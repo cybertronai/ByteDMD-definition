@@ -13,12 +13,12 @@ def test_my_add():
 
     # trace counts depth in terms of number of elements, not bytes
     trace, _ = traced_eval(my_add, (1, 2, 3, 4))
-    assert trace == [3, 2]
+    assert trace == [3, 3]
 
     assert trace_to_bytedmd(trace, bytes_per_element=1) == 4
-    assert trace_to_bytedmd(trace, bytes_per_element=2) == 10
+    assert trace_to_bytedmd(trace, bytes_per_element=2) == 12
 
-    assert bytedmd(my_add, (1, 2, 3, 4), bytes_per_element=2) == 10
+    assert bytedmd(my_add, (1, 2, 3, 4), bytes_per_element=2) == 12
 
 
 def my_composite_func(a, b, c, d):
@@ -35,7 +35,7 @@ def test_repeated_operand_is_charged_twice():
 
 def test_my_composite_func():
     trace, result = traced_eval(my_composite_func, (1, 2, 3, 4))
-    assert trace == [3, 2, 5, 4, 4, 1]
+    assert trace == [3, 3, 4, 4, 4, 2]
     cost = bytedmd(my_composite_func, (1, 2, 3, 4))
     assert cost == 12
 
@@ -46,7 +46,7 @@ def test_dot_product():
     a, b = [0, 1], [2, 3]
     trace, result = traced_eval(dot, (a, b))
 
-    assert trace == [4, 2, 5, 4, 4, 1]
+    assert trace == [4, 3, 4, 4, 4, 2]
     assert result == 3
     assert bytedmd(dot, (a, b)) == 12
 
@@ -58,10 +58,10 @@ def test_branching_and_comparisons_trace():
         return a
         
     # Branch taken: a > 0 reads a, __bool__ reads result, then a * 2 reads a.
-    # After __bool__ the comparison result is garbage-collected (via
-    # _Tracked.__del__), so the later read of `a` sees depth 1, not 2.
+    # The comparison result is dropped after __bool__, but under tombstone
+    # semantics its slot stays put, so the later read of `a` sees depth 2.
     trace_pos, _ = traced_eval(my_relu, (5,))
-    assert trace_pos == [1, 1, 1]
+    assert trace_pos == [1, 1, 2]
 
     # Branch skipped: a > 0 reads a, __bool__ reads result
     trace_neg, _ = traced_eval(my_relu, (-5,))
@@ -79,7 +79,7 @@ def test_divmod_tuple_allocation_trace():
         return q + r + a
         
     trace, result = traced_eval(my_divmod, (10, 3))
-    assert trace == [2, 1, 2, 1, 1, 5]
+    assert trace == [2, 2, 2, 2, 1, 3]
 
 
 def test_implicit_boolean_is_traced():

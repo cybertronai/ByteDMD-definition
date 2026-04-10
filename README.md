@@ -21,7 +21,7 @@ b = [2, 3]
 assert dot(a,b) == 3
 
 # ByteDMD cost of dot product
-assert bytedmd(dot, (a, b)) == 14
+assert bytedmd(dot, (a, b)) == 13
 ```
 
 ## Motivation
@@ -46,7 +46,7 @@ An idealized processor operates directly on an element-level LRU stack. **Comput
 - **Stack State:** Ordered from least recently used (bottom) to most recently used (top). Depth is measured in bytes from the top (topmost byte = depth 1). Multi-byte scalars are treated as a contiguous blocks of bytes.
 - **Initialization:** On function entry, arguments are pushed to the top in call order.
 - **Read Cost:** Reading a byte at depth $d$ costs $\lceil\sqrt{d}\rceil$.
-- **Eviction:** A value is removed from the stack the moment it becomes garbage — i.e. when its CPython refcount drops to zero, or when the user calls `bytedmd.delete(v)` explicitly. Eviction is free. There is no other way to leave the stack.
+- **Eviction (liveness analysis):** The tracer performs liveness analysis: after executing the function once to record the full operation sequence, it replays with perfect knowledge of each value's last read. After a value's final read, it is replaced by a **tombstone** at the top of the stack. Tombstones preserve the physical cache footprint: like a real cache line that hasn't been overwritten yet, they still occupy depth. This prevents the "cache teleportation" artifact where streaming through dead data would otherwise shrink the stack and let hot values float up for free. The next STORE recycles exactly one tombstone (the bottom-most, i.e. the oldest dead cache line), keeping the stack anchored at its high-water mark. Eviction and recycling are both free.
 
 ### Instruction Semantics
 
@@ -89,12 +89,12 @@ Inputs move to the top sequentially in read order (`b`, then `c`), followed by t
 ## Inspecting the IR
 
 The tracer also emits a small **intermediate representation** that makes the
-LRU stack lifecycle explicit. Three event types: `STORE k` (allocate vk on
-top of the stack, free), `OP name(vk@d, …)` (read each input at depth d
-and LRU-bump in listed order — this is the only event that costs anything),
-and `DROP k` (remove vk from the stack — emitted when CPython refcounts the
-value to zero, or when the user calls `bytedmd.delete(v)` explicitly).
-Op results are materialized by the `STORE` that immediately follows the `OP`.
+LRU stack lifecycle explicit. Four event types: `STORE k` (recycle one
+tombstone if available, then allocate vk on top), `READ k@d` (read vk at
+depth d and LRU-bump), `OP name(vk@d, …)` (summary of the preceding reads
+— this is what incurs cost), and `DROP k` (tombstone vk after its last
+read — determined by liveness analysis). Op results are materialized by the
+`STORE` that immediately follows the `OP`.
 
 ```python
 from bytedmd import inspect_ir, format_ir, bytedmd
@@ -114,40 +114,51 @@ STORE v3                                # A[1][0]
 STORE v4                                # A[1][1]
 STORE v5                                # x[0]
 STORE v6                                # x[1]
-OP    mul(v1@6, v5@2)  cost=5           # A[0][0]*x[0]
-STORE v7
-OP    mul(v2@7, v6@4)  cost=5           # A[0][1]*x[1]
-STORE v8
-OP    add(v7@4, v8@1)  cost=3           # y0
-STORE v9
-DROP  v7                                # temporary dead → refcount GC
-DROP  v8
-OP    mul(v3@7, v5@4)  cost=5           # A[1][0]*x[0]
-STORE v10
-OP    mul(v4@8, v6@5)  cost=6           # A[1][1]*x[1]
-STORE v11
-OP    add(v10@4, v11@1) cost=3          # y1
-STORE v12
+  READ v1@6  cost=3                     # v1 bumped to top
+DROP  v1                                # last read of v1 → tombstone at top
+  READ v5@3  cost=2                     # v5 bumped (tombstone above it)
+OP    mul(v1@6, v5@3)  cost=5           # A[0][0]*x[0]
+STORE v7                                # recycles the tombstone
+  READ v2@6  cost=3                     # v2 bumped to top
+DROP  v2                                # last read of v2 → tombstone
+  READ v6@4  cost=2                     # v6 bumped
+OP    mul(v2@6, v6@4)  cost=5           # A[0][1]*x[1]
+STORE v8                                # recycles tombstone
+  READ v7@3  cost=2                     # v7 sank below v6, v8
+DROP  v7                                # last read → tombstone
+  READ v8@2  cost=2
+DROP  v8                                # last read → tombstone
+OP    add(v7@3, v8@2)  cost=4           # y0
+STORE v9                                # recycles one tombstone
+  READ v3@6  cost=3                     # depth 6 = 5 live + 1 tombstone
+DROP  v3                                # last read → tombstone
+  READ v5@5  cost=3
+DROP  v5                                # last read → tombstone
+OP    mul(v3@6, v5@5)  cost=6
+STORE v10                               # recycles one tombstone
+  READ v4@6  cost=3
+DROP  v4                                # last read → tombstone
+  READ v6@6  cost=3
+DROP  v6                                # last read → tombstone
+OP    mul(v4@6, v6@6)  cost=6
+STORE v11                               # recycles one tombstone
+  READ v10@4  cost=2
 DROP  v10
+  READ v11@2  cost=2
 DROP  v11
-DROP  v12                               # function returns
-DROP  v9
-# total cost = 27
+OP    add(v10@4, v11@2)  cost=4         # y1
+STORE v12
+# total cost = 30
 ```
 
-Note `OP mul(v4@8, v6@5)`: by the time the second row is evaluated, the
-first row's `y0` (v9) is sitting near the top of the stack, so the unused
-matrix entries `v3, v4` have been pushed deeper. This is the GC story made
-explicit — depths in each `OP` event are the *actual* read depths after all
-prior `PUSH`/`OP`/`DROP` events have settled the stack.
-
-### Helping the GC: explicit `delete`
-
-For values whose lifetime is hard for CPython to infer (loop accumulators,
-slices held inside closures, numpy arrays), call `bytedmd.delete(v)` to
-remove them from the stack at zero cost. This is the user-controlled
-counterpart to refcount GC and is the only way to influence the stack
-without rewriting the algorithm.
+The liveness analysis knows exactly when each value's last read occurs.
+For example, `v1` (= `A[0][0]`) is only read once, so it is tombstoned
+immediately after that read: `DROP v1` fires right after `READ v1@6`. The
+tombstone floats to the top of the stack, inflating the depth of the next
+read (`v5@3` instead of `v5@2`). The following `STORE v7` recycles this
+tombstone, keeping the stack anchored at its high-water mark. This models
+how a real cache still holds dead lines until they are overwritten by new
+allocations.
 
 ## ByteDMD benchmarks
 
@@ -157,20 +168,20 @@ See "benchmarks/" folder
 
 | Algorithm | Operation | ByteDMD Cost |
 |-----------|-----------|-------------|
-| matvec (i-j) | y = A @ x | 163 |
-| vecmat (j-i) | y = x^T @ A | 169 |
+| matvec (i-j) | y = A @ x | 187 |
+| vecmat (j-i) | y = x^T @ A | 181 |
 
 ### Matrix multiply (4x4)
 
 | Algorithm | Operation | ByteDMD Cost |
 |-----------|-----------|-------------|
-| matmul (i-j-k) | C = A @ B | 788 |
-| matmul (i-k-j) | C = A @ B | 804 |
-| matmul (snake-j) | C = A @ B | 743 |
-| matmul (2x2 tiled) | C = A @ B | 750 |
-| matmul (TSP) | C = A @ B | 741 |
-| Strassen (leaf=1) | C = A @ B | 1905 |
-| Winograd | C = A @ B | 1946 |
+| matmul (i-j-k) | C = A @ B | 830 |
+| matmul (i-k-j) | C = A @ B | 865 |
+| matmul (snake-j) | C = A @ B | 797 |
+| matmul (2x2 tiled) | C = A @ B | 835 |
+| matmul (TSP) | C = A @ B | 779 |
+| Strassen (leaf=1) | C = A @ B | 1957 |
+| Winograd | C = A @ B | 1960 |
 
 ### microGPT single-token forward pass
 
@@ -179,7 +190,7 @@ Based on [Karpathy's microGPT](https://gist.github.com/karpathy/8627fe009c40f575
 
 | Algorithm | Operation | ByteDMD Cost |
 |-----------|-----------|-------------|
-| microGPT (1 layer, embd=4) | single token forward | 5266 |
+| microGPT (1 layer, embd=4) | single token forward | 5811 |
 
 # Reports
 

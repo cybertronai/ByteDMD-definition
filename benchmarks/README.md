@@ -36,7 +36,7 @@ Runs one forward pass through a tiny configuration of [Karpathy's microGPT](http
 
 | Algorithm | Operation | ByteDMD Cost |
 |-----------|-----------|-------------:|
-| microGPT (1 layer, embd=4) | single token forward | 5266 |
+| microGPT (1 layer, embd=4) | single token forward | 5432 |
 
 ### `benchmark_attention.py` — naive vs flash attention
 
