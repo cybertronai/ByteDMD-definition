@@ -21,7 +21,7 @@ b = [2, 3]
 assert dot(a,b) == 3
 
 # ByteDMD cost of dot product
-assert bytedmd(dot, (a, b)) == 13
+assert bytedmd(dot, (a, b)) == 13  # demand-paged: cold misses + hot hits
 ```
 
 ## Motivation
@@ -45,7 +45,7 @@ An idealized processor operates directly on an element-level LRU stack. **Comput
 
 - **Stack State:** Ordered from least recently used (bottom) to most recently used (top). Depth is measured in bytes from the top (topmost byte = depth 1). Multi-byte scalars are treated as a contiguous blocks of bytes.
 - **Initialization (demand paging):** The LRU stack starts **empty**. Arguments are assigned tracking IDs but are not pushed onto the stack. A value enters the stack only upon its first read, priced as a "cold miss" at the DRAM frontier (a monotonically increasing counter tracking total unique elements ever fetched). This eliminates bias from Python's argument ordering.
-- **Read Cost:** Reading a byte at depth $d$ costs $\lceil\sqrt{d}\rceil$. For a cold miss, $d$ = DRAM frontier + current stack size.
+- **Read Cost:** Reading a byte at depth $d$ costs $\lceil\sqrt{d}\rceil$. For a cold miss, $d$ = current stack size + 1 (just outside the known universe).
 - **Simultaneous pricing:** All inputs to an instruction are priced against the stack state *before* any LRU bumping. This guarantees commutativity: `Cost(a+b) == Cost(b+a)`.
 - **Natural LRU aging:** Dead variables are not tombstoned or evicted. They simply sink toward the bottom of the stack as newer values are accessed, modeling a fully-associative cache with natural aging.
 
@@ -106,40 +106,40 @@ print(format_ir(inspect_ir(matvec2, ([[1,2],[3,4]], [5,6]))))
 ```
 
 ```text
-  READ v1@1  cost=1                     # cold miss: A[0][0] fetched from DRAM
-  READ v5@2  cost=2                     # cold miss: x[0] (both priced simultaneously)
+  READ v1@1  cost=1                     # cold miss: A[0][0] (stack was empty)
+  READ v5@2  cost=2                     # cold miss: x[0] (priced simultaneously)
 OP    mul(v1@1, v5@2)  cost=3           # A[0][0]*x[0]
 STORE v7
-  READ v2@6  cost=3                     # cold miss: A[0][1], DRAM frontier=3
-  READ v6@7  cost=3                     # cold miss: x[1], frontier=4
-OP    mul(v2@6, v6@7)  cost=6           # A[0][1]*x[1]
+  READ v2@4  cost=2                     # cold miss: A[0][1], depth = stack_size+1
+  READ v6@5  cost=3                     # cold miss: x[1]
+OP    mul(v2@4, v6@5)  cost=5           # A[0][1]*x[1]
 STORE v8
   READ v7@4  cost=2                     # hot hit: v7 sank as v2, v6 entered
   READ v8@1  cost=1                     # hot hit: v8 still at top
 OP    add(v7@4, v8@1)  cost=3           # y0
 STORE v9
-  READ v3@12  cost=4                    # cold miss: A[1][0], frontier=5
+  READ v3@8  cost=3                     # cold miss: A[1][0], depth = 7+1
   READ v5@6  cost=3                     # hot hit: x[0] still on stack
-OP    mul(v3@12, v5@6)  cost=7
+OP    mul(v3@8, v5@6)  cost=6
 STORE v10
-  READ v4@15  cost=4                    # cold miss: A[1][1], frontier=6
+  READ v4@10  cost=4                    # cold miss: A[1][1], depth = 9+1
   READ v6@7  cost=3                     # hot hit: x[1]
-OP    mul(v4@15, v6@7)  cost=7
+OP    mul(v4@10, v6@7)  cost=7
 STORE v11
   READ v10@4  cost=2
   READ v11@1  cost=1
 OP    add(v10@4, v11@1)  cost=3         # y1
 STORE v12
-# total cost = 29
+# total cost = 27
 ```
 
 Note the demand-paged initialization: no `STORE` events at the top — values
-enter the stack only on their first read as cold misses. The DRAM frontier
-increases monotonically (1, 2, 3, 4, 5, 6 for the six scalar arguments),
-so each new element costs more as the total data footprint grows. Subsequent
-reads of the same value are hot hits priced at their LRU stack depth. Dead
-variables (like `v1` after its single read) are never evicted — they simply
-sink to the bottom as newer values push above them.
+enter the stack only on their first read as cold misses. A cold miss is
+priced at `len(stack) + 1` — just outside the current known universe.
+Subsequent reads of the same value are hot hits priced at their LRU stack
+depth. Dead variables (like `v1` after its single read) are never evicted —
+they simply sink to the bottom as newer values push above them (the
+"Infinite Graveyard" model).
 
 ## ByteDMD benchmarks
 
@@ -149,17 +149,17 @@ See "benchmarks/" folder
 
 | Algorithm | Operation | ByteDMD Cost |
 |-----------|-----------|-------------|
-| matvec (i-j) | y = A @ x | 196 |
-| vecmat (j-i) | y = x^T @ A | 196 |
+| matvec (i-j) | y = A @ x | 177 |
+| vecmat (j-i) | y = x^T @ A | 177 |
 
 ### Matrix multiply (4x4)
 
 | Algorithm | Operation | ByteDMD Cost |
 |-----------|-----------|-------------|
-| matmul (i-j-k) | C = A @ B | 956 |
-| matmul (i-k-j) | C = A @ B | 1019 |
-| matmul (snake-j) | C = A @ B | 914 |
-| matmul (2x2 tiled) | C = A @ B | 945 |
+| matmul (i-j-k) | C = A @ B | 921 |
+| matmul (i-k-j) | C = A @ B | 987 |
+| matmul (snake-j) | C = A @ B | 879 |
+| matmul (2x2 tiled) | C = A @ B | 914 |
 | matmul (TSP) | C = A @ B | 779 |
 | Strassen (leaf=1) | C = A @ B | 1957 |
 | Winograd | C = A @ B | 1960 |
@@ -171,7 +171,7 @@ Based on [Karpathy's microGPT](https://gist.github.com/karpathy/8627fe009c40f575
 
 | Algorithm | Operation | ByteDMD Cost |
 |-----------|-----------|-------------|
-| microGPT (1 layer, embd=4) | single token forward | 6913 |
+| microGPT (1 layer, embd=4) | single token forward | 6383 |
 
 # Reports
 

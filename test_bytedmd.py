@@ -35,9 +35,9 @@ def test_repeated_operand_is_charged_twice():
 
 def test_my_composite_func():
     trace, result = traced_eval(my_composite_func, (1, 2, 3, 4))
-    assert trace == [1, 2, 6, 7, 4, 1]
+    assert trace == [1, 2, 4, 5, 4, 1]
     cost = bytedmd(my_composite_func, (1, 2, 3, 4))
-    assert cost == 12
+    assert cost == 11
 
 def test_dot_product():
     def dot(a, b):
@@ -46,9 +46,9 @@ def test_dot_product():
     a, b = [0, 1], [2, 3]
     trace, result = traced_eval(dot, (a, b))
 
-    assert trace == [1, 2, 6, 7, 4, 1]
+    assert trace == [1, 2, 4, 5, 4, 1]
     assert result == 3
-    assert bytedmd(dot, (a, b)) == 12
+    assert bytedmd(dot, (a, b)) == 11
 
 
 def test_branching_and_comparisons_trace():
@@ -125,6 +125,66 @@ def test_not_is_traced():
     trace, result = traced_eval(lambda a: not a, (0,))
     assert trace == [1]
     assert result is True
+
+
+def _matvec(A, x):
+    n = len(x)
+    y = [None] * n
+    for i in range(n):
+        s = A[i][0] * x[0]
+        for j in range(1, n):
+            s = s + A[i][j] * x[j]
+        y[i] = s
+    return y
+
+
+def _vecmat(A, x):
+    n = len(x)
+    y = [None] * n
+    for j in range(n):
+        s = x[0] * A[0][j]
+        for i in range(1, n):
+            s = s + x[i] * A[i][j]
+        y[j] = s
+    return y
+
+
+def _ceil_sqrt(x):
+    """ceil(sqrt(x)) via integer arithmetic."""
+    import math
+    return math.isqrt(x - 1) + 1 if x > 0 else 0
+
+
+def _matvec_exact(N):
+    """Exact ByteDMD cost for naive matvec/vecmat from closed-form formulas.
+
+    Derivation: see gemini/matvec-exact-formula.md
+
+    Components:
+      C_add       = 3N(N-1)             accumulator reads (depth 4 and 1)
+      C_firstrow  = 3 + sum(...)        first-row cold misses for A and x
+      C_A_cold    = sum(ceil(sqrt(...))) remaining A cold misses (expanding graveyard)
+      C_x_hot     = N(N-1)*ceil(sqrt(4N-1))  hot hits for x in subsequent rows
+    """
+    import math
+    C_add = 3 * N * (N - 1)
+    C_firstrow = 3 + sum(_ceil_sqrt(4*k) + _ceil_sqrt(4*k + 1) for k in range(1, N))
+    C_A_cold = sum(_ceil_sqrt(3*k - math.ceil(k/N) + N + 1) for k in range(N, N**2))
+    C_x_hot = N * (N - 1) * _ceil_sqrt(4*N - 1)
+    return C_add + C_x_hot + C_firstrow + C_A_cold
+
+
+def test_matvec_vecmat_exact_formula():
+    """Verify matvec and vecmat costs match the closed-form formula at several sizes."""
+    for n in [2, 3, 4, 5, 6, 7, 8]:
+        A = np.ones((n, n))
+        x = np.ones(n)
+        mv = bytedmd(_matvec, (A, x))
+        vm = bytedmd(_vecmat, (A, x))
+        exact = _matvec_exact(n)
+        assert mv == exact, f"matvec N={n}: got {mv}, expected {exact}"
+        assert vm == exact, f"vecmat N={n}: got {vm}, expected {exact}"
+        assert mv == vm, f"N={n}: matvec ({mv}) != vecmat ({vm})"
 
 
 if __name__ == "__main__":

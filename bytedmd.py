@@ -1,110 +1,65 @@
 """
-ByteDMD tracer — proxy-based, with demand-paged initialization.
+ByteDMD tracer — fully associative with demand-paged initialization.
 
-Wraps function arguments in `_Tracked` proxy objects that intercept
-arithmetic, comparison, and indexing via Python dunder methods. Each
-intercepted operation records a read against an LRU stack and the depth
-is later converted to a ByteDMD cost via ceil(sqrt(depth)).
-
-Three key properties of this tracer:
-
-  1. **Simultaneous pricing:** All inputs to an instruction are priced
-     against the pre-instruction stack state before any LRU bumping.
-     This guarantees commutativity: Cost(a+b) == Cost(b+a).
-
-  2. **Demand-paged initialization:** Arguments are NOT pushed onto the
-     stack at function entry. Instead, the first read of a value is a
-     "cold miss" priced at a monotonically increasing DRAM frontier,
-     modeling the physical distance to off-chip memory. This removes
-     bias from Python's argument ordering.
-
-  3. **Natural LRU aging:** Dead variables are not tombstoned or evicted.
-     They simply sink toward the bottom of the stack as newer values are
-     accessed, modeling a fully-associative cache with natural aging.
-
-API:
-    traced_eval(func, args)                   -> (trace, result)
-    bytedmd(func, args, bytes_per_element=1)  -> int
-    trace_to_bytedmd(trace, bytes_per_element) -> int
-    inspect_ir(func, args)                    -> list of IR events
-    format_ir(ir)                             -> str  (pretty-printed IR)
+  1. Simultaneous pricing: All inputs are priced against the pre-instruction
+     stack state before LRU bumping, guaranteeing commutativity.
+  2. Demand-paged initialization: Arguments start in "DRAM". First access
+     triggers a cold miss priced strictly outside the active L1 footprint.
+  3. Natural LRU aging: Dead variables sink naturally to the bottom of the
+     stack ("Infinite Graveyard").
 """
 
 import math
 import operator
 
-
 class _Context:
-    __slots__ = ('stack', 'trace', 'sync', 'memo', 'counter', 'ir',
-                 'dram_frontier', 'initializing')
+    __slots__ = ('stack', 'trace', 'sync', 'memo', 'counter', 'ir')
+    
     def __init__(self):
-        self.stack = []
-        self.trace = []
-        self.sync = []
+        self.stack, self.trace, self.sync, self.ir = [], [], [], []
         self.memo = {}
         self.counter = 0
-        self.ir = []
-        self.dram_frontier = 0
-        self.initializing = False   # True during argument wrapping
 
-    def allocate(self):
-        """Allocate a new value and push it onto the stack (for op results)."""
+    def allocate(self, deferred=False):
+        """Allocate a tracking ID. If not deferred, push to L1 stack."""
         self.counter += 1
-        self.stack.append(self.counter)
-        return self.counter
-
-    def allocate_deferred(self):
-        """Allocate a tracking ID without pushing to the stack (demand paging)."""
-        self.counter += 1
+        if not deferred:
+            self.stack.append(self.counter)
         return self.counter
 
     def read(self, keys):
-        """Price all keys simultaneously against the pre-instruction stack,
-        then batch-move unique keys to the top.
-
-        Keys not found on the stack are cold misses, priced at the DRAM
-        frontier (a monotonically increasing counter).
-        """
+        """Prices keys simultaneously against pre-instruction stack."""
         valid = [k for k in keys if k is not None]
         if not valid: return []
 
-        # Deduplicate for depth computation (preserving order).
-        seen = set()
-        unique = []
-        for k in valid:
-            if k not in seen:
-                seen.add(k)
-                unique.append(k)
-
-        # 1. Price ALL unique keys against the pre-instruction stack.
-        unique_depths = {}
+        # Fast, order-preserving deduplication
+        unique = list(dict.fromkeys(valid))
+        depths_map = {}
         cold_keys = []
+        L = len(self.stack)
+
+        # 1. Price simultaneously against the active physical universe
         for k in unique:
             try:
-                unique_depths[k] = len(self.stack) - self.stack.index(k)
+                depths_map[k] = L - self.stack.index(k)
             except ValueError:
-                # Cold miss: value not yet on-chip.
-                self.dram_frontier += 1
-                unique_depths[k] = self.dram_frontier + len(self.stack)
+                # Cold Miss: Paged from just outside the known universe
                 cold_keys.append(k)
+                depths_map[k] = L + len(cold_keys)
 
-        # Bring cold-miss keys onto the stack.
+        # Bring cold misses into the cache
         self.stack.extend(cold_keys)
 
-        # Emit depths for ALL keys (including duplicates at same depth).
-        depths = [unique_depths[k] for k in valid]
-        self.trace.extend(depths)
-
-        # Emit IR events.
+        # 2. Emit events and batch LRU bump
+        self.trace.extend(depths_map[k] for k in valid)
         for k in valid:
-            self.ir.append(('READ', k, unique_depths[k]))
+            self.ir.append(('READ', k, depths_map[k]))
 
-        # 2. Batch LRU-bump: move unique keys to the top (in access order).
         for k in unique:
             self.stack.remove(k)
             self.stack.append(k)
 
-        return depths
+        return [depths_map[k] for k in valid]
 
 
 class _Tracked:
@@ -129,26 +84,25 @@ class _Tracked:
 def _make_op(op, rev=False):
     name = op.__name__
     def method(self, *args):
-        keys = [a._key if isinstance(a, _Tracked) else None for a in args]
-        vals = [a.val if isinstance(a, _Tracked) else a for a in args]
+        keys = [getattr(a, '_key', None) for a in args]
+        vals = [getattr(a, 'val', a) for a in args]
 
         read_keys = [keys[0], self._key] + keys[1:] if rev else [self._key] + keys
         res = op(vals[0], self.val, *vals[1:]) if rev else op(self.val, *vals)
+        
         depths = self._ctx.read(read_keys)
         valid_keys = [k for k in read_keys if k is not None]
 
         if res is NotImplemented:
             self._ctx.ir.append(('OP', name, valid_keys, depths, None))
             return res
+
+        # Record IR length to perfectly insert OP before any new STOREs (fixes tuple returns)
+        ir_len_before = len(self._ctx.ir)
         wrapped = _wrap(self._ctx, res)
-        out_key = wrapped._key if isinstance(wrapped, _Tracked) else None
-        # _wrap just emitted ('STORE', out_key); reorder so OP precedes STORE.
-        if out_key is not None and self._ctx.ir and self._ctx.ir[-1] == ('STORE', out_key):
-            self._ctx.ir.pop()
-            self._ctx.ir.append(('OP', name, valid_keys, depths, out_key))
-            self._ctx.ir.append(('STORE', out_key))
-        else:
-            self._ctx.ir.append(('OP', name, valid_keys, depths, out_key))
+        out_key = getattr(wrapped, '_key', None)
+        
+        self._ctx.ir.insert(ir_len_before, ('OP', name, valid_keys, depths, out_key))
         return wrapped
     return method
 
@@ -165,13 +119,15 @@ for n, f in _OPS.items():
         setattr(_Tracked, f'__r{n}__', _make_op(f, rev=True))
 
 
-def _wrap(ctx, val):
+def _wrap(ctx, val, deferred=False):
     if isinstance(val, _Tracked): return val
     vid = id(val)
     if vid in ctx.memo: return ctx.memo[vid]
 
-    is_prim = type(val) in (int, float, bool, complex, str)
-    if type(val).__name__ == 'ndarray':
+    typ = type(val)
+    is_prim = typ in (int, float, bool, complex, str)
+    
+    if typ.__name__ == 'ndarray':
         import numpy as np
         res = np.empty_like(val, dtype=object)
         if not is_prim:
@@ -179,28 +135,20 @@ def _wrap(ctx, val):
             ctx.sync.append((val, res))
         for idx in np.ndindex(val.shape):
             v = val[idx]
-            res[idx] = _wrap(ctx, v.item() if hasattr(v, 'item') and not isinstance(v, np.ndarray) else v)
+            res[idx] = _wrap(ctx, v.item() if hasattr(v, 'item') and not isinstance(v, np.ndarray) else v, deferred)
         return res
 
-    if isinstance(val, list):
-        res = []
+    if isinstance(val, (list, tuple)):
+        res = typ(_wrap(ctx, v, deferred) for v in val)
         if not is_prim:
             ctx.memo[vid] = res
-            ctx.sync.append((val, res))
-        res.extend(_wrap(ctx, v) for v in val)
+            if typ is list: ctx.sync.append((val, res))
         return res
 
-    if isinstance(val, tuple):
-        res = tuple(_wrap(ctx, v) for v in val)
-        if not is_prim: ctx.memo[vid] = res
-        return res
-
-    if ctx.initializing:
-        # Demand-paged: assign key but don't push onto the stack.
-        res = _Tracked(ctx, ctx.allocate_deferred(), val)
-    else:
-        res = _Tracked(ctx, ctx.allocate(), val)
-        ctx.ir.append(('STORE', res._key))
+    key = ctx.allocate(deferred)
+    res = _Tracked(ctx, key, val)
+    if not deferred: 
+        ctx.ir.append(('STORE', key))
     if not is_prim: ctx.memo[vid] = res
     return res
 
@@ -210,19 +158,15 @@ def _unwrap(val, memo=None):
     vid = id(val)
     if vid in memo: return memo[vid]
 
-    is_prim = type(val) in (int, float, bool, complex, str)
-    if isinstance(val, list):
-        res = []
-        if not is_prim: memo[vid] = res
-        res.extend(_unwrap(v, memo) for v in val)
-        return res
-
-    if isinstance(val, tuple):
-        res = tuple(_unwrap(v, memo) for v in val)
+    typ = type(val)
+    is_prim = typ in (int, float, bool, complex, str)
+    
+    if isinstance(val, (list, tuple)):
+        res = typ(_unwrap(v, memo) for v in val)
         if not is_prim: memo[vid] = res
         return res
 
-    if type(val).__name__ == 'ndarray':
+    if typ.__name__ == 'ndarray':
         import numpy as np
         if val.dtype == object:
             flat = [_unwrap(x, memo) for x in val.flat]
@@ -246,58 +190,39 @@ def _sum_usqrt(N):
 
 
 def traced_eval(func, args):
-    """Run func with tracked arguments. Returns (trace, result)."""
     ctx = _Context()
-    ctx.initializing = True
-    wrapped_args = tuple(_wrap(ctx, a) for a in args)
-    ctx.initializing = False
+    wrapped_args = tuple(_wrap(ctx, a, deferred=True) for a in args)
     res = func(*wrapped_args)
+    
     memo = {}
     for orig, wrapped in ctx.sync:
         if isinstance(orig, list): orig[:] = _unwrap(wrapped, memo)
         elif type(orig).__name__ == 'ndarray': orig[...] = _unwrap(wrapped, memo)
+        
     return ctx.trace, _unwrap(res, memo)
 
 
 def trace_to_bytedmd(trace, bytes_per_element):
-    """Convert a trace (list of element depths) to ByteDMD cost."""
     if bytes_per_element == 1: return sum(math.isqrt(d - 1) + 1 for d in trace)
     bpe = bytes_per_element
     return sum(_sum_usqrt(d * bpe) - _sum_usqrt((d - 1) * bpe) for d in trace)
 
 
 def inspect_ir(func, args):
-    """Run func and return its ByteDMD intermediate representation.
-
-    The IR is a list of events:
-
-      ('STORE', k)                                — value vk allocated on top
-      ('READ',  k, d)                            — read vk at depth d (cold miss
-                                                    if first access; priced at
-                                                    DRAM frontier + stack size)
-      ('OP',   name, [ki...], [di...], out_key)  — summary of the preceding reads
-
-    Format with format_ir() for a human-readable listing.
-    """
     ctx = _Context()
-    ctx.initializing = True
-    wrapped_args = tuple(_wrap(ctx, a) for a in args)
-    ctx.initializing = False
+    wrapped_args = tuple(_wrap(ctx, a, deferred=True) for a in args)
     func(*wrapped_args)
     return ctx.ir
 
 
 def format_ir(ir):
-    """Pretty-print an IR returned by inspect_ir()."""
-    out = []
-    total = 0
+    out, total = [], 0
     for ev in ir:
         if ev[0] == 'STORE':
             out.append(f"STORE v{ev[1]}")
         elif ev[0] == 'READ':
-            _, key, depth = ev
-            cost = math.isqrt(depth - 1) + 1
-            out.append(f"  READ v{key}@{depth}  cost={cost}")
+            cost = math.isqrt(ev[2] - 1) + 1
+            out.append(f"  READ v{ev[1]}@{ev[2]}  cost={cost}")
         else:
             _, name, keys, depths, _ok = ev
             cost = sum(math.isqrt(d - 1) + 1 for d in depths)
@@ -308,7 +233,96 @@ def format_ir(ir):
     return "\n".join(out)
 
 
+def _collect_keys(wrapped, name, names):
+    """Walk a wrapped structure to map tracking keys to human-readable names."""
+    if isinstance(wrapped, _Tracked):
+        names[wrapped._key] = name
+    elif isinstance(wrapped, (list, tuple)):
+        for i, v in enumerate(wrapped):
+            _collect_keys(v, f"{name}[{i}]", names)
+    elif type(wrapped).__name__ == 'ndarray':
+        import numpy as np
+        for idx in np.ndindex(wrapped.shape):
+            sub = name + ''.join(f'[{i}]' for i in idx)
+            _collect_keys(wrapped[idx], sub, names)
+
+
+_OP_SYMBOLS = {
+    'add': '+', 'sub': '-', 'mul': '*', 'truediv': '/', 'floordiv': '//',
+    'mod': '%', 'pow': '**', 'matmul': '@', 'lshift': '<<', 'rshift': '>>',
+    'and_': '&', 'or_': '|', 'xor': '^', 'eq': '==', 'ne': '!=',
+    'lt': '<', 'le': '<=', 'gt': '>', 'ge': '>=', 'neg': '-', 'pos': '+',
+    'abs': 'abs', 'invert': '~',
+}
+
+
+def trace_ir(func, args):
+    """Replay an IR step-by-step with variable names and stack state.
+
+    Uses function parameter names for arguments (e.g., ``a``, ``A[0][1]``)
+    and derives names for intermediates from the operations that produced
+    them (e.g., ``a*b``, ``(a*b)+(c*d)``).
+
+    Returns the formatted string (also printed).
+    """
+    import inspect
+    ctx = _Context()
+    wrapped_args = tuple(_wrap(ctx, a, deferred=True) for a in args)
+    func(*wrapped_args)
+    ir = ctx.ir
+
+    # Build key → name map from parameter names.
+    names = {}
+    try:
+        param_names = list(inspect.signature(func).parameters.keys())
+    except (ValueError, TypeError):
+        param_names = [f'arg{i}' for i in range(len(args))]
+    for pname, warg in zip(param_names, wrapped_args):
+        _collect_keys(warg, pname, names)
+
+    def n(key):
+        return names.get(key, f'v{key}')
+
+    stack = []
+    out = []
+    total = 0
+
+    def fmt_stack():
+        return '[' + ', '.join(n(k) for k in stack) + ']'
+
+    for ev in ir:
+        tag = ev[0]
+        if tag == 'STORE':
+            key = ev[1]
+            stack.append(key)
+            out.append(f"STORE {n(key):<20}              stack={fmt_stack()}")
+        elif tag == 'READ':
+            key, depth = ev[1], ev[2]
+            cost = math.isqrt(depth - 1) + 1
+            if key not in stack:
+                stack.append(key)
+            stack.remove(key)
+            stack.append(key)
+            out.append(f"  READ {n(key)}@{depth:<3} cost={cost:<3}          stack={fmt_stack()}")
+        elif tag == 'OP':
+            _, opname, keys, depths, out_key = ev
+            total += sum(math.isqrt(d - 1) + 1 for d in depths)
+            sym = _OP_SYMBOLS.get(opname, opname)
+            # Derive a name for the result.
+            if out_key is not None:
+                if len(keys) == 2:
+                    names[out_key] = f"({n(keys[0])}{sym}{n(keys[1])})"
+                elif len(keys) == 1:
+                    names[out_key] = f"{sym}({n(keys[0])})"
+                else:
+                    names[out_key] = f"{opname}({', '.join(n(k) for k in keys)})"
+
+    out.append(f"# total cost = {total}")
+    result = "\n".join(out)
+    print(result)
+    return result
+
+
 def bytedmd(func, args, bytes_per_element=1):
-    """Evaluate ByteDMD cost of running func with args."""
     trace, _ = traced_eval(func, args)
     return trace_to_bytedmd(trace, bytes_per_element)
