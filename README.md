@@ -21,7 +21,7 @@ b = [2, 3]
 assert dot(a,b) == 3
 
 # ByteDMD cost of dot product
-assert bytedmd(dot, (a, b)) == 13  # demand-paged: cold misses + hot hits
+assert bytedmd(dot, (a, b)) == 11
 ```
 
 ## Motivation
@@ -47,7 +47,7 @@ An idealized processor operates directly on an element-level LRU stack. **Comput
 - **Initialization (demand paging):** The LRU stack starts **empty**. Arguments are assigned tracking IDs but are not pushed onto the stack. A value enters the stack only upon its first read, priced as a "cold miss" at the DRAM frontier (a monotonically increasing counter tracking total unique elements ever fetched). This eliminates bias from Python's argument ordering.
 - **Read Cost:** Reading a byte at depth $d$ costs $\lceil\sqrt{d}\rceil$. For a cold miss, $d$ = current stack size + 1 (just outside the known universe).
 - **Simultaneous pricing:** All inputs to an instruction are priced against the stack state *before* any LRU bumping. This guarantees commutativity: `Cost(a+b) == Cost(b+a)`.
-- **Natural LRU aging:** Dead variables are not tombstoned or evicted. They simply sink toward the bottom of the stack as newer values are accessed, modeling a fully-associative cache with natural aging.
+- **Liveness analysis with aggressive compaction:** The tracer performs two-pass liveness analysis. In pass 1 it records the operation sequence; in pass 2 it replays with perfect knowledge of each value's last use. After a value's final read, it is immediately removed from the stack and remaining elements slide up to close the gap. This models an optimal compiler that keeps the stack clamped to the active working set.
 
 ### Instruction Semantics
 
@@ -110,36 +110,36 @@ print(format_ir(inspect_ir(matvec2, ([[1,2],[3,4]], [5,6]))))
   READ v5@2  cost=2                     # cold miss: x[0] (priced simultaneously)
 OP    mul(v1@1, v5@2)  cost=3           # A[0][0]*x[0]
 STORE v7
-  READ v2@4  cost=2                     # cold miss: A[0][1], depth = stack_size+1
-  READ v6@5  cost=3                     # cold miss: x[1]
-OP    mul(v2@4, v6@5)  cost=5           # A[0][1]*x[1]
+  READ v2@3  cost=2                     # cold miss: A[0][1] (v1 was evicted)
+  READ v6@4  cost=2                     # cold miss: x[1]
+OP    mul(v2@3, v6@4)  cost=4           # A[0][1]*x[1]
 STORE v8
-  READ v7@4  cost=2                     # hot hit: v7 sank as v2, v6 entered
+  READ v7@3  cost=2                     # hot hit: v7 sank as v2, v6 entered
   READ v8@1  cost=1                     # hot hit: v8 still at top
-OP    add(v7@4, v8@1)  cost=3           # y0
+OP    add(v7@3, v8@1)  cost=3           # y0
 STORE v9
-  READ v3@8  cost=3                     # cold miss: A[1][0], depth = 7+1
-  READ v5@6  cost=3                     # hot hit: x[0] still on stack
-OP    mul(v3@8, v5@6)  cost=6
+  READ v3@4  cost=2                     # cold miss: A[1][0] (dead temps evicted)
+  READ v5@3  cost=2                     # hot hit: x[0] still on stack
+OP    mul(v3@4, v5@3)  cost=4
 STORE v10
-  READ v4@10  cost=4                    # cold miss: A[1][1], depth = 9+1
-  READ v6@7  cost=3                     # hot hit: x[1]
-OP    mul(v4@10, v6@7)  cost=7
+  READ v4@4  cost=2                     # cold miss: A[1][1]
+  READ v6@3  cost=2                     # hot hit: x[1]
+OP    mul(v4@4, v6@3)  cost=4
 STORE v11
-  READ v10@4  cost=2
+  READ v10@2  cost=2
   READ v11@1  cost=1
-OP    add(v10@4, v11@1)  cost=3         # y1
+OP    add(v10@2, v11@1)  cost=3         # y1
 STORE v12
-# total cost = 27
+# total cost = 21
 ```
 
 Note the demand-paged initialization: no `STORE` events at the top — values
 enter the stack only on their first read as cold misses. A cold miss is
-priced at `len(stack) + 1` — just outside the current known universe.
-Subsequent reads of the same value are hot hits priced at their LRU stack
-depth. Dead variables (like `v1` after its single read) are never evicted —
-they simply sink to the bottom as newer values push above them (the
-"Infinite Graveyard" model).
+priced at `len(stack) + 1`. Liveness analysis aggressively evicts dead
+variables: after `v1`'s single read, it is removed from the stack, so `v2`'s
+cold miss sees depth 3 instead of 4. This keeps the stack clamped to the
+active working set, rewarding algorithms that reuse data and penalizing
+those that don't.
 
 ## ByteDMD benchmarks
 
@@ -149,20 +149,20 @@ See "benchmarks/" folder
 
 | Algorithm | Operation | ByteDMD Cost |
 |-----------|-----------|-------------|
-| matvec (i-j) | y = A @ x | 177 |
-| vecmat (j-i) | y = x^T @ A | 177 |
+| matvec (i-j) | y = A @ x | 124 |
+| vecmat (j-i) | y = x^T @ A | 124 |
 
 ### Matrix multiply (4x4)
 
 | Algorithm | Operation | ByteDMD Cost |
 |-----------|-----------|-------------|
-| matmul (i-j-k) | C = A @ B | 921 |
-| matmul (i-k-j) | C = A @ B | 987 |
-| matmul (snake-j) | C = A @ B | 879 |
-| matmul (2x2 tiled) | C = A @ B | 914 |
-| matmul (TSP) | C = A @ B | 779 |
-| Strassen (leaf=1) | C = A @ B | 1957 |
-| Winograd | C = A @ B | 1960 |
+| matmul (i-j-k) | C = A @ B | 676 |
+| matmul (i-k-j) | C = A @ B | 686 |
+| matmul (snake-j) | C = A @ B | 647 |
+| matmul (2x2 tiled) | C = A @ B | 662 |
+| matmul (TSP) | C = A @ B | 659 |
+| Strassen (leaf=1) | C = A @ B | 1610 |
+| Winograd | C = A @ B | 1481 |
 
 ### microGPT single-token forward pass
 
@@ -171,7 +171,7 @@ Based on [Karpathy's microGPT](https://gist.github.com/karpathy/8627fe009c40f575
 
 | Algorithm | Operation | ByteDMD Cost |
 |-----------|-----------|-------------|
-| microGPT (1 layer, embd=4) | single token forward | 6383 |
+| microGPT (1 layer, embd=4) | single token forward | 2549 |
 
 # Reports
 

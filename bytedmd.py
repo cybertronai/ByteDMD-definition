@@ -5,62 +5,35 @@ ByteDMD tracer — fully associative with demand-paged initialization.
      stack state before LRU bumping, guaranteeing commutativity.
   2. Demand-paged initialization: Arguments start in "DRAM". First access
      triggers a cold miss priced strictly outside the active L1 footprint.
-  3. Natural LRU aging: Dead variables sink naturally to the bottom of the
-     stack ("Infinite Graveyard").
+  3. Liveness Analysis and Aggressive Compaction: Two-pass analysis strictly 
+     limits stack size by immediately discarding elements when their last 
+     operation completes, dynamically sliding remaining items up the stack.
 """
 
 import math
 import operator
 
 class _Context:
-    __slots__ = ('stack', 'trace', 'sync', 'memo', 'counter', 'ir')
+    __slots__ = ('stack', 'trace', 'sync', 'memo', 'counter', 'ir', 'events', 'last_use')
     
     def __init__(self):
-        self.stack, self.trace, self.sync, self.ir = [], [], [], []
+        self.stack, self.trace, self.sync, self.ir, self.events = [], [], [], [], []
         self.memo = {}
         self.counter = 0
 
     def allocate(self, deferred=False):
-        """Allocate a tracking ID. If not deferred, push to L1 stack."""
+        """Allocate a tracking ID. Deferred pushing until second pass via STORE event."""
         self.counter += 1
         if not deferred:
-            self.stack.append(self.counter)
+            self.events.append(('STORE', self.counter))
         return self.counter
 
     def read(self, keys):
-        """Prices keys simultaneously against pre-instruction stack."""
+        """Emits a READ_BATCH logical event mapped to be priced during pass 2."""
         valid = [k for k in keys if k is not None]
         if not valid: return []
-
-        # Fast, order-preserving deduplication
-        unique = list(dict.fromkeys(valid))
-        depths_map = {}
-        cold_keys = []
-        L = len(self.stack)
-
-        # 1. Price simultaneously against the active physical universe
-        for k in unique:
-            try:
-                depths_map[k] = L - self.stack.index(k)
-            except ValueError:
-                # Cold Miss: Paged from just outside the known universe
-                cold_keys.append(k)
-                depths_map[k] = L + len(cold_keys)
-
-        # Bring cold misses into the cache
-        self.stack.extend(cold_keys)
-
-        # 2. Emit events and batch LRU bump
-        self.trace.extend(depths_map[k] for k in valid)
-        for k in valid:
-            self.ir.append(('READ', k, depths_map[k]))
-
-        for k in unique:
-            self.stack.remove(k)
-            self.stack.append(k)
-
-        return [depths_map[k] for k in valid]
-
+        self.events.append(('READ_BATCH', valid))
+        return [0] * len(valid)
 
 class _Tracked:
     __slots__ = ('_ctx', '_key', 'val')
@@ -80,7 +53,6 @@ class _Tracked:
     def __index__(self): return operator.index(self._rd())
     def __hash__(self): return hash(self._rd())
 
-
 def _make_op(op, rev=False):
     name = op.__name__
     def method(self, *args):
@@ -94,18 +66,16 @@ def _make_op(op, rev=False):
         valid_keys = [k for k in read_keys if k is not None]
 
         if res is NotImplemented:
-            self._ctx.ir.append(('OP', name, valid_keys, depths, None))
+            self._ctx.events.append(('OP', name, valid_keys, None))
             return res
 
-        # Record IR length to perfectly insert OP before any new STOREs (fixes tuple returns)
-        ir_len_before = len(self._ctx.ir)
+        self._ctx.events.append(('OP_START', name, valid_keys))
         wrapped = _wrap(self._ctx, res)
         out_key = getattr(wrapped, '_key', None)
         
-        self._ctx.ir.insert(ir_len_before, ('OP', name, valid_keys, depths, out_key))
+        self._ctx.events.append(('OP_END', name, valid_keys, out_key))
         return wrapped
     return method
-
 
 _OPS = {
     **{k: getattr(operator, k) for k in 'add sub mul truediv floordiv mod lshift rshift xor matmul neg pos abs invert eq ne lt le gt ge'.split()},
@@ -117,7 +87,6 @@ for n, f in _OPS.items():
     setattr(_Tracked, f'__{n}__', _make_op(f))
     if n in 'add sub mul truediv floordiv mod divmod pow lshift rshift and xor or matmul'.split():
         setattr(_Tracked, f'__r{n}__', _make_op(f, rev=True))
-
 
 def _wrap(ctx, val, deferred=False):
     if isinstance(val, _Tracked): return val
@@ -147,11 +116,8 @@ def _wrap(ctx, val, deferred=False):
 
     key = ctx.allocate(deferred)
     res = _Tracked(ctx, key, val)
-    if not deferred: 
-        ctx.ir.append(('STORE', key))
     if not is_prim: ctx.memo[vid] = res
     return res
-
 
 def _unwrap(val, memo=None):
     if memo is None: memo = {}
@@ -182,17 +148,114 @@ def _unwrap(val, memo=None):
     if not is_prim: memo[vid] = res
     return res
 
+def _pass2(ctx, res):
+    """Pass 2: Computes liveness over the event log, vaporizes dead variables, and constructs the trace."""
+    events = ctx.events
+    last_use = {}
+    for i, ev in enumerate(events):
+        if ev[0] == 'READ_BATCH':
+            for k in ev[1]:
+                last_use[k] = i
+        elif ev[0] == 'STORE':
+            k = ev[1]
+            if k not in last_use:
+                last_use[k] = i
+
+    names = {}
+    def collect_keys(val):
+        if isinstance(val, _Tracked):
+            names[val._key] = True
+        elif isinstance(val, (list, tuple)):
+            for v in val: collect_keys(v)
+        elif type(val).__name__ == 'ndarray':
+            import numpy as np
+            for v in val.flat: collect_keys(v)
+    collect_keys(res)
+    
+    # Results are marked alive until the end
+    for k in names:
+        last_use[k] = len(events)
+        
+    stack = []
+    trace = []
+    ir = []
+    last_depths_map = {}
+    op_start_stack = []
+    
+    def kill_dead_variables(current_idx):
+        nonlocal stack
+        new_stack = []
+        for k in stack:
+            if last_use.get(k, -1) > current_idx:
+                new_stack.append(k)
+        stack = new_stack
+
+    for i, ev in enumerate(events):
+        if ev[0] == 'STORE':
+            k = ev[1]
+            stack.append(k)
+            ir.append(('STORE', k))
+            kill_dead_variables(i)
+            
+        elif ev[0] == 'READ_BATCH':
+            valid = ev[1]
+            unique = list(dict.fromkeys(valid))
+            depths_map = {}
+            cold_keys = []
+            L = len(stack)
+            
+            # Price simultaneously against active universe
+            for k in unique:
+                try:
+                    depths_map[k] = L - stack.index(k)
+                except ValueError:
+                    cold_keys.append(k)
+                    depths_map[k] = L + len(cold_keys)
+                    
+            stack.extend(cold_keys)
+            
+            trace.extend(depths_map[k] for k in valid)
+            for k in valid:
+                ir.append(('READ', k, depths_map[k]))
+                
+            for k in unique:
+                stack.remove(k)
+                stack.append(k)
+                
+            last_depths_map = depths_map
+            kill_dead_variables(i)
+            
+        elif ev[0] == 'OP_START':
+            op_start_stack.append(len(ir))
+            
+        elif ev[0] == 'OP_END':
+            name, valid_keys, out_key = ev[1], ev[2], ev[3]
+            depths = [last_depths_map.get(k, 0) for k in valid_keys]
+            
+            idx = op_start_stack.pop()
+            ir.insert(idx, ('OP', name, valid_keys, depths, out_key))
+            
+        elif ev[0] == 'OP':
+            # Fallback for NotImplemented returns
+            name, valid_keys, out_key = ev[1], ev[2], ev[3]
+            depths = [last_depths_map.get(k, 0) for k in valid_keys]
+            ir.append(('OP', name, valid_keys, depths, out_key))
+
+    ctx.trace = trace
+    ctx.ir = ir
+    ctx.last_use = last_use
 
 def _sum_usqrt(N):
     if N <= 0: return 0
     M = math.isqrt(N - 1) + 1
     return M * (6 * N - 2 * M * M + 3 * M - 1) // 6
 
-
 def traced_eval(func, args):
     ctx = _Context()
     wrapped_args = tuple(_wrap(ctx, a, deferred=True) for a in args)
     res = func(*wrapped_args)
+    
+    _pass2(ctx, res)
     
     memo = {}
     for orig, wrapped in ctx.sync:
@@ -201,19 +264,17 @@ def traced_eval(func, args):
         
     return ctx.trace, _unwrap(res, memo)
 
-
 def trace_to_bytedmd(trace, bytes_per_element):
     if bytes_per_element == 1: return sum(math.isqrt(d - 1) + 1 for d in trace)
     bpe = bytes_per_element
     return sum(_sum_usqrt(d * bpe) - _sum_usqrt((d - 1) * bpe) for d in trace)
 
-
 def inspect_ir(func, args):
     ctx = _Context()
     wrapped_args = tuple(_wrap(ctx, a, deferred=True) for a in args)
-    func(*wrapped_args)
+    res = func(*wrapped_args)
+    _pass2(ctx, res)
     return ctx.ir
-
 
 def format_ir(ir):
     out, total = [], 0
@@ -232,7 +293,6 @@ def format_ir(ir):
     out.append(f"# total cost = {total}")
     return "\n".join(out)
 
-
 def _collect_keys(wrapped, name, names):
     """Walk a wrapped structure to map tracking keys to human-readable names."""
     if isinstance(wrapped, _Tracked):
@@ -246,7 +306,6 @@ def _collect_keys(wrapped, name, names):
             sub = name + ''.join(f'[{i}]' for i in idx)
             _collect_keys(wrapped[idx], sub, names)
 
-
 _OP_SYMBOLS = {
     'add': '+', 'sub': '-', 'mul': '*', 'truediv': '/', 'floordiv': '//',
     'mod': '%', 'pow': '**', 'matmul': '@', 'lshift': '<<', 'rshift': '>>',
@@ -255,23 +314,42 @@ _OP_SYMBOLS = {
     'abs': 'abs', 'invert': '~',
 }
 
-
 def trace_ir(func, args):
-    """Replay an IR step-by-step with variable names and stack state.
-
-    Uses function parameter names for arguments (e.g., ``a``, ``A[0][1]``)
-    and derives names for intermediates from the operations that produced
-    them (e.g., ``a*b``, ``(a*b)+(c*d)``).
-
-    Returns the formatted string (also printed).
-    """
+    """Replay an IR step-by-step with variable names and the compacted logical stack state."""
     import inspect
     ctx = _Context()
     wrapped_args = tuple(_wrap(ctx, a, deferred=True) for a in args)
-    func(*wrapped_args)
+    res = func(*wrapped_args)
+    
+    _pass2(ctx, res)
     ir = ctx.ir
+    last_use = ctx.last_use
 
-    # Build key → name map from parameter names.
+    # Re-calculate a mapped local `last_use` map dict to tie directly to `ir` iteration formatting
+    last_use_ir = {}
+    for i, ev in enumerate(ir):
+        if ev[0] == 'STORE':
+            if ev[1] not in last_use_ir:
+                last_use_ir[ev[1]] = i
+        elif ev[0] == 'READ':
+            last_use_ir[ev[1]] = i
+        elif ev[0] == 'OP':
+            for k in ev[2]:
+                last_use_ir[k] = i
+
+    names = {}
+    def collect_keys_val(val):
+        if isinstance(val, _Tracked):
+            names[val._key] = True
+        elif isinstance(val, (list, tuple)):
+            for v in val: collect_keys_val(v)
+        elif type(val).__name__ == 'ndarray':
+            import numpy as np
+            for v in val.flat: collect_keys_val(v)
+    collect_keys_val(res)
+    for k in names:
+        last_use_ir[k] = len(ir)
+
     names = {}
     try:
         param_names = list(inspect.signature(func).parameters.keys())
@@ -289,12 +367,22 @@ def trace_ir(func, args):
 
     def fmt_stack():
         return '[' + ', '.join(n(k) for k in stack) + ']'
+        
+    def compact(current_idx):
+        new_stack = []
+        for k in stack:
+            if k in last_use_ir and last_use_ir[k] <= current_idx:
+                pass # Vaporize on death
+            else:
+                new_stack.append(k)
+        stack[:] = new_stack
 
-    for ev in ir:
+    for i, ev in enumerate(ir):
         tag = ev[0]
         if tag == 'STORE':
             key = ev[1]
             stack.append(key)
+            compact(i)
             out.append(f"STORE {n(key):<20}              stack={fmt_stack()}")
         elif tag == 'READ':
             key, depth = ev[1], ev[2]
@@ -303,12 +391,19 @@ def trace_ir(func, args):
                 stack.append(key)
             stack.remove(key)
             stack.append(key)
+            
+            is_last_in_read_block = True
+            if i + 1 < len(ir) and ir[i+1][0] in ('READ', 'OP'):
+                is_last_in_read_block = False
+                
             out.append(f"  READ {n(key)}@{depth:<3} cost={cost:<3}          stack={fmt_stack()}")
+            
+            if is_last_in_read_block:
+                compact(i)
         elif tag == 'OP':
             _, opname, keys, depths, out_key = ev
             total += sum(math.isqrt(d - 1) + 1 for d in depths)
             sym = _OP_SYMBOLS.get(opname, opname)
-            # Derive a name for the result.
             if out_key is not None:
                 if len(keys) == 2:
                     names[out_key] = f"({n(keys[0])}{sym}{n(keys[1])})"
@@ -316,12 +411,14 @@ def trace_ir(func, args):
                     names[out_key] = f"{sym}({n(keys[0])})"
                 else:
                     names[out_key] = f"{opname}({', '.join(n(k) for k in keys)})"
+            
+            # The operation natively completes read requirements, enabling stack clearance
+            compact(i)
 
     out.append(f"# total cost = {total}")
     result = "\n".join(out)
     print(result)
     return result
-
 
 def bytedmd(func, args, bytes_per_element=1):
     trace, _ = traced_eval(func, args)

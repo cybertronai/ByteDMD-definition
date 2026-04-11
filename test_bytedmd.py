@@ -35,9 +35,9 @@ def test_repeated_operand_is_charged_twice():
 
 def test_my_composite_func():
     trace, result = traced_eval(my_composite_func, (1, 2, 3, 4))
-    assert trace == [1, 2, 4, 5, 4, 1]
+    assert trace == [1, 2, 2, 3, 2, 1]
     cost = bytedmd(my_composite_func, (1, 2, 3, 4))
-    assert cost == 11
+    assert cost == 10
 
 def test_dot_product():
     def dot(a, b):
@@ -46,9 +46,9 @@ def test_dot_product():
     a, b = [0, 1], [2, 3]
     trace, result = traced_eval(dot, (a, b))
 
-    assert trace == [1, 2, 4, 5, 4, 1]
+    assert trace == [1, 2, 2, 3, 2, 1]
     assert result == 3
-    assert bytedmd(dot, (a, b)) == 11
+    assert bytedmd(dot, (a, b)) == 10
 
 
 def test_branching_and_comparisons_trace():
@@ -58,10 +58,10 @@ def test_branching_and_comparisons_trace():
         return a
         
     # Branch taken: a > 0 reads a, __bool__ reads result, then a * 2 reads a.
-    # The comparison result is dropped after __bool__, but under tombstone
-    # semantics its slot stays put, so the later read of `a` sees depth 2.
+    # Under aggressive compaction, the comparison result is evicted after
+    # __bool__ (its last use), so the later read of `a` sees depth 1.
     trace_pos, _ = traced_eval(my_relu, (5,))
-    assert trace_pos == [1, 1, 2]
+    assert trace_pos == [1, 1, 1]
 
     # Branch skipped: a > 0 reads a, __bool__ reads result
     trace_neg, _ = traced_eval(my_relu, (-5,))
@@ -79,7 +79,7 @@ def test_divmod_tuple_allocation_trace():
         return q + r + a
         
     trace, result = traced_eval(my_divmod, (10, 3))
-    assert trace == [1, 2, 2, 1, 1, 5]
+    assert trace == [1, 2, 2, 1, 1, 2]
 
 
 def test_implicit_boolean_is_traced():
@@ -155,36 +155,16 @@ def _ceil_sqrt(x):
     return math.isqrt(x - 1) + 1 if x > 0 else 0
 
 
-def _matvec_exact(N):
-    """Exact ByteDMD cost for naive matvec/vecmat from closed-form formulas.
-
-    Derivation: see gemini/matvec-exact-formula.md
-
-    Components:
-      C_add       = 3N(N-1)             accumulator reads (depth 4 and 1)
-      C_firstrow  = 3 + sum(...)        first-row cold misses for A and x
-      C_A_cold    = sum(ceil(sqrt(...))) remaining A cold misses (expanding graveyard)
-      C_x_hot     = N(N-1)*ceil(sqrt(4N-1))  hot hits for x in subsequent rows
-    """
-    import math
-    C_add = 3 * N * (N - 1)
-    C_firstrow = 3 + sum(_ceil_sqrt(4*k) + _ceil_sqrt(4*k + 1) for k in range(1, N))
-    C_A_cold = sum(_ceil_sqrt(3*k - math.ceil(k/N) + N + 1) for k in range(N, N**2))
-    C_x_hot = N * (N - 1) * _ceil_sqrt(4*N - 1)
-    return C_add + C_x_hot + C_firstrow + C_A_cold
-
-
-def test_matvec_vecmat_exact_formula():
-    """Verify matvec and vecmat costs match the closed-form formula at several sizes."""
+def test_matvec_vecmat_symmetry():
+    """Verify matvec and vecmat have identical costs (signature-independent)."""
+    expected = {2: 21, 3: 62, 4: 124, 5: 208, 6: 319, 7: 452, 8: 643}
     for n in [2, 3, 4, 5, 6, 7, 8]:
         A = np.ones((n, n))
         x = np.ones(n)
         mv = bytedmd(_matvec, (A, x))
         vm = bytedmd(_vecmat, (A, x))
-        exact = _matvec_exact(n)
-        assert mv == exact, f"matvec N={n}: got {mv}, expected {exact}"
-        assert vm == exact, f"vecmat N={n}: got {vm}, expected {exact}"
         assert mv == vm, f"N={n}: matvec ({mv}) != vecmat ({vm})"
+        assert mv == expected[n], f"N={n}: got {mv}, expected {expected[n]}"
 
 
 if __name__ == "__main__":
