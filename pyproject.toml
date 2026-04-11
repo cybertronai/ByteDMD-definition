@@ -1,0 +1,10 @@
+[project]
+name = "bytedmd"
+version = "0.1.0"
+description = "A cost model of complexity for the 21st century"
+requires-python = ">=3.9,<3.10"
+dependencies = [
+    "numpy<2.1",
+    "pytest",
+    "matplotlib",
+]

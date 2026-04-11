@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+#!/usr/bin/env uv run python
 import numpy as np
 from bytedmd import bytedmd, traced_eval, trace_to_bytedmd
 
