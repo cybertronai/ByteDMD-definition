@@ -157,18 +157,16 @@ stack clamped to the active working set.
 
 See "benchmarks/" folder
 
-### Matrix-vector (4x4 matrix, 4-vector)
+### Linear algebra (`benchmark_linalg.py`)
 
-| Algorithm | Operation | ByteDMD Cost |
-|-----------|-----------|-------------|
-| matvec (i-j) | y = A @ x | 157 |
-| vecmat (j-i) | y = x^T @ A | 150 |
+ByteDMD cost by method and matrix size `N`:
 
-### Matrix multiply (4x4)
-
-| Algorithm | Operation | ByteDMD Cost |
-|-----------|-----------|-------------|
-| naive matmul (i-j-k) | C = A @ B | 720 |
+|  N | matvec (y=A@x) | vecmat (y=xᵀ@A) | naive matmul (i-j-k) |
+|---:|---------------:|----------------:|---------------------:|
+|  2 |             26 |              25 |                   57 |
+|  4 |            157 |             150 |                  720 |
+|  8 |            896 |             832 |                8,867 |
+| 16 |          5,354 |           4,688 |              109,783 |
 
 ### microGPT single-token forward pass
 
