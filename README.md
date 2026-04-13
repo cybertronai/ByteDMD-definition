@@ -71,7 +71,7 @@ def my_add(a, b, c):
 **1. Initial Stack (left = top, right = bottom)** 
 Arguments are loaded left to right — first argument at the top:
 ```text
-[a, b, c]    ← a at depth 1, b at depth 2, c at depth 3
+[a, b, c]    ← a at distance 1, b at distance 2, c at distance 3
 ```
 
 **2. First operation: `a + b`**  
@@ -81,11 +81,11 @@ $$C(a) + C(b) = \lceil\sqrt{1}\rceil + \lceil\sqrt{2}\rceil = 1 + 2 = 3$$
 
 After LRU bumping and pushing the result `t = a + b`:
 ```text
-[t, b, a, c]    ← t at depth 1, b at depth 2, a at depth 3, c at depth 4
+[t, b, a, c]    ← t at distance 1, b at distance 2, a at distance 3, c at distance 4
 ```
 Liveness analysis evicts `a` and `b` (their last use just happened):
 ```text
-[t, c]    ← t at depth 1, c at depth 2
+[t, c]    ← t at distance 1, c at distance 2
 ```
 
 **3. Second operation: `t + c`**  
