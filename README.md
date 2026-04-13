@@ -24,6 +24,8 @@ assert dot(a,b) == 3
 assert bytedmd(dot, (a, b)) == 12
 ```
 
+**Interactive visualization:** [dot product on the LRU stack](https://cybertronai.github.io/ByteDMD/dotproduct_stack.html) — animated walkthrough of how the stack evolves during a dot product computation.
+
 ## Motivation
 
 

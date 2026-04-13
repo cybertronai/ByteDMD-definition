@@ -1,0 +1,852 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dot Product — LRU Geometric Stack</title>
+    <meta name="description" content="Animated visualization of ByteDMD LRU stack dynamics for dot product computation on a Manhattan spatial computer">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;800&family=JetBrains+Mono:wght@400;600;700&display=swap" rel="stylesheet">
+    <style>
+        *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+
+        body {
+            font-family: 'Inter', sans-serif;
+            background: #080c18;
+            color: #e2e8f0;
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            padding: 24px 16px;
+            background-image:
+                radial-gradient(ellipse at 50% 0%, rgba(99,102,241,0.07) 0%, transparent 50%),
+                linear-gradient(rgba(255,255,255,0.018) 1px, transparent 1px),
+                linear-gradient(90deg, rgba(255,255,255,0.018) 1px, transparent 1px);
+            background-size: 100% 100%, 36px 36px, 36px 36px;
+        }
+
+        #app {
+            position: relative; z-index: 1;
+            max-width: 900px; width: 100%;
+        }
+
+        /* --- Header --- */
+        header { text-align: center; margin-bottom: 16px; }
+        header h1 {
+            font-size: 1.9rem; font-weight: 800;
+            background: linear-gradient(135deg, #00e5ff 0%, #a78bfa 50%, #f472b6 100%);
+            -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+            background-clip: text; letter-spacing: -0.5px;
+        }
+        .subtitle {
+            font-size: 0.82rem; color: #475569; margin-top: 4px;
+            font-family: 'JetBrains Mono', monospace;
+        }
+
+        /* --- Legend --- */
+        .legend {
+            display: flex; justify-content: center; gap: 18px;
+            margin-bottom: 14px; flex-wrap: wrap; font-size: 0.72rem;
+        }
+        .legend-item { display: flex; align-items: center; gap: 5px; color: #64748b; }
+        .legend-swatch { width: 13px; height: 13px; border-radius: 50%; }
+
+        /* --- Controls --- */
+        .controls {
+            display: flex; align-items: center; justify-content: center;
+            gap: 12px; margin-bottom: 18px;
+            padding: 8px 16px;
+            background: rgba(15,23,42,0.5);
+            border: 1px solid rgba(148,163,184,0.1);
+            border-radius: 12px;
+            backdrop-filter: blur(10px);
+        }
+        .step-btn {
+            background: rgba(15,23,42,0.7);
+            border: 1px solid rgba(148,163,184,0.2);
+            color: #94a3b8; padding: 7px 16px; border-radius: 7px;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.82rem; cursor: pointer;
+            transition: all 0.2s;
+            display: flex; align-items: center; justify-content: center;
+        }
+        .step-btn:hover:not(:disabled) {
+            border-color: #7c3aed; color: #e2e8f0;
+            box-shadow: 0 0 10px rgba(124,58,237,0.25);
+        }
+        .step-btn:disabled { opacity: 0.2; cursor: not-allowed; }
+        .step-display {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.82rem; color: #64748b;
+            min-width: 70px; text-align: center;
+        }
+        .play-btn {
+            width: 34px; height: 30px;
+            border: 1px solid rgba(80,180,80,0.3);
+            background: rgba(15,40,15,0.5); color: #50b050;
+            font-size: 13px; border-radius: 7px; cursor: pointer;
+            transition: all 0.2s;
+            display: flex; align-items: center; justify-content: center;
+        }
+        .play-btn:hover {
+            background: rgba(25,60,25,0.6);
+            border-color: rgba(80,180,80,0.5);
+        }
+        .play-btn.playing {
+            border-color: rgba(180,80,80,0.3);
+            background: rgba(40,15,15,0.5); color: #b05050;
+        }
+
+        /* --- Main Layout --- */
+        .main-row {
+            display: flex; gap: 16px; margin-bottom: 16px;
+            align-items: stretch;
+        }
+
+        /* --- Viz Container --- */
+        .viz-container {
+            position: relative;
+            flex: 1;
+            height: 480px;
+            background: rgba(10,15,30,0.5);
+            border: 1px solid rgba(148,163,184,0.08);
+            border-radius: 14px;
+            overflow: hidden;
+        }
+        .viz-container svg {
+            position: absolute;
+            top: 0; left: 0; width: 100%; height: 100%;
+        }
+        #chips-layer {
+            position: absolute;
+            top: 0; left: 0; width: 100%; height: 100%;
+            pointer-events: none;
+        }
+
+        /* --- Variable Chips --- */
+        .chip {
+            position: absolute;
+            width: 50px; height: 50px; border-radius: 50%;
+            display: flex; align-items: center; justify-content: center;
+            font-family: 'JetBrains Mono', monospace;
+            font-weight: 700; font-size: 0.95rem;
+            color: white;
+            text-shadow: 0 1px 3px rgba(0,0,0,0.5);
+            z-index: 10;
+            transform: translate(-50%, -50%);
+            transition:
+                left 0.65s cubic-bezier(0.34, 1.56, 0.64, 1),
+                top 0.65s cubic-bezier(0.34, 1.56, 0.64, 1),
+                opacity 0.4s ease,
+                box-shadow 0.4s ease,
+                transform 0.4s cubic-bezier(0.34, 1.56, 0.64, 1);
+            pointer-events: none;
+        }
+        .chip.at-proc {
+            width: 36px; height: 36px;
+            font-size: 0.75rem;
+            opacity: 0.75;
+        }
+        .chip.hidden {
+            width: 20px; height: 20px;
+            opacity: 0;
+        }
+
+        /* --- Side Table --- */
+        .side-panel {
+            width: 230px;
+            background: rgba(10,15,30,0.5);
+            border: 1px solid rgba(148,163,184,0.08);
+            border-radius: 14px;
+            padding: 14px;
+            display: flex; flex-direction: column;
+        }
+        .side-title {
+            font-size: 0.75rem; font-weight: 600;
+            color: #7c3aed; text-transform: uppercase;
+            letter-spacing: 0.5px; margin-bottom: 10px;
+            text-align: center;
+        }
+        .stack-table {
+            width: 100%; border-collapse: collapse;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.75rem;
+        }
+        .stack-table th {
+            color: #475569; font-weight: 600; padding: 4px 6px;
+            border-bottom: 1px solid rgba(148,163,184,0.1);
+            text-align: center; font-size: 0.68rem;
+            text-transform: uppercase; letter-spacing: 0.3px;
+        }
+        .stack-table td {
+            padding: 5px 6px; text-align: center;
+            border-bottom: 1px solid rgba(148,163,184,0.05);
+            color: #94a3b8;
+        }
+        .stack-table tr.active-row td {
+            color: #e2e8f0; font-weight: 600;
+            background: rgba(124,58,237,0.1);
+        }
+        .stack-table tr.read-row td {
+            color: #fb7185;
+            background: rgba(251,113,133,0.08);
+        }
+        .stack-table .var-chip {
+            display: inline-block;
+            width: 8px; height: 8px; border-radius: 50%;
+            margin-right: 4px; vertical-align: middle;
+        }
+        .formula-panel {
+            margin-top: auto;
+            padding-top: 12px;
+            border-top: 1px solid rgba(148,163,184,0.08);
+            text-align: center;
+        }
+        .formula {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.85rem; color: #94a3b8;
+        }
+        .formula strong { color: #c084fc; }
+
+        /* --- Info Panel --- */
+        .info-panel {
+            background: rgba(10,15,30,0.5);
+            border: 1px solid rgba(148,163,184,0.08);
+            border-radius: 12px;
+            padding: 14px 20px; margin-bottom: 12px;
+            min-height: 80px;
+        }
+        .info-label {
+            font-size: 0.95rem; font-weight: 600;
+            color: #c084fc; margin-bottom: 4px;
+        }
+        .info-desc {
+            font-size: 0.82rem; color: #94a3b8; line-height: 1.55;
+        }
+        .info-desc strong { color: #00e5ff; }
+        .info-desc em { color: #fbbf24; font-style: normal; }
+        .cost-line {
+            margin-top: 8px; display: flex; gap: 16px;
+            font-family: 'JetBrains Mono', monospace; font-size: 0.78rem;
+        }
+        .cost-badge {
+            background: rgba(124,58,237,0.2);
+            border: 1px solid rgba(124,58,237,0.35);
+            border-radius: 5px; padding: 2px 10px; color: #c084fc;
+        }
+        .cost-delta {
+            color: #fb7185;
+        }
+
+        /* --- Keyboard hint --- */
+        .keyboard-hint {
+            text-align: center; font-size: 0.65rem; color: #1e293b;
+        }
+        .keyboard-hint kbd {
+            display: inline-block; padding: 1px 5px;
+            background: rgba(30,41,59,0.5);
+            border: 1px solid rgba(71,85,105,0.2);
+            border-radius: 3px;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.6rem; color: #334155;
+        }
+    </style>
+</head>
+<body>
+<div id="app">
+    <header>
+        <h1>LRU Geometric Stack</h1>
+        <div class="subtitle">dot(x, y) = x₀·y₀ + x₁·y₁ + x₂·y₂ + x₃·y₃ — ByteDMD Trace</div>
+    </header>
+
+    <div class="legend">
+        <div class="legend-item"><div class="legend-swatch" style="background:linear-gradient(135deg,#38bdf8,#0077b6)"></div> Input x</div>
+        <div class="legend-item"><div class="legend-swatch" style="background:linear-gradient(135deg,#34d399,#059669)"></div> Input y</div>
+        <div class="legend-item"><div class="legend-swatch" style="background:linear-gradient(135deg,#fb923c,#dc2626)"></div> Products</div>
+        <div class="legend-item"><div class="legend-swatch" style="background:linear-gradient(135deg,#c084fc,#7c3aed)"></div> Partial sums</div>
+        <div class="legend-item"><div class="legend-swatch" style="background:linear-gradient(135deg,#a855f7,#ec4899)"></div> Result</div>
+    </div>
+
+    <div class="controls">
+        <button class="step-btn" id="btn-start" onclick="goStart()" title="Reset (R)">⏮</button>
+        <button class="step-btn" id="btn-prev" onclick="prevStep()" title="Previous (←)">◀</button>
+        <span class="step-display" id="step-display">1 / 22</span>
+        <button class="step-btn" id="btn-next" onclick="nextStep()" title="Next (→)">▶</button>
+        <button class="step-btn" id="btn-end" onclick="goEnd()">⏭</button>
+        <button class="play-btn" id="btn-play" onclick="togglePlay()" title="Play / Pause (Space)">▶</button>
+    </div>
+
+    <div class="main-row">
+        <div class="viz-container" id="viz-container">
+            <svg id="grid-svg"></svg>
+            <div id="chips-layer"></div>
+        </div>
+        <div class="side-panel">
+            <div class="side-title">Stack State</div>
+            <table class="stack-table" id="stack-table">
+                <thead><tr><th>Depth</th><th>Var</th><th>(x, y)</th><th>Cost</th></tr></thead>
+                <tbody id="stack-tbody"></tbody>
+            </table>
+            <div class="formula-panel">
+                <div class="formula" id="formula-text"></div>
+            </div>
+        </div>
+    </div>
+
+    <div class="info-panel" id="info-panel">
+        <div class="info-label" id="info-label"></div>
+        <div class="info-desc" id="info-desc"></div>
+        <div class="cost-line">
+            <span class="cost-badge" id="cost-badge"></span>
+            <span class="cost-delta" id="cost-delta"></span>
+        </div>
+    </div>
+
+    <div class="keyboard-hint">
+        <kbd>←</kbd><kbd>→</kbd> step &nbsp;
+        <kbd>Space</kbd> play/pause &nbsp;
+        <kbd>R</kbd> reset
+    </div>
+</div>
+
+<script>
+// ============================================================
+// GEOMETRY — Upper-half spiral from manhattan_figure.py
+// ============================================================
+const CELL = 60;
+const NUM_SLOTS = 9;
+
+// Processor screen coords (center of viz, near top)
+let PROC_SX, PROC_SY;
+
+function isqrtCeil(x) {
+    if (x <= 0) return 0;
+    return Math.floor(Math.sqrt(x - 1)) + 1;   // matches Python isqrt(x-1)+1
+}
+
+function spiralGrid(depth) {
+    // Returns [gx, gy] grid coords — exact match of upper_half_spiral()
+    if (depth <= 0) return [0, 0];
+    const k = isqrtCeil(depth);
+    const startI = (k - 1) * (k - 1) + 1;
+    const idx = depth - startI;
+    let x;
+    if (k % 2 === 1) x = (k - 1) - idx;
+    else x = -(k - 1) + idx;
+    const y = k - Math.abs(x);
+    return [x, y];
+}
+
+function toScreen(gx, gy) {
+    // Flipped: processor at top, stack grows downward; mirrored left-right
+    return [PROC_SX - gx * CELL, PROC_SY + gy * CELL];
+}
+
+function depthScreen(d) {
+    const [gx, gy] = spiralGrid(d);
+    return toScreen(gx, gy);
+}
+
+// ============================================================
+// VARIABLE DEFINITIONS
+// ============================================================
+const V = {
+    x0:   { label: 'x₀',   bg: 'linear-gradient(135deg,#38bdf8,#0077b6)', shadow: 'rgba(56,189,248,0.35)',  dot: '#38bdf8' },
+    x1:   { label: 'x₁',   bg: 'linear-gradient(135deg,#38bdf8,#0077b6)', shadow: 'rgba(56,189,248,0.35)',  dot: '#38bdf8' },
+    x2:   { label: 'x₂',   bg: 'linear-gradient(135deg,#38bdf8,#0077b6)', shadow: 'rgba(56,189,248,0.35)',  dot: '#38bdf8' },
+    x3:   { label: 'x₃',   bg: 'linear-gradient(135deg,#38bdf8,#0077b6)', shadow: 'rgba(56,189,248,0.35)',  dot: '#38bdf8' },
+    y0:   { label: 'y₀',   bg: 'linear-gradient(135deg,#34d399,#059669)', shadow: 'rgba(52,211,153,0.35)',  dot: '#34d399' },
+    y1:   { label: 'y₁',   bg: 'linear-gradient(135deg,#34d399,#059669)', shadow: 'rgba(52,211,153,0.35)',  dot: '#34d399' },
+    y2:   { label: 'y₂',   bg: 'linear-gradient(135deg,#34d399,#059669)', shadow: 'rgba(52,211,153,0.35)',  dot: '#34d399' },
+    y3:   { label: 'y₃',   bg: 'linear-gradient(135deg,#34d399,#059669)', shadow: 'rgba(52,211,153,0.35)',  dot: '#34d399' },
+    m0:   { label: 'm₀',   bg: 'linear-gradient(135deg,#fb923c,#dc2626)', shadow: 'rgba(251,146,60,0.35)',  dot: '#fb923c' },
+    m1:   { label: 'm₁',   bg: 'linear-gradient(135deg,#fb923c,#dc2626)', shadow: 'rgba(251,146,60,0.35)',  dot: '#fb923c' },
+    m2:   { label: 'm₂',   bg: 'linear-gradient(135deg,#fb923c,#dc2626)', shadow: 'rgba(251,146,60,0.35)',  dot: '#fb923c' },
+    m3:   { label: 'm₃',   bg: 'linear-gradient(135deg,#fb923c,#dc2626)', shadow: 'rgba(251,146,60,0.35)',  dot: '#fb923c' },
+    s01:  { label: 's₀₁',  bg: 'linear-gradient(135deg,#c084fc,#7c3aed)', shadow: 'rgba(192,132,252,0.35)', dot: '#c084fc' },
+    s012: { label: 's₀₁₂', bg: 'linear-gradient(135deg,#c084fc,#7c3aed)', shadow: 'rgba(192,132,252,0.35)', dot: '#c084fc' },
+    z:    { label: 'z',     bg: 'linear-gradient(135deg,#a855f7,#ec4899)', shadow: 'rgba(168,85,247,0.35)',  dot: '#a855f7' },
+};
+
+// ============================================================
+// STATES — From ByteDMD trace_ir output for dot4
+//   vars: depth (number) | 'proc' | undefined (hidden)
+// ============================================================
+const states = [
+    {
+        label: "Initial State",
+        desc: "Vectors <strong>x</strong>=[x₀,x₁,x₂,x₃] and <strong>y</strong>=[y₀,y₁,y₂,y₃] loaded onto the LRU stack.<br>y₃ is most-recently-used (depth 1). x₀ is deepest (depth 8, ring 3).",
+        vars: { x0: 8, x1: 7, x2: 6, x3: 5, y0: 4, y1: 3, y2: 2, y3: 1 },
+        reads: [],
+        cost: 0, delta: 0,
+    },
+    {
+        label: "Step 1A — Highlight x₀, y₀",
+        desc: "Identify x₀ at depth 8 (cost = ⌈√8⌉ = <strong>3</strong>) and y₀ at depth 4 (cost = ⌈√4⌉ = <strong>2</strong>).<br>Cost paths shown in red.",
+        vars: { x0: 8, x1: 7, x2: 6, x3: 5, y0: 4, y1: 3, y2: 2, y3: 1 },
+        reads: [{ id: 'x0', depth: 8 }, { id: 'y0', depth: 4 }],
+        cost: 5, delta: 5,
+    },
+    {
+        label: "Step 1B — Pull into PE",
+        desc: "Variables pulled into processor.<br>Dead variables <em>vaporized</em>. Survivors slide.",
+        vars: { x0: 'proc', x1: 6, x2: 5, x3: 4, y0: 'proc', y1: 3, y2: 2, y3: 1 },
+        reads: [{ id: 'x0', depth: 8 }, { id: 'y0', depth: 4 }],
+        cost: 5, delta: 0,
+    },
+    {
+        label: "Step 1C — Store m₀ = x₀·y₀",
+        desc: "Product <strong>m₀</strong> pushed to depth 1. All survivors pushed outward by 1.",
+        vars: { x1: 7, x2: 6, x3: 5, y1: 4, y2: 3, y3: 2, m0: 1 },
+        reads: [],
+        cost: 5, delta: 0,
+    },
+    {
+        label: "Step 2A — Highlight x₁, y₁",
+        desc: "Identify x₁ at depth 7 (cost = ⌈√7⌉ = <strong>3</strong>) and y₁ at depth 4 (cost = ⌈√4⌉ = <strong>2</strong>).<br>Cost paths shown in red.",
+        vars: { x1: 7, x2: 6, x3: 5, y1: 4, y2: 3, y3: 2, m0: 1 },
+        reads: [{ id: 'x1', depth: 7 }, { id: 'y1', depth: 4 }],
+        cost: 10, delta: 5,
+    },
+    {
+        label: "Step 2B — Pull into PE",
+        desc: "Variables pulled into processor.<br>Dead variables <em>vaporized</em>. Survivors slide.",
+        vars: { x1: 'proc', x2: 5, x3: 4, y1: 'proc', y2: 3, y3: 2, m0: 1 },
+        reads: [{ id: 'x1', depth: 7 }, { id: 'y1', depth: 4 }],
+        cost: 10, delta: 0,
+    },
+    {
+        label: "Step 2C — Store m₁ = x₁·y₁",
+        desc: "Product <strong>m₁</strong> pushed to depth 1. Survivors pushed outward.",
+        vars: { x2: 6, x3: 5, y2: 4, y3: 3, m0: 2, m1: 1 },
+        reads: [],
+        cost: 10, delta: 0,
+    },
+    {
+        label: "Step 3A — Highlight m₀, m₁",
+        desc: "Identify m₀ at depth 2 (cost = ⌈√2⌉ = <strong>2</strong>) and m₁ at depth 1 (cost = ⌈√1⌉ = <strong>1</strong>).<br>Cost paths shown in red.",
+        vars: { x2: 6, x3: 5, y2: 4, y3: 3, m0: 2, m1: 1 },
+        reads: [{ id: 'm0', depth: 2 }, { id: 'm1', depth: 1 }],
+        cost: 13, delta: 3,
+    },
+    {
+        label: "Step 3B — Pull into PE",
+        desc: "Variables pulled into processor.<br>Dead variables <em>vaporized</em>. Survivors slide.",
+        vars: { x2: 4, x3: 3, y2: 2, y3: 1, m0: 'proc', m1: 'proc' },
+        reads: [{ id: 'm0', depth: 2 }, { id: 'm1', depth: 1 }],
+        cost: 13, delta: 0,
+    },
+    {
+        label: "Step 3C — Store s₀₁ = m₀ + m₁",
+        desc: "Partial sum <strong>s₀₁</strong> = x₀y₀ + x₁y₁ pushed to depth 1. Survivors pushed outward.",
+        vars: { x2: 5, x3: 4, y2: 3, y3: 2, s01: 1 },
+        reads: [],
+        cost: 13, delta: 0,
+    },
+    {
+        label: "Step 4A — Highlight x₂, y₂",
+        desc: "Identify x₂ at depth 5 (cost = ⌈√5⌉ = <strong>3</strong>) and y₂ at depth 3 (cost = ⌈√3⌉ = <strong>2</strong>).<br>Cost paths shown in red.",
+        vars: { x2: 5, x3: 4, y2: 3, y3: 2, s01: 1 },
+        reads: [{ id: 'x2', depth: 5 }, { id: 'y2', depth: 3 }],
+        cost: 18, delta: 5,
+    },
+    {
+        label: "Step 4B — Pull into PE",
+        desc: "Variables pulled into processor.<br>Dead variables <em>vaporized</em>. Survivors slide.",
+        vars: { x2: 'proc', x3: 3, y2: 'proc', y3: 2, s01: 1 },
+        reads: [{ id: 'x2', depth: 5 }, { id: 'y2', depth: 3 }],
+        cost: 18, delta: 0,
+    },
+    {
+        label: "Step 4C — Store m₂ = x₂·y₂",
+        desc: "Product <strong>m₂</strong> pushed to depth 1. Survivors pushed outward.",
+        vars: { x3: 4, y3: 3, s01: 2, m2: 1 },
+        reads: [],
+        cost: 18, delta: 0,
+    },
+    {
+        label: "Step 5A — Highlight s₀₁, m₂",
+        desc: "Identify s₀₁ at depth 2 (cost = ⌈√2⌉ = <strong>2</strong>) and m₂ at depth 1 (cost = ⌈√1⌉ = <strong>1</strong>).<br>Cost paths shown in red.",
+        vars: { x3: 4, y3: 3, s01: 2, m2: 1 },
+        reads: [{ id: 's01', depth: 2 }, { id: 'm2', depth: 1 }],
+        cost: 21, delta: 3,
+    },
+    {
+        label: "Step 5B — Pull into PE",
+        desc: "Variables pulled into processor.<br>Dead variables <em>vaporized</em>. Survivors slide.",
+        vars: { x3: 2, y3: 1, s01: 'proc', m2: 'proc' },
+        reads: [{ id: 's01', depth: 2 }, { id: 'm2', depth: 1 }],
+        cost: 21, delta: 0,
+    },
+    {
+        label: "Step 5C — Store s₀₁₂ = s₀₁ + m₂",
+        desc: "Partial sum <strong>s₀₁₂</strong> = x₀y₀ + x₁y₁ + x₂y₂ pushed to depth 1. Survivors pushed outward.",
+        vars: { x3: 3, y3: 2, s012: 1 },
+        reads: [],
+        cost: 21, delta: 0,
+    },
+    {
+        label: "Step 6A — Highlight x₃, y₃",
+        desc: "Identify x₃ at depth 3 (cost = ⌈√3⌉ = <strong>2</strong>) and y₃ at depth 2 (cost = ⌈√2⌉ = <strong>2</strong>).<br>Cost paths shown in red.",
+        vars: { x3: 3, y3: 2, s012: 1 },
+        reads: [{ id: 'x3', depth: 3 }, { id: 'y3', depth: 2 }],
+        cost: 25, delta: 4,
+    },
+    {
+        label: "Step 6B — Pull into PE",
+        desc: "Variables pulled into processor.<br>Dead variables <em>vaporized</em>. Survivors slide.",
+        vars: { x3: 'proc', y3: 'proc', s012: 1 },
+        reads: [{ id: 'x3', depth: 3 }, { id: 'y3', depth: 2 }],
+        cost: 25, delta: 0,
+    },
+    {
+        label: "Step 6C — Store m₃ = x₃·y₃",
+        desc: "Product <strong>m₃</strong> pushed to depth 1. s₀₁₂ pushed to depth 2.",
+        vars: { s012: 2, m3: 1 },
+        reads: [],
+        cost: 25, delta: 0,
+    },
+    {
+        label: "Step 7A — Highlight s₀₁₂, m₃",
+        desc: "Identify s₀₁₂ at depth 2 (cost = ⌈√2⌉ = <strong>2</strong>) and m₃ at depth 1 (cost = ⌈√1⌉ = <strong>1</strong>).<br>Cost paths shown in red.",
+        vars: { s012: 2, m3: 1 },
+        reads: [{ id: 's012', depth: 2 }, { id: 'm3', depth: 1 }],
+        cost: 28, delta: 3,
+    },
+    {
+        label: "Step 7B — Pull into PE",
+        desc: "Variables pulled into processor.<br>Dead variables <em>vaporized</em>. Survivors slide.",
+        vars: { s012: 'proc', m3: 'proc' },
+        reads: [{ id: 's012', depth: 2 }, { id: 'm3', depth: 1 }],
+        cost: 28, delta: 0,
+    },
+    {
+        label: "Final — Store z = x₀y₀ + x₁y₁ + x₂y₂ + x₃y₃",
+        desc: "Dot product result <strong>z</strong> stored at depth 1.<br>Total ByteDMD cost = <strong>28</strong> — the sum of Manhattan distances over all reads.",
+        vars: { z: 1 },
+        reads: [],
+        cost: 28, delta: 0,
+    },
+];
+
+// ============================================================
+// BUILD SVG
+// ============================================================
+function buildSVG() {
+    const svg = document.getElementById('grid-svg');
+    const rect = document.getElementById('viz-container').getBoundingClientRect();
+    const W = rect.width, H = rect.height;
+    svg.setAttribute('viewBox', `0 0 ${W} ${H}`);
+
+    PROC_SX = W / 2;
+    PROC_SY = 60;
+
+    let s = '';
+
+    // Defs
+    s += `<defs>
+        <marker id="arr" markerWidth="7" markerHeight="5" refX="6" refY="2.5" orient="auto">
+            <polygon points="0 0, 7 2.5, 0 5" fill="rgba(148,163,184,0.25)"/>
+        </marker>
+        <marker id="arr-red" markerWidth="7" markerHeight="5" refX="6" refY="2.5" orient="auto">
+            <polygon points="0 0, 7 2.5, 0 5" fill="rgba(251,113,133,0.6)"/>
+        </marker>
+    </defs>`;
+
+    // Subtle grid lines
+    for (let gx = -3; gx <= 3; gx++) {
+        const [sx] = toScreen(gx, 0);
+        s += `<line x1="${sx}" y1="${PROC_SY - 20}" x2="${sx}" y2="${PROC_SY + 3.5 * CELL + 10}" stroke="rgba(148,163,184,0.04)" stroke-width="1"/>`;
+    }
+    for (let gy = 0; gy <= 4; gy++) {
+        const [, sy] = toScreen(0, gy);
+        s += `<line x1="${PROC_SX - 3 * CELL - 10}" y1="${sy}" x2="${PROC_SX + 3 * CELL + 10}" y2="${sy}" stroke="rgba(148,163,184,0.04)" stroke-width="1"/>`;
+    }
+
+    // Manhattan distance rings (upper-half diamonds)
+    const ringStyles = [
+        '',
+        { color: 'rgba(139,92,246,0.25)', label: 'Ring 1 — 1 slot', ly: -18 },
+        { color: 'rgba(236,72,153,0.2)',  label: 'Ring 2 — 3 slots', ly: -18 },
+        { color: 'rgba(251,191,36,0.15)', label: 'Ring 3 — 5 slots', ly: -18 },
+    ];
+    for (let ring = 1; ring <= 3; ring++) {
+        const pts = [];
+        for (let dx = -ring; dx <= ring; dx++) {
+            const dy = ring - Math.abs(dx);
+            if (dy >= 1) pts.push(toScreen(dx, dy));
+        }
+        // Add the outer base corners at y=0 for a complete visual arc
+        pts.unshift(toScreen(-ring, 0));
+        pts.push(toScreen(ring, 0));
+        const d = pts.map((p, i) => (i === 0 ? 'M' : 'L') + p[0] + ',' + p[1]).join(' ');
+        s += `<path d="${d}" fill="none" stroke="${ringStyles[ring].color}" stroke-width="1.5" stroke-dasharray="6,4"/>`;
+        // Ring label on the right side of screen (negate grid x for mirror)
+        const labelPt = toScreen(-(ring + 0.15), 0.3);
+        s += `<text x="${labelPt[0]}" y="${labelPt[1]}" fill="${ringStyles[ring].color}" font-family="Inter" font-size="9.5" font-weight="600" opacity="0.9">${ringStyles[ring].label}</text>`;
+    }
+
+    // Spiral path arrows (depth d → d+1)
+    for (let d = 1; d < NUM_SLOTS; d++) {
+        const [x1, y1] = depthScreen(d);
+        const [x2, y2] = depthScreen(d + 1);
+        // Shorten line so arrow doesn't overlap circle
+        const dx = x2 - x1, dy = y2 - y1;
+        const len = Math.sqrt(dx * dx + dy * dy);
+        const shr = 22; // shrink from each end
+        const sx1 = x1 + dx / len * shr, sy1 = y1 + dy / len * shr;
+        const sx2 = x2 - dx / len * shr, sy2 = y2 - dy / len * shr;
+        s += `<line x1="${sx1}" y1="${sy1}" x2="${sx2}" y2="${sy2}" stroke="rgba(148,163,184,0.12)" stroke-width="1.5" marker-end="url(#arr)"/>`;
+    }
+    // Arrow from processor to depth 1
+    {
+        const [x2, y2] = depthScreen(1);
+        const dx = x2 - PROC_SX, dy = y2 - PROC_SY;
+        const len = Math.sqrt(dx * dx + dy * dy);
+        const shr = 24;
+        s += `<line x1="${PROC_SX + dx / len * shr}" y1="${PROC_SY + dy / len * shr}" x2="${x2 - dx / len * shr}" y2="${y2 - dy / len * shr}" stroke="rgba(148,163,184,0.12)" stroke-width="1.5" marker-end="url(#arr)"/>`;
+    }
+
+    // Depth slot circles with labels
+    const slotColor = d => {
+        const r = isqrtCeil(d);
+        if (r === 1) return '#8b5cf6';
+        if (r === 2) return '#ec4899';
+        return '#fbbf24';
+    };
+    for (let d = 1; d <= NUM_SLOTS; d++) {
+        const [sx, sy] = depthScreen(d);
+        const c = slotColor(d);
+        s += `<circle cx="${sx}" cy="${sy}" r="24" fill="none" stroke="${c}" stroke-width="1.5" stroke-dasharray="5,4" opacity="0.35" id="slot-${d}"/>`;
+        // depth label below
+        s += `<text x="${sx}" y="${sy + 35}" text-anchor="middle" fill="${c}" font-family="JetBrains Mono" font-size="10" font-weight="600" opacity="0.5">d=${d}</text>`;
+    }
+
+    // Processor diamond
+    s += `<g>
+        <rect x="${PROC_SX - 18}" y="${PROC_SY - 18}" width="36" height="36" rx="7"
+              fill="rgba(20,10,40,0.85)" stroke="#e879a0" stroke-width="2.5"
+              transform="rotate(45 ${PROC_SX} ${PROC_SY})"/>
+        <text x="${PROC_SX}" y="${PROC_SY + 5}" text-anchor="middle" fill="white"
+              font-family="JetBrains Mono" font-weight="700" font-size="13">PE</text>
+    </g>`;
+
+    // Dynamic cost-path layer
+    s += `<g id="cost-paths"></g>`;
+
+    svg.innerHTML = s;
+}
+
+// ============================================================
+// BUILD CHIPS
+// ============================================================
+const chipEls = {};
+
+function buildChips() {
+    const layer = document.getElementById('chips-layer');
+    layer.innerHTML = '';
+    Object.entries(V).forEach(([id, def]) => {
+        const chip = document.createElement('div');
+        chip.className = 'chip hidden';
+        chip.style.background = def.bg;
+        chip.style.boxShadow = `0 4px 14px ${def.shadow}`;
+        chip.innerHTML = def.label;
+        chip.style.left = PROC_SX + 'px';
+        chip.style.top = PROC_SY + 'px';
+        layer.appendChild(chip);
+        chipEls[id] = chip;
+    });
+}
+
+// ============================================================
+// RENDER
+// ============================================================
+let currentState = 0;
+
+function renderState() {
+    const st = states[currentState];
+
+    // --- Chips ---
+    Object.keys(V).forEach(id => {
+        const chip = chipEls[id];
+        const pos = st.vars[id];
+        if (pos === undefined) {
+            chip.style.left = PROC_SX + 'px';
+            chip.style.top = PROC_SY + 'px';
+            chip.style.opacity = '0';
+            chip.style.boxShadow = `0 0 0 transparent`;
+        } else if (pos === 'proc') {
+            chip.style.left = PROC_SX + 'px';
+            chip.style.top = PROC_SY + 'px';
+            chip.style.opacity = '0.7';
+            chip.style.width = '36px';
+            chip.style.height = '36px';
+            chip.style.fontSize = '0.7rem';
+            chip.style.boxShadow = `0 0 18px ${V[id].shadow}`;
+        } else {
+            const [sx, sy] = depthScreen(pos);
+            chip.style.left = sx + 'px';
+            chip.style.top = sy + 'px';
+            chip.style.opacity = '1';
+            chip.style.width = '44px';
+            chip.style.height = '44px';
+            chip.style.fontSize = '0.8rem';
+            
+            const isHighlighted = st.label.includes('Highlight') && st.reads.some(r => r.id === id);
+            if (isHighlighted) {
+                chip.style.boxShadow = `0 0 0 3px #fb7185, 0 8px 20px ${V[id].shadow}`;
+                chip.style.transform = 'translate(-50%, -50%) scale(1.15)';
+                chip.style.zIndex = '10';
+            } else {
+                chip.style.boxShadow = `0 4px 14px ${V[id].shadow}`;
+                chip.style.transform = 'translate(-50%, -50%) scale(1)';
+                chip.style.zIndex = '1';
+            }
+        }
+    });
+
+    // --- Cost paths (red L-shapes) ---
+    const cp = document.getElementById('cost-paths');
+    let pathHTML = '';
+    st.reads.forEach(r => {
+        const [gx, gy] = spiralGrid(r.depth);
+        const [tx, ty] = toScreen(gx, gy);
+        const [, midY] = toScreen(0, gy);
+        // L-shaped path: (0,0) → (0, gy) → (gx, gy) — vertical then horizontal
+        pathHTML += `<path d="M ${PROC_SX} ${PROC_SY} L ${PROC_SX} ${midY} L ${tx} ${ty}" fill="none" stroke="rgba(251,113,133,0.45)" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>`;
+        // Cost label (use screen-space logic for positioning)
+        const cost = isqrtCeil(r.depth);
+        const onRight = tx >= PROC_SX;
+        const lx = tx + (onRight ? 16 : -16);
+        const anchor = onRight ? 'start' : 'end';
+        pathHTML += `<text x="${lx}" y="${ty - 10}" text-anchor="${anchor}" fill="#fb7185" font-family="JetBrains Mono" font-size="9" font-weight="700">cost=${cost}</text>`;
+    });
+    cp.innerHTML = pathHTML;
+
+    // --- Highlight accessed slots ---
+    for (let d = 1; d <= NUM_SLOTS; d++) {
+        const el = document.getElementById('slot-' + d);
+        if (!el) continue;
+        const isRead = st.reads.some(r => r.depth === d);
+        el.setAttribute('opacity', isRead ? '0.8' : '0.35');
+        el.setAttribute('stroke-width', isRead ? '2.5' : '1.5');
+    }
+
+    // --- Side table ---
+    const tbody = document.getElementById('stack-tbody');
+    // Collect stack entries sorted by depth
+    const stackEntries = Object.entries(st.vars)
+        .filter(([, v]) => typeof v === 'number')
+        .map(([id, d]) => ({ id, depth: d }))
+        .sort((a, b) => a.depth - b.depth);
+    // Also include read entries
+    const readIds = new Set(st.reads.map(r => r.id));
+
+    let rows = '';
+    // Show occupied + read depths
+    const allEntries = [
+        ...stackEntries.map(e => ({ ...e, type: 'stack' })),
+        ...st.reads.map(r => ({ id: r.id, depth: r.depth, type: 'read' }))
+    ].sort((a, b) => a.depth - b.depth);
+
+    allEntries.forEach(e => {
+        const [gx, gy] = spiralGrid(e.depth);
+        const cost = isqrtCeil(e.depth);
+        const cls = e.type === 'read' ? 'read-row' : 'active-row';
+        const def = V[e.id];
+        rows += `<tr class="${cls}">
+            <td>${e.depth}</td>
+            <td><span class="var-chip" style="background:${def.dot}"></span>${def.label}</td>
+            <td>(${gx >= 0 ? '+' : ''}${gx}, ${gy})</td>
+            <td>${cost}</td>
+        </tr>`;
+    });
+    if (allEntries.length === 0) {
+        rows = `<tr><td colspan="4" style="color:#334155; font-style:italic; padding:12px">empty</td></tr>`;
+    }
+    tbody.innerHTML = rows;
+
+    // --- Formula ---
+    const formulaEl = document.getElementById('formula-text');
+    if (currentState === 0)        formulaEl.innerHTML = '<strong>z</strong> = x₀·y₀ + x₁·y₁ + x₂·y₂ + x₃·y₃';
+    else if (currentState <= 3)    formulaEl.innerHTML = '<strong>m₀</strong> = x₀ · y₀';
+    else if (currentState <= 6)    formulaEl.innerHTML = '<strong>m₁</strong> = x₁ · y₁';
+    else if (currentState <= 9)    formulaEl.innerHTML = '<strong>s₀₁</strong> = m₀ + m₁';
+    else if (currentState <= 12)   formulaEl.innerHTML = '<strong>m₂</strong> = x₂ · y₂';
+    else if (currentState <= 15)   formulaEl.innerHTML = '<strong>s₀₁₂</strong> = s₀₁ + m₂';
+    else if (currentState <= 18)   formulaEl.innerHTML = '<strong>m₃</strong> = x₃ · y₃';
+    else                           formulaEl.innerHTML = '<strong>z</strong> = s₀₁₂ + m₃';
+
+    // --- Info panel ---
+    document.getElementById('info-label').textContent = st.label;
+    document.getElementById('info-desc').innerHTML = st.desc;
+    document.getElementById('cost-badge').textContent = `Total cost: ${st.cost}`;
+    document.getElementById('cost-delta').textContent = st.delta > 0 ? `(+${st.delta} this step)` : '';
+
+    // --- Controls ---
+    document.getElementById('step-display').textContent = `${currentState + 1} / ${states.length}`;
+    document.getElementById('btn-prev').disabled = currentState <= 0;
+    document.getElementById('btn-next').disabled = currentState >= states.length - 1;
+    document.getElementById('btn-start').disabled = currentState <= 0;
+    document.getElementById('btn-end').disabled = currentState >= states.length - 1;
+}
+
+// ============================================================
+// CONTROLS
+// ============================================================
+function nextStep() { if (currentState < states.length - 1) { currentState++; renderState(); } }
+function prevStep() { if (currentState > 0) { currentState--; renderState(); } }
+function goStart() { currentState = 0; renderState(); stopPlay(); }
+function goEnd() { currentState = states.length - 1; renderState(); stopPlay(); }
+
+let playing = false, playTimer = null;
+function togglePlay() {
+    if (playing) stopPlay();
+    else {
+        playing = true;
+        document.getElementById('btn-play').textContent = '⏸';
+        document.getElementById('btn-play').classList.add('playing');
+        playTimer = setInterval(() => {
+            if (currentState < states.length - 1) { currentState++; renderState(); }
+            else stopPlay();
+        }, 1200);
+    }
+}
+function stopPlay() {
+    playing = false;
+    if (playTimer) { clearInterval(playTimer); playTimer = null; }
+    const btn = document.getElementById('btn-play');
+    if (btn) { btn.textContent = '▶'; btn.classList.remove('playing'); }
+}
+
+document.addEventListener('keydown', e => {
+    if (e.target.tagName === 'INPUT') return;
+    switch (e.key) {
+        case 'ArrowRight': e.preventDefault(); nextStep(); break;
+        case 'ArrowLeft':  e.preventDefault(); prevStep(); break;
+        case ' ':          e.preventDefault(); togglePlay(); break;
+        case 'r': case 'R': goStart(); break;
+    }
+});
+
+// ============================================================
+// BOOT
+// ============================================================
+window.addEventListener('DOMContentLoaded', () => {
+    buildSVG();
+    buildChips();
+    renderState();
+});
+
+// Rebuild on resize
+window.addEventListener('resize', () => {
+    buildSVG();
+    // Re-position chips immediately (no transition)
+    Object.values(chipEls).forEach(c => c.style.transition = 'none');
+    renderState();
+    requestAnimationFrame(() => {
+        Object.values(chipEls).forEach(c => c.style.transition = '');
+    });
+});
+</script>
+</body>
+</html>
