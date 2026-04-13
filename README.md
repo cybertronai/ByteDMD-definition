@@ -167,8 +167,15 @@ See "benchmarks/" folder
 | Algorithm | Operation | ByteDMD Cost |
 |-----------|-----------|-------------|
 | naive matmul (i-j-k) | C = A @ B | 720 |
-| vanilla recursive (8-way D&C) | C = A @ B | 735 |
-| Strassen (7-way D&C) | C = A @ B | 1,636 |
+
+### microGPT single-token forward pass
+
+Architecture: `vocab=4, embd=4, heads=2, head_dim=2, 1 layer, block_size=4`.
+Based on [Karpathy's microGPT](https://gist.github.com/karpathy/8627fe009c40f57531cb18360106ce95).
+
+| Algorithm | Operation | ByteDMD Cost |
+|-----------|-----------|-------------|
+| microGPT (1 layer, embd=4) | single token forward | 3214 |
 
 # Reports
 

@@ -508,8 +508,6 @@ METHODS = [
     ("matvec\n(y=A@x)",         'matvec',    matvec4),
     ("vecmat\n(y=xᵀ@A)",         'matvec',    vecmat4),
     ("naive matmul\n(i-j-k)",      'matmul',    matmul4),
-    ("vanilla rec\n(8-way D&C)",   'matmul',    matmul_vanilla_recursive),
-    ("Strassen\n(7-way D&C)",      'matmul',    matmul_strassen),
 ]
 
 

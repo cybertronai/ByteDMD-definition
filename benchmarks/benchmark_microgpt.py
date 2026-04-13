@@ -101,7 +101,7 @@ if __name__ == '__main__':
                           token_id=0, pos_id=0, n_head=N_HEAD, head_dim=HEAD_DIM)
 
     cost = bytedmd(forward, (wte, wpe, lm_head, attn_wq, attn_wk, attn_wv, attn_wo, mlp_fc1, mlp_fc2))
-    assert cost == 2549, f"expected 2549, got {cost}"
+    assert cost == 3214, f"expected 3214, got {cost}"
 
     print(f"{'Algorithm':<35} {'Operation':<25} {'ByteDMD Cost':>12}")
     print("-" * 75)

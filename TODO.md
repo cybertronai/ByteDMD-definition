@@ -1,0 +1,5 @@
+- check thest test_gotchas.py Still implement the correct semantics. 
+- get rid of 7-way D&C and 8-way D&C From Readme and from Benchmark linalg.md
+- benchmark microgpt again and add it to the README.md
+- Update main branch with key files from dev -- bytedmd.py, test_bytedmd.py, pyproject.toml, README.md and benchmark_linalg.py
+- rerun benchmarks in the main branch and update the README.md with the new results
