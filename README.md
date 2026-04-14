@@ -161,12 +161,15 @@ See "benchmarks/" folder
 
 ByteDMD cost by method and matrix size `N`:
 
-|  N | matvec (y=A@x) | vecmat (y=xᵀ@A) | naive matmul (i-j-k) |
-|---:|---------------:|----------------:|---------------------:|
-|  2 |             26 |              25 |                   57 |
-|  4 |            157 |             150 |                  720 |
-|  8 |            896 |             832 |                8,867 |
-| 16 |          5,354 |           4,688 |              109,783 |
+```
+|    |  matvec |   vecmat | naive matmul |
+|  N | (y=A@x) | (y=xᵀ@A) |      (i-j-k) |
+|----|---------|----------|--------------|
+|  2 |      26 |       25 |           57 |
+|  4 |     157 |      150 |          720 |
+|  8 |     896 |      832 |        8,867 |
+| 16 |   5,354 |    4,688 |      109,783 |
+```
 
 ### microGPT single-token forward pass
 
