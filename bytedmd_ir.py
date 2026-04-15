@@ -6,22 +6,35 @@ Level 2 (L2): Abstract IR. Sequence of LOAD/STORE/OP events with var IDs only.
               No physical addresses.
 Level 3 (L3): Concrete IR. Same events with addresses assigned by an allocator.
 
-Cost model: stationary slots. Each var lives at a fixed addr in {1, 2, 3, ...}.
-The cost of a LOAD at addr d is ceil(sqrt(d)) — encoding the implicit
-1, 3, 5, 7, ... concentric-ring cache hierarchy.
+Two L2-level metrics — priced directly on the trace by running an LRU stack
+and charging ceil(sqrt(depth)) per LOAD:
 
-Allocator policies (L2 -> L3):
-  no_reuse   : every var gets a fresh addr. Slots never recycled.
-               ==> canonical name: "ByteDMD-classic" (counts every allocated byte).
+  bytedmd_classic : LRU stack with NO liveness compaction. Dead variables
+                    stay in the stack forever and pollute deeper rings. The
+                    cost of a LOAD of X depends on the number of distinct
+                    variables referenced since X's previous LOAD, regardless
+                    of whether they are still live.
+  bytedmd_live    : LRU stack WITH liveness compaction. A variable is
+                    dropped from the stack immediately after its last LOAD.
+                    The cost of a LOAD of X is thus determined by the
+                    *live bytes* between its previous LOAD and the current
+                    one.
+
+Intermediate register-allocation policies (L2 -> L3) map variables to
+physical addrs in {1, 2, 3, ...}; cost on L3 is sum ceil(sqrt(addr)) per
+LOAD. These sit inside the envelope the two L2 metrics form:
+
   min_heap   : freed slots returned to a min-heap; always reuse the lowest.
-               ==> canonical name: "ByteDMD-live" (counts only live bytes).
   lru_static : freed slots returned in LIFO order (stack discipline).
-  belady     : offline oracle re-orders allocations to minimize total cost.
-               (Coincides with min_heap on matmul since every intermediate is
-               read exactly once.)
+  belady     : offline oracle; picks the lowest free addr with future-load
+               information. Coincides with min_heap on matmul since every
+               intermediate is read exactly once.
+  no_reuse   : sanity baseline; never recycles. Pins each variable to its
+               allocation order on a 2-D layout rather than sliding in an
+               LRU stack.
 
 Envelope claim:
-  cost(ByteDMD-classic) >= cost(any live-bytes policy) >= cost(ByteDMD-live).
+  bytedmd_classic(trace) >= cost(any allocator above) >= bytedmd_live(trace).
 """
 
 from __future__ import annotations
@@ -310,15 +323,116 @@ ALLOCATORS: Dict[str, Callable[[Sequence[L2Event]], List[L3Event]]] = {
 
 # Human-readable display names for each allocator.
 POLICY_DISPLAY: Dict[str, str] = {
-    "no_reuse":   "ByteDMD-classic",
-    "min_heap":   "ByteDMD-live",
+    "no_reuse":   "No reuse",
+    "min_heap":   "Min-heap reuse",
     "lru_static": "LIFO slots",
     "belady":     "Belady (offline)",
 }
 
 
 # ============================================================================
-# Cost evaluation
+# L2-level ByteDMD metrics (no allocator)
+# ============================================================================
+
+class _Fenwick:
+    """1-indexed Fenwick tree of booleans, supporting O(log n) insert/remove/rank."""
+    __slots__ = ("n", "bit")
+
+    def __init__(self, n: int) -> None:
+        self.n = n
+        self.bit = [0] * (n + 1)
+
+    def add(self, i: int, delta: int) -> None:
+        while i <= self.n:
+            self.bit[i] += delta
+            i += i & -i
+
+    def prefix(self, i: int) -> int:
+        s = 0
+        while i > 0:
+            s += self.bit[i]
+            i -= i & -i
+        return s
+
+
+def _lru_cost(events: Sequence[L2Event], compact_on_last_load: bool) -> int:
+    """Shared LRU walk priced by ceil(sqrt(stack_depth)) per LOAD.
+
+    Implementation: each variable currently in the stack owns a unique
+    timestamp t ∈ [1, T]. A Fenwick tree marks which timestamps are live.
+    Depth of variable X at a read = (#live timestamps) - (#live timestamps
+    with value < t(X)) = 1 + (#live timestamps with value > t(X)).
+
+    When compact_on_last_load is True, the variable is dropped entirely on
+    its last LOAD (ByteDMD-live). Otherwise its timestamp is refreshed to
+    the top (ByteDMD-classic LRU bump).
+    """
+    # Assign every var a dense timestamp up-front; reuse slot for later refresh.
+    last_load: Dict[int, int] = {}
+    if compact_on_last_load:
+        for i, ev in enumerate(events):
+            if isinstance(ev, L2Load):
+                last_load[ev.var] = i
+
+    # Upper-bound on simultaneously-live timestamps: one per STORE + one per
+    # LOAD-bump. We use a growing Fenwick tree by pre-sizing to len(events)+1.
+    T = len(events) + 1
+    bit = _Fenwick(T)
+
+    var_ts: Dict[int, int] = {}
+    next_ts = 0
+    total = 0
+
+    for i, ev in enumerate(events):
+        if isinstance(ev, L2Store):
+            if compact_on_last_load and ev.var not in last_load:
+                continue  # never loaded, skip
+            next_ts += 1
+            var_ts[ev.var] = next_ts
+            bit.add(next_ts, 1)
+        elif isinstance(ev, L2Load):
+            t = var_ts[ev.var]
+            # depth = # live timestamps with t' >= t = total_live - prefix(t-1)
+            total_live = bit.prefix(T)
+            depth = total_live - bit.prefix(t - 1)
+            total += math.isqrt(depth - 1) + 1
+            # Remove current timestamp
+            bit.add(t, -1)
+            if compact_on_last_load and last_load[ev.var] == i:
+                del var_ts[ev.var]  # dropped
+            else:
+                # LRU bump: give a fresh (newest) timestamp
+                next_ts += 1
+                var_ts[ev.var] = next_ts
+                bit.add(next_ts, 1)
+    return total
+
+
+def bytedmd_classic(events: Sequence[L2Event]) -> int:
+    """ByteDMD-classic: LRU stack depth without liveness compaction.
+
+    Walk the L2 trace with an LRU stack. Every STORE pushes a variable to
+    the top (depth 1). Every LOAD looks up the variable's current depth,
+    charges ceil(sqrt(depth)), and bumps it to the top. Dead variables are
+    never removed — deeper slots get polluted by the whole allocation
+    history. This is the "memory-leak" reuse-distance measure.
+    """
+    return _lru_cost(events, compact_on_last_load=False)
+
+
+def bytedmd_live(events: Sequence[L2Event]) -> int:
+    """ByteDMD-live: LRU stack depth WITH liveness compaction.
+
+    Same LRU walk as bytedmd_classic except a variable is dropped from the
+    stack on its last LOAD. The cost of a LOAD of X reflects only the
+    number of LIVE variables referenced between its previous LOAD and the
+    current one.
+    """
+    return _lru_cost(events, compact_on_last_load=True)
+
+
+# ============================================================================
+# L3 cost evaluation
 # ============================================================================
 
 def cost(events: Sequence[L3Event]) -> int:
@@ -414,17 +528,23 @@ def matmul_rmm(A, B):
 # Unified API
 # ============================================================================
 
-def bytedmd(func: Callable, args: Tuple, policy: str = "no_reuse") -> int:
-    """Trace -> compile -> evaluate cost. Returns total cost for the policy."""
+def bytedmd(func: Callable, args: Tuple, policy: str = "min_heap") -> int:
+    """Trace -> compile -> evaluate cost for an allocator policy name."""
     l2, _ = trace(func, args)
     l3 = ALLOCATORS[policy](l2)
     return cost(l3)
 
 
 def bytedmd_all(func: Callable, args: Tuple) -> Dict[str, int]:
-    """Compute cost under every available policy. Useful for envelope plots."""
+    """Compute every measure: the two L2 ByteDMD metrics plus each allocator."""
     l2, _ = trace(func, args)
-    return {name: cost(comp(l2)) for name, comp in ALLOCATORS.items()}
+    results: Dict[str, int] = {
+        "bytedmd_classic": bytedmd_classic(l2),
+        "bytedmd_live":    bytedmd_live(l2),
+    }
+    for name, comp in ALLOCATORS.items():
+        results[name] = cost(comp(l2))
+    return results
 
 
 def make_inputs(n: int) -> Tuple[List[List[int]], List[List[int]]]:

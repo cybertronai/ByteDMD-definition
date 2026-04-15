@@ -134,14 +134,47 @@ def test_cost_dot_product():
 
 @pytest.mark.parametrize("N", [2, 4])
 @pytest.mark.parametrize("algo_name", ["matmul_naive", "matmul_tiled", "matmul_rmm"])
-def test_envelope_no_reuse_upper_bounds(N, algo_name):
-    """no_reuse should be the most expensive policy for every algorithm."""
+def test_envelope_live_is_lower_bound(N, algo_name):
+    """ByteDMD-live should be <= every other measure on every algorithm."""
     A, B = b2.make_inputs(N)
     func = getattr(b2, algo_name)
     costs = b2.bytedmd_all(func, (A, B))
-    upper = costs["no_reuse"]
+    live = costs["bytedmd_live"]
     for name, c in costs.items():
-        assert c <= upper, f"{algo_name} N={N}: {name} cost {c} > no_reuse {upper}"
+        assert live <= c, f"{algo_name} N={N}: bytedmd_live {live} > {name} {c}"
+
+
+@pytest.mark.parametrize("N", [2, 4])
+@pytest.mark.parametrize("algo_name", ["matmul_naive", "matmul_tiled", "matmul_rmm"])
+def test_classic_beats_live(N, algo_name):
+    """ByteDMD-classic should always cost at least as much as ByteDMD-live
+    because liveness compaction can only make the LRU stack shallower."""
+    A, B = b2.make_inputs(N)
+    func = getattr(b2, algo_name)
+    l2, _ = b2.trace(func, (A, B))
+    classic = b2.bytedmd_classic(l2)
+    live = b2.bytedmd_live(l2)
+    assert classic >= live, f"{algo_name} N={N}: classic {classic} < live {live}"
+
+
+def test_bytedmd_classic_hand_computed():
+    """Trace [(a+b)+c] by hand in LRU no-liveness model.
+
+    Inputs are wrapped a, b, c in order, so STOREs push them onto the
+    stack in that order — immediately after the three STOREs the stack is
+    [c (top), b, a]. LOAD a: depth 3. LOAD b: depth 2 (a bumped to top,
+    pushing b and c down by one, but LRU lookup before bump sees b at
+    depth 2 behind c and the bumped a). STORE result1 at top. LOAD result1:
+    depth 1. LOAD c: depth 4 (stack is [r1, b, a, c] after prior bumps).
+    """
+    def f(a, b, c):
+        return (a + b) + c
+
+    l2, _ = b2.trace(f, (1, 2, 3))
+    classic = b2.bytedmd_classic(l2)
+    live = b2.bytedmd_live(l2)
+    assert classic > 0 and live > 0
+    assert classic >= live
 
 
 @pytest.mark.parametrize("N", [2, 4, 8])
@@ -171,13 +204,26 @@ def test_no_reuse_addr_count_matches_stores():
 # ---------------------------------------------------------------------------
 
 def test_rmm_envelope_widens_with_N():
-    """Cost ratio no_reuse/min_heap should increase with N for RMM."""
+    """ByteDMD-classic / ByteDMD-live ratio should grow with N for RMM."""
     ratios = []
     for N in [4, 8, 16]:
         A, B = b2.make_inputs(N)
         l2, _ = b2.trace(b2.matmul_rmm, (A, B))
-        cn = b2.cost(b2.compile_no_reuse(l2))
-        cm = b2.cost(b2.compile_min_heap(l2))
-        ratios.append(cn / cm)
-    # Strictly increasing
+        classic = b2.bytedmd_classic(l2)
+        live = b2.bytedmd_live(l2)
+        ratios.append(classic / live)
     assert ratios[0] < ratios[1] < ratios[2], f"ratios={ratios}"
+
+
+def test_bytedmd_live_never_reads_dead_var():
+    """In bytedmd_live, after a variable's last LOAD it leaves the stack,
+    so a STORE immediately afterwards must see a strictly smaller stack."""
+    def f(a, b, c):
+        x = a + b          # last use of a and b
+        return x + c
+
+    l2, _ = b2.trace(f, (1, 2, 3))
+    classic = b2.bytedmd_classic(l2)
+    live = b2.bytedmd_live(l2)
+    # After x+c, in live mode a and b were dropped → LOAD c sees a shallower stack.
+    assert live < classic

@@ -3,27 +3,25 @@
 ## Motivation
 
 The original ByteDMD metric tracks a *cumulative* LRU-stack depth over an
-execution trace: every value ever allocated occupies a slot forever, and
-each read is priced by how deep that slot has sunk relative to newer
-allocations. The "memory-leak" nature of this model is well known — it
-inflates the cost of algorithms whose peak memory footprint is modest but
-whose total allocation volume is large, because dead variables keep
-polluting the stack. For cache-oblivious recursive matrix multiplication
-(RMM), the classic measure gives an asymptotic cost of `O(N^{3.5})`, much
-higher than the `O(N^3 log N)` that a real compiler targeting physical
-registers would achieve — because a real compiler recycles a stack frame's
-memory the instant the frame exits.
+execution trace: every value ever allocated occupies a slot, and each read
+is priced by how deep that slot has sunk relative to newer allocations.
+Without liveness analysis the stack grows monotonically — dead variables
+keep polluting the deeper rings. For cache-oblivious recursive matrix
+multiplication (RMM), this "memory-leak" variant gives an asymptotic cost
+of `O(N^3.5)`. A real compiler targeting physical registers recycles a
+stack frame's memory the instant the frame exits, so its effective cost
+collapses to `O(N^3 log N)`.
 
-The refinement proposed here, **ByteDMD-live**, prices the trace against a
-stationary slot pool whose entries are freed and reused as soon as the
-corresponding variable's liveness interval ends. This matches the physics
-of a modern out-of-order CPU with a finite register file and an LLVM- or
-GCC-style scalar replacement pass.
+The refinement proposed here is to price the trace with the LRU stack
+**compacted at every variable's last LOAD**, so the stack reflects only
+currently-live variables. The cost of a LOAD of X then equals the number
+of *live bytes* referenced between X's previous LOAD and the current one
+— not the total memory footprint.
 
-This report builds both measures on a shared three-level intermediate
-representation, verifies that several additional online register-allocation
-strategies sit inside the envelope they form, and quantifies how the gap
-widens with N on RMM and one-level tiled matmul.
+This report builds both measures directly on a shared three-level
+intermediate representation, contrasts them with several concrete
+register-allocation strategies, and quantifies how the
+`classic / live` gap widens with N on RMM and one-level tiled matmul.
 
 ## The three IR levels
 
@@ -34,143 +32,146 @@ widens with N on RMM and one-level tiled matmul.
 | L3    | Concrete IR      | Same events, each `var` carries a physical `addr`. |
 
 The tracer (`bytedmd_ir.trace`) runs the L1 function under operator
-overloading and records an L2 event stream. An **allocator** lowers L2 to
-L3 by assigning an `addr ∈ {1, 2, 3, …}` to each variable; different
-allocators produce different L3 traces for the same L2 trace. Cost is
-evaluated on L3 with the standard ByteDMD spatial penalty,
+overloading and records an L2 event stream.
 
-```
-  cost(L3) = Σ_{LOAD at addr d} ⌈√d⌉
-```
+## The two ByteDMD measures
 
-which mirrors the concentric 1-3-5-7-… ring cost of a 2-D silicon layout.
+Both measures price the L2 trace **directly** with an LRU stack — no
+allocator in the loop. Cost is `sum ceil(sqrt(depth))` across every LOAD,
+where `depth` is the variable's position in the LRU stack at read time
+(top = 1, just-stored = 1).
 
-## The allocators
+### `bytedmd_classic` — ByteDMD-classic
 
-Five policies are implemented in `bytedmd_ir.py`. Each maps an L2 trace to an
-L3 trace. Internal names (in backticks) are the dictionary keys in
-`bytedmd_ir.ALLOCATORS`.
+The stack is never compacted. Every STORE pushes a fresh variable; every
+LOAD walks through the polluted stack, charges `ceil(sqrt(depth))`, and
+bumps the variable to the top. Variables remain in the stack forever,
+even after their last LOAD.
 
-### `no_reuse` — **ByteDMD-classic**
+The depth of a LOAD of X is equal to the number of **distinct variables
+referenced since X's previous LOAD**, dead or alive.
 
-Every `L2Store` takes a fresh addr equal to the running allocation
-counter. Freed slots are **never** recycled, so the highest addr reached
-equals the total number of STOREs in the trace. This is the "memory-leak"
-model: dead variables continue to eat low-index real estate, pushing every
-subsequent load into a deeper ring.
+### `bytedmd_live` — ByteDMD-live
 
-Asymptotic role: **upper envelope**.
+Same LRU walk, except a variable is dropped from the stack on its last
+LOAD. The stack therefore reflects only currently-live variables at each
+point in time. The depth of a LOAD of X equals the number of
+**live variables** referenced between X's previous LOAD and the current
+one.
 
-### `min_heap` — **ByteDMD-live**
+Implementation note: both metrics are computed with a Fenwick tree over
+timestamps, which makes each LRU operation O(log T) rather than O(T).
+Tracing RMM at N = 64 (≈ 1 M events) runs in under a second.
 
-A min-heap of freed addrs is maintained alongside the running allocation
-counter. When a variable's last LOAD is reached, its addr is pushed onto
-the heap; when the next STORE fires, the allocator pops the *smallest*
-available addr instead of incrementing the counter. The peak addr reached
-therefore equals the **peak simultaneously-live working-set size**, not
-the total allocation volume. For RMM the working set is `O(N²)`, giving an
-envelope bound of `O(N^3 log N)`.
+## Register allocators (L2 → L3)
 
-Asymptotic role: **lower envelope**.
+Each allocator maps L2 events to L3 events by assigning an
+`addr ∈ {1, 2, 3, …}` to every variable. L3 cost is
+`sum ceil(sqrt(addr))` across every L3Load. Because these allocators are
+**stationary** (a variable lives at a fixed addr from its STORE through
+its last LOAD), they do not enjoy the LRU bumping that makes the two
+ByteDMD metrics cheaper. On matmul every stationary allocator therefore
+costs *more* than `bytedmd_classic`.
 
-### `lru_static` — LIFO slots
+### `no_reuse`
 
-Same liveness-driven recycling as `min_heap`, but the freed-addr pool is a
-LIFO stack rather than a min-heap. On STORE the allocator pops the
-*most-recently-freed* addr. In terms of peak footprint this is identical
-to `min_heap` (same set of free slots at each point in time), but the
-assignment-to-variable mapping differs, so individual LOAD costs can
-differ. On matmul traces the difference is small (≤ 1 % either direction);
-`lru_static` occasionally wins because a variable and its immediate
-successor often live in the same place, which happens to match how matmul
-reuses column/row temporaries.
+Every STORE gets a fresh addr equal to the running allocation counter; no
+recycling. The peak addr reached equals the total number of STOREs in the
+trace.
 
-Asymptotic role: **intermediate**, coincides with `min_heap` in O-class.
+### `lru_static`
 
-### `belady` — Belady-style offline oracle
+Liveness-driven recycling with a LIFO free pool. On STORE the allocator
+pops the *most-recently-freed* addr. Peak addr equals peak simultaneous
+working-set size.
 
-A two-pass offline allocator. Pass 1 tallies the total number of future
-LOADs for each variable. Pass 2 is like `min_heap` except that, when there
-are multiple free addrs available at allocation time, the allocator picks
-the one with the smallest index (the Belady-optimal tie-break for a
-stationary-slot cost model: frequent readers take shallow addrs). For
-matmul every intermediate is read exactly once, so Pass-1 information is
-uniform and the allocator degenerates to `min_heap`; the measurement
-serves as a cross-check.
+### `belady`
 
-Asymptotic role: **lower envelope** (same class as `min_heap`).
+An offline two-pass allocator. Pass 1 tallies each variable's total
+future-LOAD count; Pass 2 is like a min-heap recycler with a Belady-style
+tie-break (low addrs for frequent readers). For matmul, every
+intermediate is read exactly once, so Belady collapses to min-heap.
 
-### Summary of the four allocators used in this experiment
+### `min_heap`
 
-| Column              | Allocator key | Slot reuse? | Future info? | Role           |
-|---------------------|---------------|:-----------:|:------------:|----------------|
-| **ByteDMD-classic** | `no_reuse`    | no          | no           | upper bound    |
-| LIFO slots          | `lru_static`  | yes (LIFO)  | no           | intermediate   |
-| Belady (offline)    | `belady`      | yes         | yes (oracle) | lower bound    |
-| **ByteDMD-live**    | `min_heap`    | yes (min-heap) | no        | lower bound    |
+Liveness-driven recycling with a min-heap free pool. The allocator always
+picks the **smallest** free addr. Peak addr equals peak simultaneous
+working-set size.
 
 ## Results
 
-Two algorithms were traced at `N ∈ {4, 8, 16, 32, 64}`.
+Two algorithms traced at `N ∈ {4, 8, 16, 32, 64}` (complete output from
+`envelope.py`).
 
 ### Cache-oblivious RMM (8-way recursive)
 
-| N  | ByteDMD-classic | LIFO slots | Belady (offline) | ByteDMD-live | classic / live |
-|---:|----------------:|-----------:|-----------------:|-------------:|---------------:|
-|  4 |           1,469 |      1,010 |              985 |          985 |        1.49×   |
-|  8 |          29,964 |     16,415 |           16,315 |       16,315 |        1.84×   |
-| 16 |         623,025 |    263,663 |          266,593 |      266,593 |        2.34×   |
-| 32 |      13,222,807 |  4,219,845 |        4,320,478 |    4,320,478 |        3.06×   |
-| 64 |     285,417,081 | 67,561,749 |       69,716,078 |   69,716,078 |        4.09×   |
+| N  | ByteDMD-classic | ByteDMD-live | No reuse      | LIFO slots  | Belady (offline) | Min-heap reuse | classic / live |
+|---:|----------------:|-------------:|--------------:|------------:|-----------------:|---------------:|---------------:|
+|  4 |           1,043 |          689 |         1,469 |       1,010 |              985 |            985 |          1.51× |
+|  8 |          13,047 |        7,773 |        29,964 |      16,415 |           16,315 |         16,315 |          1.68× |
+| 16 |         154,251 |       80,716 |       623,025 |     263,663 |          266,593 |        266,593 |          1.91× |
+| 32 |       1,779,356 |      794,969 |    13,222,807 |   4,219,845 |        4,320,478 |      4,320,478 |          2.24× |
+| 64 |      20,291,116 |    7,554,413 |   285,417,081 |  67,561,749 |       69,716,078 |     69,716,078 |          2.69× |
 
 ### One-level tiled matmul (tile = ⌈√N⌉)
 
-| N  | ByteDMD-classic | LIFO slots | Belady (offline) | ByteDMD-live | classic / live |
-|---:|----------------:|-----------:|-----------------:|-------------:|---------------:|
-|  4 |           1,472 |      1,005 |              961 |          961 |        1.53×   |
-|  8 |          30,052 |     15,460 |           15,128 |       15,128 |        1.99×   |
-| 16 |         624,600 |    238,438 |          233,811 |      233,811 |        2.67×   |
-| 32 |      13,243,856 |  3,669,464 |        3,683,154 |    3,683,154 |        3.60×   |
-| 64 |     285,686,728 | 57,841,639 |       57,162,017 |   57,162,017 |        5.00×   |
+| N  | ByteDMD-classic | ByteDMD-live | No reuse      | LIFO slots  | Belady (offline) | Min-heap reuse | classic / live |
+|---:|----------------:|-------------:|--------------:|------------:|-----------------:|---------------:|---------------:|
+|  4 |           1,000 |          644 |         1,472 |       1,005 |              961 |            961 |          1.55× |
+|  8 |          12,368 |        7,210 |        30,052 |      15,460 |           15,128 |         15,128 |          1.72× |
+| 16 |         143,280 |       74,560 |       624,600 |     238,438 |          233,811 |        233,811 |          1.92× |
+| 32 |       1,740,310 |      790,183 |    13,243,856 |   3,669,464 |        3,683,154 |      3,683,154 |          2.20× |
+| 64 |      19,737,581 |    7,917,595 |   285,686,728 |  57,841,639 |       57,162,017 |     57,162,017 |          2.49× |
 
 ## Asymptotic verification
 
-- **ByteDMD-classic** — `O(N^{3.5})`. The master-theorem argument: the
-  8-way recurrence has the addition step at the root of a polluted LRU
-  stack, where the `N²` reads charge `√N³` each.
-  `D(N) = 8 D(N/2) + O(N^{3.5})` ⇒ root dominates since `8 < 2^{3.5}`.
-- **ByteDMD-live** — `O(N^3 log N)`. The addition step sees a
-  working-set-bounded stack of depth `O(N²)`, so reads charge `O(N)` each
-  for `O(N²)` reads → `O(N³)` per recursion level. `D(N) = 8 D(N/2) + O(N^3)`
-  with `8 = 2^3` gives `O(N^3 log N)` by Master case 2.
+- **ByteDMD-classic** → `O(N^{3.5})`. Normalising by `N^{3.5}` gives a
+  near-constant factor ~8–10 across all N. Derivation: at the top-level
+  addition step, each of the `N²` operand reads walks through a stack of
+  depth ~`N³` that has accumulated every intermediate from both
+  predecessor recursions. Cost per read ~ `√N³ = N^{1.5}`, times `N²`
+  reads = `N^{3.5}`; the recurrence `D(N) = 8 D(N/2) + O(N^{3.5})` is
+  dominated at the root since `2^{3.5} > 8`.
+- **ByteDMD-live** → `O(N^3 log N)`. Normalising by `N^3 log N` gives
+  ~5 across all N. Derivation: the live stack never exceeds the working
+  set of `O(N²)`, so reads charge `O(N)` each for `O(N²)` reads at each
+  recursion level. `D(N) = 8 D(N/2) + O(N^3)` with `8 = 2^3` is Master
+  case 2, giving `O(N^3 log N)`.
 
-The predicted ratio is `N^{3.5} / (N^3 log N) = √N / log N`; doubling N
-should multiply the ratio by `√2 / (1 + 1/log N)`. Between N = 32 and
-N = 64, RMM rises from 3.06× to 4.09× (ratio 1.34), tiled from 3.60× to
-5.00× (ratio 1.39). `√2 ≈ 1.41` — within a few percent of the prediction.
+Predicted `classic / live` ratio: `N^{1/2} / log N`. Between N = 32 and
+N = 64, RMM rises from 2.24× to 2.69× (factor 1.20), tiled from 2.20× to
+2.49× (factor 1.13). `√2 / (log 64 / log 32) = 1.41 / 1.20 = 1.175` —
+close to the observed 1.13–1.20.
 
 ## Conclusion
 
-The experiment supports the theoretical hypothesis that **ByteDMD-live is
-the faithful cost model** for a modern compiler+CPU stack, while
-**ByteDMD-classic** is a diagnostic upper bound that diverges by a
-polynomial factor. Both are useful:
+Computing ByteDMD directly on the LRU stack **without** any allocator —
+but with an explicit liveness pass — produces a measure whose asymptotic
+matches the compiler + CPU model that really runs on hardware. The
+measure satisfies every claim from the earlier analysis:
 
-- ByteDMD-classic flags programs that allocate too many temporaries
-  without in-place updates — a large classic / live ratio is a red flag.
-- ByteDMD-live predicts the achievable hardware cost and collapses
-  to the analytic Master-theorem-case-2 rate for every matmul schedule.
+- `bytedmd_live ≤ bytedmd_classic` for every trace (by construction of
+  the compaction pass).
+- The ratio grows with N on RMM at the predicted `√N / log N` rate.
+- `bytedmd_live ≤ every stationary allocator's cost` on matmul, since the
+  two ByteDMD measures benefit from LRU mobility while stationary slots
+  pay `√addr` on every read.
 
-Every intermediate register-allocation strategy tested sits strictly
-inside the `[ByteDMD-live, ByteDMD-classic]` envelope, which makes the two
-endpoints usable as a two-sided bound in further algorithm analysis.
+ByteDMD-classic remains useful as a diagnostic upper bound: a large
+`classic / live` ratio signals an algorithm that allocates too many
+temporaries without in-place recycling. ByteDMD-live is the
+"speed-of-light" predictor of what a well-designed compiler will
+actually achieve.
 
 ## Reproducibility
 
 ```bash
-uv run pytest test_bytedmd_ir.py          # 19 tests covering all three IR levels
+uv run pytest test_bytedmd_ir.py          # 27 tests covering L1→L2→L3 and both metrics
 uv run --script experiments/live-vs-all/envelope.py 4,8,16,32,64
 ```
 
-Produces `envelope.png` (log-log cost vs N) and `envelope_ratio.png`
-(ratio classic/live) in the experiment directory.
+Outputs:
+
+- `envelope.png` — log-log cost vs N, every measure plotted per algorithm
+- `envelope_ratio.png` — `bytedmd_classic / bytedmd_live` envelope width
+- Plaintext tables on stdout (same numbers as the tables above)
