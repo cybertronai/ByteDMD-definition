@@ -54,11 +54,11 @@ If you look at the *incremental shell sizes* between tiers, those are the odd nu
 | `never-reuse` | concrete | no | yes | Compiled addresses never recycled; concrete analog of `ByteDMD-classic` |
 | `lifo` | concrete | no | yes | Reuse the most recently freed concrete slot |
 | `edf` | concrete | yes, at interval level | yes | Offline interval packing of temp lifetimes into fixed slots |
-| `belady` | oracle | yes, exact next use | no | Two-pass oracle ranking of the live set by next use at every step |
+| `belady` | concrete | yes, exact next use | yes | Two-pass Belady-inspired heuristic that chooses fixed base addresses using next-use information |
 
-The crucial distinction is that `belady` is **not** a stable-address compiler. It is an
-oracle live-set ranking. The emitted `addr` is really a slot rank in the current optimal
-ordering, not a persistent physical location.
+The crucial distinction now is that `belady` **is** a stable-address compiler heuristic.
+It uses future knowledge only when assigning a base address to a value. Once assigned,
+that address stays fixed until the value dies.
 
 ## Sample trace
 
@@ -92,34 +92,21 @@ store t3_add         addr= 770 role=temp
 
 The logical and concrete traces have the same control/dataflow, but concrete slot reuse changes the reuse-distance curve.
 
-## Why Belady can be lower than ByteDMD-live
+## What Belady means now
 
-Yes, it is normal **for the current oracle Belady column** to be lower than `ByteDMD-live`.
+`belady` is no longer a free oracle re-ranking of the live set.
 
-That does **not** mean a realistic compiled program with fixed addresses is doing less data
-movement than the live-byte logical model. It means the current `belady` method is solving
-a different, more optimistic problem:
+Instead:
 
-1. `ByteDMD-live` keeps the access order fixed and uses the induced logical LRU order on the live set.
-2. `belady` gets a full second pass and knows the exact next use of every live byte.
-3. At each step it is allowed to re-rank the entire live set by next use and then charge the load against that oracle rank.
-4. No cost is charged for changing that ranking.
+1. Pass 1 records every future load.
+2. When a new value is stored, the allocator looks at the next use of every currently live value.
+3. It assigns the **new value a fixed base address** using that next-use information.
+4. Later loads are charged from that concrete address using the same tiered cost model.
 
-So `belady` is acting like an **offline lower bound on the live set**, not like a compiled
-stable-address trace. That is why it can drop below `ByteDMD-live`, and why the `belady`
-curve can become almost all depth-1 loads for tiled and recursive matmul.
-
-If the goal is a realistic compiler model, then the directly comparable columns are:
-
-- `ByteDMD-classic`
-- `ByteDMD-live`
-- `never-reuse`
-- `lifo`
-- `edf`
-
-If the goal is an **oracle lower bound with full future knowledge**, then `belady` is the
-right column to keep, but it should be interpreted as an optimistic bound rather than as a
-physical allocator.
+So `belady` is now a genuine **offline stable-address heuristic**, not an oracle lower bound.
+Because early temporaries often arrive only after the input matrices have already occupied the
+cheapest addresses, this fixed-address Belady can actually be **more expensive** than
+`ByteDMD-live`, `lifo`, or `edf`.
 
 ## N=16 results
 
@@ -144,25 +131,22 @@ then converts each depth trace into:
 
 | Algorithm | ByteDMD-classic | ByteDMD-live | never-reuse | belady | lifo | edf |
 |-----------|-----------------:|-------------:|------------:|-------:|-----:|----:|
-| Tiled | 143,796 | 79,342 | 143,796 | 15,872 | 89,635 | 87,979 |
-| Recursive | 154,474 | 84,132 | 154,474 | 15,872 | 98,312 | 99,446 |
-| Strassen | 352,655 | 175,672 | 352,655 | 30,542 | 203,976 | 220,394 |
+| Tiled | 143,796 | 79,342 | 143,796 | 204,063 | 89,635 | 87,979 |
+| Recursive | 154,474 | 84,132 | 154,474 | 223,338 | 98,312 | 99,446 |
+| Strassen | 352,655 | 175,672 | 352,655 | 644,582 | 203,976 | 220,394 |
 
 `never-reuse` is included explicitly because it is the compiled concrete policy that corresponds to `ByteDMD-classic` in this pipeline.
 
-`belady` is now a true **offline two-pass oracle** over the logical trace: in pass 1 it records every future load, and in pass 2 it keeps the current live set ranked by the next time each live byte will be used. The emitted `addr` for a Belady access is that byte's current oracle slot rank. This makes `belady` an optimistic lower-bound allocator, not a stable-address compiler like `never-reuse` or `lifo`.
+`belady` is now a true **offline two-pass stable-address heuristic** over the logical trace:
+in pass 1 it records every future load, and in pass 2 it uses the next-use times of the live
+set only when picking a new fixed base address for each stored value.
 
 The qualitative interpretation stays the same:
 
 - **ByteDMD-live** is a clear lower envelope and **ByteDMD-classic** is a clear upper envelope.
-- `belady` is much lower than the stable-address policies here because it is an oracle next-use ranking over the live set, not a persistent-address allocator.
-- `lifo` and `edf` remain the concrete stable-address policies in this table, so their ordering is empirical rather than guaranteed by one simple dominance relation.
-
-For the current implementation, the clean interpretation is:
-
-- `ByteDMD-live` = best online logical model without oracle reordering
-- `belady` = offline oracle lower bound on that live set
-- `lifo` / `edf` = realistic compiled-slot heuristics
+- `belady`, `lifo`, and `edf` are all concrete stable-address policies now.
+- `belady` uses more future knowledge than `lifo` or `edf`, but because it pays from fixed base addresses rather than from free re-ranking, it is not automatically cheaper.
+- Their ordering is empirical rather than guaranteed by one simple dominance relation.
 
 ## Plot
 
@@ -172,7 +156,8 @@ The curves show `loads above cache size` against cache capacity in scalar slots.
 
 - `ByteDMD-live` is the optimistic lower bound
 - `ByteDMD-classic` is the pessimistic upper bound
-- `lifo` and `edf` stay between them, while `belady` is an oracle live-set ranking that can dip below `ByteDMD-live`
+- `lifo` and `edf` stay between them on this experiment
+- `belady` is a fixed-address heuristic and can land above either abstract model
 
 ## Tests
 

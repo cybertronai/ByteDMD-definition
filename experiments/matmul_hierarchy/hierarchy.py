@@ -12,7 +12,6 @@ slot-allocation policies, producing a physical load/store trace.
 
 from __future__ import annotations
 
-import bisect
 from collections import deque
 from dataclasses import dataclass
 import itertools
@@ -410,16 +409,60 @@ def _future_load_indices(program: TraceProgram) -> Dict[str, deque[int]]:
     return future
 
 
+def _choose_belady_address(
+    next_use: float,
+    symbol: str,
+    live_addresses: Dict[str, int],
+    future_loads: Dict[str, deque[int]],
+    free_addresses: List[int],
+    next_address: int,
+) -> tuple[int, int]:
+    """Assign a stable base address using offline next-use information."""
+
+    if not free_addresses:
+        return next_address, next_address + 1
+
+    live_order = sorted(
+        (
+            (loads[0], live_symbol)
+            for live_symbol, loads in future_loads.items()
+            if live_symbol in live_addresses and loads
+        ),
+        key=lambda item: (item[0], item[1]),
+    )
+
+    target_rank = 1
+    for future_use, live_symbol in live_order:
+        if (future_use, live_symbol) < (next_use, symbol):
+            target_rank += 1
+        else:
+            break
+
+    chosen = min(free_addresses, key=lambda address: (abs(address - target_rank), address))
+    free_addresses.remove(chosen)
+    return chosen, next_address
+
+
 def _compile_belady_trace(program: TraceProgram, *, policy: str) -> List[ConcreteAccess]:
-    """Oracle two-pass Belady trace with next-use-ranked live bytes."""
+    """Two-pass Belady-inspired stable-address heuristic."""
 
     future_loads = _future_load_indices(program)
-    active_next_use: Dict[str, int] = {
-        symbol: loads[0]
-        for symbol, loads in future_loads.items()
-        if program.symbol_roles.get(symbol) == "input"
-    }
-    ordered_live = sorted((next_use, symbol) for symbol, next_use in active_next_use.items())
+    initial_live = sorted(
+        (
+            (loads[0], symbol)
+            for symbol, loads in future_loads.items()
+            if program.symbol_roles.get(symbol) == "input" and loads
+        ),
+        key=lambda item: (item[0], item[1]),
+    )
+
+    live_addresses: Dict[str, int] = {}
+    next_address = 1
+    for _first_use, symbol in initial_live:
+        live_addresses[symbol] = next_address
+        next_address += 1
+
+    free_addresses: List[int] = []
     compiled: List[ConcreteAccess] = []
 
     for _index, access in enumerate(program.abstract_accesses):
@@ -428,26 +471,31 @@ def _compile_belady_trace(program: TraceProgram, *, policy: str) -> List[Concret
         if access.kind == "store":
             loads = future_loads.get(symbol)
             if loads:
-                active_next_use[symbol] = loads[0]
-                item = (loads[0], symbol)
-                insert_at = bisect.bisect_left(ordered_live, item)
-                ordered_live.insert(insert_at, item)
-                address = insert_at + 1
+                address, next_address = _choose_belady_address(
+                    float(loads[0]),
+                    symbol,
+                    live_addresses,
+                    future_loads,
+                    free_addresses,
+                    next_address,
+                )
+                live_addresses[symbol] = address
             else:
-                address = len(active_next_use) + 1
+                address, next_address = _choose_belady_address(
+                    math.inf,
+                    symbol,
+                    live_addresses,
+                    future_loads,
+                    free_addresses,
+                    next_address,
+                )
         else:
-            current_item = (active_next_use[symbol], symbol)
-            current_at = bisect.bisect_left(ordered_live, current_item)
-            address = current_at + 1
-            ordered_live.pop(current_at)
+            address = live_addresses[symbol]
             loads = future_loads[symbol]
             loads.popleft()
-            if loads:
-                active_next_use[symbol] = loads[0]
-                next_item = (loads[0], symbol)
-                bisect.insort_left(ordered_live, next_item)
-            else:
-                active_next_use.pop(symbol, None)
+            if not loads:
+                free_addresses.append(live_addresses.pop(symbol))
+                free_addresses.sort()
 
         compiled.append(
             ConcreteAccess(
