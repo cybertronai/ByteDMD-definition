@@ -33,7 +33,7 @@ widens with N on RMM and one-level tiled matmul.
 | L2    | Abstract IR      | `LOAD(var)`, `STORE(var)`, `OP(name, in, out)` — no addresses. |
 | L3    | Concrete IR      | Same events, each `var` carries a physical `addr`. |
 
-The tracer (`bytedmd2.trace`) runs the L1 function under operator
+The tracer (`bytedmd_ir.trace`) runs the L1 function under operator
 overloading and records an L2 event stream. An **allocator** lowers L2 to
 L3 by assigning an `addr ∈ {1, 2, 3, …}` to each variable; different
 allocators produce different L3 traces for the same L2 trace. Cost is
@@ -47,9 +47,9 @@ which mirrors the concentric 1-3-5-7-… ring cost of a 2-D silicon layout.
 
 ## The allocators
 
-Five policies are implemented in `bytedmd2.py`. Each maps an L2 trace to an
+Five policies are implemented in `bytedmd_ir.py`. Each maps an L2 trace to an
 L3 trace. Internal names (in backticks) are the dictionary keys in
-`bytedmd2.ALLOCATORS`.
+`bytedmd_ir.ALLOCATORS`.
 
 ### `no_reuse` — **ByteDMD-classic**
 
@@ -168,7 +168,7 @@ endpoints usable as a two-sided bound in further algorithm analysis.
 ## Reproducibility
 
 ```bash
-uv run pytest test_bytedmd2.py          # 19 tests covering all three IR levels
+uv run pytest test_bytedmd_ir.py          # 19 tests covering all three IR levels
 uv run --script experiments/live-vs-all/envelope.py 4,8,16,32,64
 ```
 

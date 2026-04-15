@@ -4,7 +4,7 @@ import math
 
 import pytest
 
-import bytedmd2 as b2
+import bytedmd_ir as b2
 
 
 # ---------------------------------------------------------------------------

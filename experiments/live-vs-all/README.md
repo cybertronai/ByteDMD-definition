@@ -12,13 +12,14 @@ offline`) fall inside the envelope these two measures form.
 
 ## The three IR levels
 
-The framework in `bytedmd2.py` separates an algorithm into three lowering
-levels.
+The framework lives in **`bytedmd_ir.py`** — the module name reflects its
+multi-level intermediate representation, which separates an algorithm into
+three lowering levels.
 
 ### Level 1 — Python source
 
 Plain Python. The algorithm is written once and executed under a tracer
-that overloads numeric operators. Example (`bytedmd2.matmul_rmm`):
+that overloads numeric operators. Example (`bytedmd_ir.matmul_rmm`):
 
 ```python
 def matmul_rmm(A, B):
@@ -33,7 +34,7 @@ def matmul_rmm(A, B):
 
 ### Level 2 — Abstract IR (var IDs only)
 
-`bytedmd2.trace(func, args)` returns a flat sequence of events:
+`bytedmd_ir.trace(func, args)` returns a flat sequence of events:
 
 ```
 L2Store(var=1)              # input a
@@ -147,7 +148,7 @@ Outputs:
 
 ## Tests
 
-`test_bytedmd2.py` (at the repo root) exercises all three levels:
+`test_bytedmd_ir.py` (at the repo root) exercises all three levels:
 
 - L1 → L2: trace shape for known small inputs (`(a+b)+c`, dot product),
   numerical correctness of all matmul implementations.
@@ -160,5 +161,5 @@ Outputs:
   monotonically with N.
 
 ```bash
-uv run pytest test_bytedmd2.py -v
+uv run pytest test_bytedmd_ir.py -v
 ```

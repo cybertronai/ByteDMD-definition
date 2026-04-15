@@ -30,7 +30,7 @@ matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 import numpy as np
 
-import bytedmd2 as b2
+import bytedmd_ir as b2
 
 
 ALGORITHMS = [
