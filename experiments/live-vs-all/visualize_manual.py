@@ -170,13 +170,9 @@ def _plot_trace_panel(ax_scatter, ax_cost, addrs, regions, algo_label, cost, y_m
                        framealpha=0.95)
 
     per_cost = np.array([math.isqrt(int(a) - 1) + 1 for a in ys])
-    ax_cost.plot(xs, per_cost, color='black', linewidth=0.3, alpha=0.5)
+    ax_cost.plot(xs, per_cost, color='black', linewidth=0.3, alpha=0.7)
     ax_cost.set_ylabel('⌈√addr⌉', fontsize=10)
     ax_cost.grid(True, alpha=0.3)
-    ax_cum = ax_cost.twinx()
-    ax_cum.plot(xs, np.cumsum(per_cost), color='tab:red', linewidth=1.2, alpha=0.8)
-    ax_cum.set_ylabel('cum cost', color='tab:red', fontsize=10)
-    ax_cum.tick_params(axis='y', labelcolor='tab:red')
 
 
 def plot_trace(N: int, tile_size: int, out_path: str) -> None:
