@@ -1,16 +1,33 @@
-#!/usr/bin/env -S uv run --script
-# /// script
-# requires-python = ">=3.9"
-# dependencies = ["matplotlib", "numpy"]
-# ///
+#!/usr/bin/env python3
 """Self-contained script to generate manual_trace_n16.png.
 
 Includes all the code inline: ManualAllocator, ScratchpadRMM, naive
 matmul, RMM matmul, tracing, and plotting. No external imports besides
 matplotlib/numpy. Run:
 
-    uv run --script manual_trace_n16-standalone.py
+    pip install matplotlib numpy   # if not already installed
+    python manual_trace_n16-standalone.py
 """
+
+import os, subprocess, sys
+
+def _ensure_deps():
+    """Auto-create a venv and re-exec if matplotlib/numpy are missing."""
+    try:
+        import matplotlib, numpy  # noqa: F401
+        return
+    except ImportError:
+        pass
+    venv_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".standalone-venv")
+    venv_python = os.path.join(venv_dir, "bin", "python")
+    if not os.path.exists(venv_python):
+        print(f"Creating venv at {venv_dir} and installing matplotlib+numpy...")
+        subprocess.check_call([sys.executable, "-m", "venv", venv_dir])
+        subprocess.check_call([venv_python, "-m", "pip", "install", "-q",
+                               "matplotlib", "numpy"])
+    os.execv(venv_python, [venv_python] + sys.argv)
+
+_ensure_deps()
 
 import math
 from typing import List, Optional
