@@ -25,7 +25,7 @@ from experiments.matmul_hierarchy.hierarchy import (  # noqa: E402
     abstract_reuse_depths,
     bytedmd_cost,
     compile_concrete_trace,
-    concrete_reuse_depths,
+    concrete_address_depths,
     format_accesses,
     memory_curve,
     trace_matmul_program,
@@ -33,10 +33,7 @@ from experiments.matmul_hierarchy.hierarchy import (  # noqa: E402
 
 CLASSIC = "ByteDMD-classic"
 LIVE = "ByteDMD-live"
-NEVER_REUSE = "never-reuse"
-LIFO = "lifo"
-EDF = "edf"
-BELADY = "belady"
+TOMBSTONE = "Tombstone"
 
 
 def make_matrix(n: int, offset: int) -> list[list[int]]:
@@ -81,41 +78,30 @@ def main() -> None:
         program = trace_matmul_program(algorithm, a, b, **kwargs)
         classic_depths = abstract_reuse_depths(program, live_only=False)
         live_depths = abstract_reuse_depths(program, live_only=True)
-        never_reuse_depths = concrete_reuse_depths(program, policy=NEVER_REUSE)
-        belady_trace = compile_concrete_trace(program, policy=BELADY)
-        belady_depths = [access.address for access in belady_trace if access.kind == "load"]
-        lifo_depths = concrete_reuse_depths(program, policy=LIFO)
-        edf_depths = concrete_reuse_depths(program, policy=EDF)
-        max_depth = max(classic_depths + live_depths + belady_depths + lifo_depths + edf_depths)
+        tombstone_depths = concrete_address_depths(program, policy="tombstone")
+        max_depth = max(classic_depths + live_depths + tombstone_depths)
         memory_sizes = powers_of_two_up_to(max_depth)
 
         curves = {
             CLASSIC: memory_curve(classic_depths, memory_sizes),
             LIVE: memory_curve(live_depths, memory_sizes),
-            BELADY: memory_curve(belady_depths, memory_sizes),
-            LIFO: memory_curve(lifo_depths, memory_sizes),
-            EDF: memory_curve(edf_depths, memory_sizes),
+            TOMBSTONE: memory_curve(tombstone_depths, memory_sizes),
         }
         costs = {
             CLASSIC: bytedmd_cost(classic_depths),
             LIVE: bytedmd_cost(live_depths),
-            NEVER_REUSE: bytedmd_cost(never_reuse_depths),
-            BELADY: bytedmd_cost(belady_depths),
-            LIFO: bytedmd_cost(lifo_depths),
-            EDF: bytedmd_cost(edf_depths),
+            TOMBSTONE: bytedmd_cost(tombstone_depths),
         }
 
         axis.plot(memory_sizes, curves[CLASSIC], label=CLASSIC, color="#b22222", linewidth=2)
         axis.plot(memory_sizes, curves[LIVE], label=LIVE, color="#228b22", linewidth=2)
-        axis.plot(memory_sizes, curves[BELADY], label=BELADY, color="#6a3d9a", linewidth=2)
-        axis.plot(memory_sizes, curves[LIFO], label=LIFO, color="#1f77b4", linewidth=2)
-        axis.plot(memory_sizes, curves[EDF], label=EDF, color="#ff8c00", linewidth=2)
+        axis.plot(memory_sizes, curves[TOMBSTONE], label=TOMBSTONE, color="#1f77b4", linewidth=2)
         axis.set_xscale("log", base=2)
         axis.set_ylabel("loads above cache size")
         axis.set_title(
             f"{title} (N={n})\n"
-            f"{CLASSIC}/{LIVE}/{BELADY}/{LIFO}/{EDF} = "
-            f"{costs[CLASSIC]:,} / {costs[LIVE]:,} / {costs[BELADY]:,} / {costs[LIFO]:,} / {costs[EDF]:,}"
+            f"{CLASSIC}/{LIVE}/{TOMBSTONE} = "
+            f"{costs[CLASSIC]:,} / {costs[LIVE]:,} / {costs[TOMBSTONE]:,}"
         )
         axis.grid(True, alpha=0.25)
         axis.legend(loc="upper right", fontsize=8)
@@ -129,15 +115,8 @@ def main() -> None:
             "curves": curves,
             "bytedmd_costs": costs,
             "abstract_access_preview": format_accesses(program.abstract_accesses, limit=12),
-            "concrete_never_reuse_preview": format_accesses(
-                compile_concrete_trace(program, policy=NEVER_REUSE), limit=12
-            ),
-            "concrete_belady_preview": format_accesses(belady_trace, limit=12),
-            "concrete_lifo_preview": format_accesses(
-                compile_concrete_trace(program, policy=LIFO), limit=12
-            ),
-            "concrete_edf_preview": format_accesses(
-                compile_concrete_trace(program, policy=EDF), limit=12
+            "concrete_tombstone_preview": format_accesses(
+                compile_concrete_trace(program, policy="tombstone"), limit=12
             ),
         }
         results["summary_table"].append(
@@ -145,10 +124,7 @@ def main() -> None:
                 "algorithm": title,
                 CLASSIC: costs[CLASSIC],
                 LIVE: costs[LIVE],
-                NEVER_REUSE: costs[NEVER_REUSE],
-                BELADY: costs[BELADY],
-                LIFO: costs[LIFO],
-                EDF: costs[EDF],
+                TOMBSTONE: costs[TOMBSTONE],
             }
         )
 

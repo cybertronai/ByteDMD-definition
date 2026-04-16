@@ -1,64 +1,74 @@
-# Final Report: Three-Level Matmul Trace Hierarchy
+# Final Report: Three Matmul Memory Models
 
-This experiment adds an explicit three-level pipeline for matrix multiplication traces:
+This experiment makes the matrix-multiplication pipeline explicit at three levels:
 
 1. **Python algorithm level**: regular Python implementations of one-level tiled matmul, 8-way recursive matmul, and Strassen live in [hierarchy.py](./hierarchy.py).
-2. **Abstract load/store level**: running those algorithms over traced scalar values emits a flat logical access stream like `load A[0,0]`, `store t17_mul`, `load t17_mul`, without concrete addresses.
-3. **Compiled concrete-address level**: the same logical stream is compiled to slot traces under concrete reuse policies such as `belady`, `lifo`, and offline `edf`, producing accesses like `load A[0,0] addr=1`, `store t17_mul addr=769`.
+2. **Abstract trace level**: running those algorithms over traced scalar values emits a flat logical stream like `load A[0,0]`, `store t17_mul`, `load t17_mul`.
+3. **Concrete address level**: the same logical stream is compiled to a concrete-address `tombstone` stack, producing accesses like `load A[0,0] addr=256`, `store t17_mul addr=498`.
 
 The implementation is in [hierarchy.py](./hierarchy.py), the runner is [run_experiment.py](./run_experiment.py), the raw data is [results.json](./results.json), and the unit tests are [test_matmul_hierarchy.py](/Users/yaroslavvb/Library/CloudStorage/Dropbox/git0/ByteDMDcodex/test_matmul_hierarchy.py).
 
-## Why this exists
+## The three metrics
 
-The repo already had abstract ByteDMD tracers, but not a single experiment that makes the hierarchy explicit end to end:
+The report in [15apr26-dmdlive-analysis.md](/Users/yaroslavvb/Library/CloudStorage/Dropbox/git0/ByteDMD/gemini/15apr26-dmdlive-analysis.md) argues that the useful comparison is not between many allocators, but between three memory-management regimes:
 
-- source algorithm
-- logical loads/stores
-- compiled address trace
+| Metric | Level | Mental model | What is charged |
+|--------|-------|--------------|-----------------|
+| `ByteDMD-classic` | abstract | infinite graveyard | logical reuse depth with dead values never reclaimed |
+| `ByteDMD-live` | abstract | teleporting cache | logical reuse depth after dead values vanish and the stack closes up for free |
+| `Tombstone` | concrete | high-water-mark physical cache | current concrete address in an LRU-with-holes stack; load cost is charged from that address |
 
-That missing layer matters if we want to compare:
-
-- **ByteDMD-classic**, the original total-bytes logical stack model
-- **ByteDMD-live**, the live-bytes logical stack model
-- concrete address reuse strategies that a compiler could plausibly generate
-
-on the **same** execution.
+This is the framing used throughout the experiment now.
 
 ## Cost model
 
-The discrete ByteDMD cost of a load at reuse depth `d` is:
+The discrete ByteDMD price of a load at depth or address `d` is
 
 ```text
 cost(d) = ceil(sqrt(d))
 ```
 
-That means the cost tiers are:
+That exactly matches the continuous cache picture with:
 
-| Cost | Depth range | Cumulative capacity |
-|------|-------------|--------------------:|
-| 1 | `1` | 1 |
-| 2 | `2..4` | 4 |
-| 3 | `5..9` | 9 |
-| 4 | `10..16` | 16 |
+- shell sizes `1, 3, 5, 7, ...`
+- cumulative capacities `1, 4, 9, 16, ...`
+- access costs `1, 2, 3, 4, ...`
 
-So the natural interpretation is **square cumulative capacities** `1, 4, 9, 16, ...`.
-If you look at the *incremental shell sizes* between tiers, those are the odd numbers
-`1, 3, 5, 7, ...`.
+The geometric interpretation is:
 
-## Method glossary
+- a cache of radius `c` contains `c^2` scalar slots
+- the `d`-th slot therefore costs the smallest `c` such that `d <= c^2`
+- so the access cost is `ceil(sqrt(d))`
 
-| Method | Level | Future knowledge | Stable addresses | Meaning |
-|--------|-------|------------------|------------------|---------|
-| `ByteDMD-classic` | abstract | no | no | Logical LRU over all values ever created; dead temps still contribute to depth |
-| `ByteDMD-live` | abstract | no | no | Logical LRU after removing dead values immediately |
-| `never-reuse` | concrete | no | yes | Compiled addresses never recycled; concrete analog of `ByteDMD-classic` |
-| `lifo` | concrete | no | yes | Reuse the most recently freed concrete slot |
-| `edf` | concrete | yes, at interval level | yes | Offline interval packing of temp lifetimes into fixed slots |
-| `belady` | concrete | yes, exact next use | yes | Two-pass Belady-inspired heuristic that chooses fixed base addresses using next-use information |
+For `ByteDMD-classic` and `ByteDMD-live`, `d` is a logical reuse depth.
+For `Tombstone`, `d` is the concrete address of the loaded value in the tombstone stack at that moment in the trace.
 
-The crucial distinction now is that `belady` **is** a stable-address compiler heuristic.
-It uses future knowledge only when assigning a base address to a value. Once assigned,
-that address stays fixed until the value dies.
+## The three methods in plain language
+
+### `ByteDMD-classic`
+
+This is the original total-bytes model. Every temporary that is ever created stays in the logical LRU history forever, even after it is dead. The effect is an **infinite graveyard**: dead temporaries keep pushing older useful data farther outward.
+
+### `ByteDMD-live`
+
+This is the live-bytes model. As soon as a value reaches its last use, it disappears from the logical stack. That makes the stack instantly collapse inward. It is a useful lower bound, but it implicitly gives the cache free compaction, which is not physically realistic.
+
+### `Tombstone`
+
+This is the concrete-address model used for the physical middle ground.
+
+- When a temporary dies, it leaves a hole at its current address.
+- Unrelated older values do **not** slide inward for free.
+- A store or reload moves only the touched value toward the center by filling the closest available inner hole; if no such hole exists, the frontier grows.
+
+In the current implementation, `tombstone` is an **LRU stack with holes**:
+
+- dead values leave tombstones behind
+- a new store fills the nearest inner tombstone or extends the frontier
+- a load charges the value's current address, then refreshes only that value
+- no global compaction occurs
+
+That makes `Tombstone` a direct model of the high-water-mark picture from the Gemini note: fragmentation is real, but the active frontier stays bounded by reused holes instead of growing like a memory leak.
 
 ## Sample trace
 
@@ -76,97 +86,64 @@ store t2_mul         role=temp
 store t3_add         role=temp
 ```
 
-Compiling the same prefix with `lifo` produces:
+Compiling the same prefix with `tombstone` produces:
 
 ```text
- load A[0,0]         addr=   1 role=input
- load B[0,0]         addr= 257 role=input
-store t1_mul         addr= 769 role=temp
- load A[0,1]         addr=   2 role=input
- load B[1,0]         addr= 273 role=input
-store t2_mul         addr= 770 role=temp
- load t1_mul         addr= 769 role=temp
- load t2_mul         addr= 770 role=temp
-store t3_add         addr= 770 role=temp
+ load A[0,0]         addr= 256 role=input
+ load B[0,0]         addr= 513 role=input
+store t1_mul         addr= 513 role=temp
+ load A[0,1]         addr= 256 role=input
+ load B[1,0]         addr= 498 role=input
+store t2_mul         addr= 498 role=temp
+ load t1_mul         addr= 514 role=temp
+ load t2_mul         addr= 498 role=temp
+store t3_add         addr= 498 role=temp
 ```
 
-The logical and concrete traces have the same control/dataflow, but concrete slot reuse changes the reuse-distance curve.
-
-## What Belady means now
-
-`belady` is no longer a free oracle re-ranking of the live set.
-
-Instead:
-
-1. Pass 1 records every future load.
-2. When a new value is stored, the allocator looks at the next use of every currently live value.
-3. It assigns the **new value a fixed base address** using that next-use information.
-4. Later loads are charged from that concrete address using the same tiered cost model.
-
-So `belady` is now a genuine **offline stable-address heuristic**, not an oracle lower bound.
-Because early temporaries often arrive only after the input matrices have already occupied the
-cheapest addresses, this fixed-address Belady can actually be **more expensive** than
-`ByteDMD-live`, `lifo`, or `edf`.
+The logical schedule is unchanged, but the concrete trace now exposes which values really stay near the center, which ones drift outward, and how holes get recycled without globally collapsing the stack.
 
 ## N=16 results
 
-The runner fixes `N=16`, uses a one-level tile size of `4`, computes logical reuse depths under:
+The runner fixes `N=16`, uses a one-level tile size of `4`, and computes:
 
-- `ByteDMD-classic`
-- `ByteDMD-live`
-
-and concrete reuse depths under:
-
-- `never-reuse`
-- `belady`
-- `lifo`
-- `edf`
-
-then converts each depth trace into:
-
-- a memory-size sweep `misses(M) = #{depth > M}`
-- a discrete ByteDMD total `sum ceil(sqrt(depth))`
+- `ByteDMD-classic` from logical reuse depths
+- `ByteDMD-live` from logical reuse depths with liveness compaction
+- `Tombstone` from concrete load addresses under hole reuse
 
 ### ByteDMD totals
 
-| Algorithm | ByteDMD-classic | ByteDMD-live | never-reuse | belady | lifo | edf |
-|-----------|-----------------:|-------------:|------------:|-------:|-----:|----:|
-| Tiled | 143,796 | 79,342 | 143,796 | 204,063 | 89,635 | 87,979 |
-| Recursive | 154,474 | 84,132 | 154,474 | 223,338 | 98,312 | 99,446 |
-| Strassen | 352,655 | 175,672 | 352,655 | 644,582 | 203,976 | 220,394 |
+| Algorithm | ByteDMD-classic | ByteDMD-live | Tombstone |
+|-----------|-----------------:|-------------:|----------:|
+| Tiled | 143,796 | 75,596 | 123,225 |
+| Recursive | 154,474 | 81,197 | 132,102 |
+| Strassen | 352,655 | 172,892 | 255,867 |
 
-`never-reuse` is included explicitly because it is the compiled concrete policy that corresponds to `ByteDMD-classic` in this pipeline.
+These numbers have the intended interpretation:
 
-`belady` is now a true **offline two-pass stable-address heuristic** over the logical trace:
-in pass 1 it records every future load, and in pass 2 it uses the next-use times of the live
-set only when picking a new fixed base address for each stored value.
+- `ByteDMD-classic` is the pessimistic upper model.
+- `ByteDMD-live` is the optimistic lower model.
+- `Tombstone` sits between them as the concrete no-free-compaction cost.
 
-The qualitative interpretation stays the same:
+That matches the physical story from the analysis note:
 
-- **ByteDMD-live** is a clear lower envelope and **ByteDMD-classic** is a clear upper envelope.
-- `belady`, `lifo`, and `edf` are all concrete stable-address policies now.
-- `belady` uses more future knowledge than `lifo` or `edf`, but because it pays from fixed base addresses rather than from free re-ranking, it is not automatically cheaper.
-- Their ordering is empirical rather than guaranteed by one simple dominance relation.
+- leaking dead temporaries is too pessimistic
+- free inward sliding is too optimistic
+- hole reuse plus stationary outer data is the realistic middle ground
 
 ## Plot
 
 ![Reuse-distance envelope](./reuse_envelope_n16.png)
 
-The curves show `loads above cache size` against cache capacity in scalar slots. For every algorithm, the concrete curves stay inside the abstract envelope:
-
-- `ByteDMD-live` is the optimistic lower bound
-- `ByteDMD-classic` is the pessimistic upper bound
-- `lifo` and `edf` stay between them on this experiment
-- `belady` is a fixed-address heuristic and can land above either abstract model
+The curves show `loads above cache size` against cache capacity in scalar slots. For all three algorithms, the concrete `Tombstone` curve stays inside the abstract envelope formed by `ByteDMD-live` and `ByteDMD-classic`.
 
 ## Tests
 
 The unit tests cover:
 
-- correctness of all three algorithms on small matrices
+- correctness of all three matmul algorithms on small matrices
 - emission of all three levels
-- equality between `ByteDMD-classic` and compiled `never-reuse`
-- envelope sanity for small recursive examples
+- the expected ordering `ByteDMD-live <= Tombstone <= ByteDMD-classic` on a small recursive case
+- monotonicity of the cache-size sweep
 
 Run them with:
 

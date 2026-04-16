@@ -343,7 +343,7 @@ def abstract_reuse_depths(program: TraceProgram, *, live_only: bool) -> List[int
     def compact(current_index: int) -> None:
         if not live_only:
             return
-        stack[:] = [symbol for symbol in stack if last_use.get(symbol, math.inf) > current_index]
+        stack[:] = [symbol for symbol in stack if last_use.get(symbol, -1) > current_index]
 
     for index, access in enumerate(program.abstract_accesses):
         symbol = access.value
@@ -536,14 +536,79 @@ def _edf_slot_assignment(program: TraceProgram) -> Dict[str, int]:
     return assignment
 
 
+def _compile_tombstone_trace(program: TraceProgram, *, policy: str) -> List[ConcreteAccess]:
+    """Concrete-address trace for an LRU stack with holes left by dead values."""
+
+    stack: List[str | None] = list(_initial_preload_symbols(program))
+    positions: Dict[str, int] = {symbol: index for index, symbol in enumerate(stack)}
+    last_use = _logical_last_use(program)
+    compiled: List[ConcreteAccess] = []
+
+    def nearest_hole() -> int | None:
+        for index in range(len(stack) - 1, -1, -1):
+            if stack[index] is None:
+                return index
+        return None
+
+    for index, access in enumerate(program.abstract_accesses):
+        symbol = access.value
+        if access.kind == "store":
+            hole_index = nearest_hole()
+            if hole_index is None:
+                stack.append(symbol)
+                slot = len(stack) - 1
+            else:
+                stack[hole_index] = symbol
+                slot = hole_index
+            positions[symbol] = slot
+            address = len(stack) - slot
+        else:
+            slot = positions[symbol]
+            address = len(stack) - slot
+
+        compiled.append(
+            ConcreteAccess(
+                kind=access.kind,
+                value=symbol,
+                role=access.role,
+                address=address,
+                policy=policy,
+            )
+        )
+
+        if access.kind == "store":
+            if last_use.get(symbol, -1) < index:
+                stack[slot] = None
+                positions.pop(symbol, None)
+            continue
+
+        stack[slot] = None
+        positions.pop(symbol, None)
+        if last_use.get(symbol, -1) == index:
+            continue
+
+        hole_index = nearest_hole()
+        if hole_index is None or hole_index <= slot:
+            stack.append(symbol)
+            new_slot = len(stack) - 1
+        else:
+            stack[hole_index] = symbol
+            new_slot = hole_index
+        positions[symbol] = new_slot
+
+    return compiled
+
+
 def compile_concrete_trace(program: TraceProgram, *, policy: str) -> List[ConcreteAccess]:
     """Compile the level-2 abstract stream into concrete addresses."""
 
     normalized_policy = policy.replace("-", "_")
-    if normalized_policy not in {"never_reuse", "lifo", "edf", "belady"}:
+    if normalized_policy not in {"never_reuse", "tombstone", "lifo", "edf", "belady"}:
         raise ValueError(f"unknown concrete policy {policy!r}")
     if normalized_policy == "belady":
         return _compile_belady_trace(program, policy=policy)
+    if normalized_policy == "tombstone":
+        return _compile_tombstone_trace(program, policy=policy)
 
     input_base = 1
     input_addresses = {symbol: input_base + idx for idx, symbol in enumerate(program.input_symbols)}
@@ -608,7 +673,7 @@ def compile_concrete_trace(program: TraceProgram, *, policy: str) -> List[Concre
                 pass
             temp_addresses.pop(symbol, None)
 
-        if access.kind == "store" and last_use.get(symbol, index) < index:
+        if access.kind == "store" and last_use.get(symbol, -1) < index:
             temp_addresses.pop(symbol, None)
     return compiled
 
@@ -623,6 +688,13 @@ def concrete_reuse_depths(program: TraceProgram, *, policy: str) -> List[int]:
         for symbol in preload_symbols
     ]
     return _reuse_depths_from_addresses(compiled, preload_addresses)
+
+
+def concrete_address_depths(program: TraceProgram, *, policy: str) -> List[int]:
+    """Return fixed physical addresses for each load under a concrete allocator."""
+
+    compiled = compile_concrete_trace(program, policy=policy)
+    return [access.address for access in compiled if access.kind == "load"]
 
 
 def bytedmd_cost(depths: Iterable[int]) -> int:
