@@ -169,10 +169,11 @@ def _plot_trace_panel(ax_scatter, ax_cost, addrs, regions, algo_label, cost, y_m
     ax_scatter.legend(fontsize=8, loc='center left', bbox_to_anchor=(1.01, 0.5),
                        framealpha=0.95)
 
-    per_cost = np.array([math.isqrt(int(a) - 1) + 1 for a in ys])
-    ax_cost.plot(xs, per_cost, color='black', linewidth=0.3, alpha=0.7)
-    ax_cost.set_ylabel('⌈√addr⌉', fontsize=10)
-    ax_cost.grid(True, alpha=0.3)
+    if ax_cost is not None:
+        per_cost = np.array([math.isqrt(int(a) - 1) + 1 for a in ys])
+        ax_cost.plot(xs, per_cost, color='black', linewidth=0.3, alpha=0.7)
+        ax_cost.set_ylabel('⌈√addr⌉', fontsize=10)
+        ax_cost.grid(True, alpha=0.3)
 
 
 def plot_trace(N: int, tile_size: int, out_path: str) -> None:
@@ -180,16 +181,13 @@ def plot_trace(N: int, tile_size: int, out_path: str) -> None:
     rmm_addrs, rmm_regions, rmm_cost = trace_rmm(N, tile_size)
     y_max = max(max(naive_addrs), max(rmm_addrs)) + 1
 
-    fig, axes = plt.subplots(
-        4, 1, figsize=(14, 11),
-        gridspec_kw={'height_ratios': [3, 1, 3, 1]},
-    )
-    _plot_trace_panel(axes[0], axes[1], naive_addrs, naive_regions,
+    fig, axes = plt.subplots(2, 1, figsize=(14, 8), sharex=False)
+    _plot_trace_panel(axes[0], None, naive_addrs, naive_regions,
                        f'NAIVE triple-loop   (N={N})', naive_cost, y_max)
-    _plot_trace_panel(axes[2], axes[3], rmm_addrs, rmm_regions,
+    _plot_trace_panel(axes[1], None, rmm_addrs, rmm_regions,
                        f'RMM + scratchpad   (N={N}, tile={tile_size})',
                        rmm_cost, y_max)
-    axes[3].set_xlabel('Access index', fontsize=11)
+    axes[1].set_xlabel('Access index', fontsize=11)
     fig.suptitle(f'Manual matmul access traces  —  naive vs RMM  —  '
                   f'energy ratio  naive / rmm = {naive_cost / rmm_cost:.2f}×',
                   fontsize=14, y=1.00)
