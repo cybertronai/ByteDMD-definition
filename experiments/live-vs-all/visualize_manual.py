@@ -153,11 +153,92 @@ def plot_trace(N: int, tile_size: int = 4, out_path: str = 'manual_trace.png'):
             print(f'  {region:>8s} : {n:>7,}  ({100*n/total:5.1f} %)  addrs {regions[region][0]}..{regions[region][1]}')
 
 
+def plot_reads_per_addr(N: int, tile_size: int = 4,
+                         out_path: str = 'manual_reads_per_addr.png'):
+    """Bar chart of read-count vs physical address."""
+    addrs, regions, cost = trace_reads(N, tile_size)
+    max_addr = max(addrs)
+    counts = np.zeros(max_addr + 1, dtype=np.int64)
+    for a in addrs:
+        counts[a] += 1
+
+    region_colors = {
+        'fast_A': 'tab:green',
+        'fast_B': 'tab:olive',
+        'fast_C': 'tab:cyan',
+        'main_A': 'tab:red',
+        'main_B': 'tab:orange',
+        'main_C': 'tab:purple',
+    }
+    region_order = ['fast_A', 'fast_B', 'fast_C', 'main_A', 'main_B', 'main_C']
+
+    # Per-addr cost contribution = count * ceil(sqrt(addr))
+    xs = np.arange(1, max_addr + 1)
+    per_addr_cost = counts[1:] * np.array([math.isqrt(a - 1) + 1 for a in xs])
+
+    fig, (ax_cnt, ax_cost) = plt.subplots(
+        2, 1, figsize=(14, 8), sharex=True,
+        gridspec_kw={'height_ratios': [1, 1]},
+    )
+
+    # Top panel: read count per address, colored by region
+    # Draw each region as its own bar series so the legend is clean.
+    for region in region_order:
+        lo, hi = regions[region]
+        reg_xs = np.arange(lo, hi + 1)
+        reg_ys = counts[lo:hi + 1]
+        ax_cnt.bar(reg_xs, reg_ys, width=1.0, color=region_colors[region],
+                    label=f'{region}  (addrs {lo}..{hi})',
+                    edgecolor='none', zorder=3)
+    ax_cnt.set_ylabel('# reads', fontsize=12)
+    ax_cnt.set_title(
+        f'Manual RMM read count per physical address — '
+        f'N={N}, tile={tile_size}\n'
+        f'total reads = {len(addrs):,},   '
+        f'total cost ∑⌈√addr⌉ = {cost:,}',
+        fontsize=13,
+    )
+    ax_cnt.grid(True, axis='y', alpha=0.3)
+    ax_cnt.legend(fontsize=9, loc='center left', bbox_to_anchor=(1.01, 0.5),
+                   framealpha=0.95)
+
+    # Bottom panel: cost contribution per address
+    for region in region_order:
+        lo, hi = regions[region]
+        reg_xs = np.arange(lo, hi + 1)
+        reg_cost = per_addr_cost[lo - 1:hi]
+        ax_cost.bar(reg_xs, reg_cost, width=1.0, color=region_colors[region],
+                     edgecolor='none', zorder=3)
+    ax_cost.set_xlabel('Physical address', fontsize=12)
+    ax_cost.set_ylabel('Cost contribution  (count · ⌈√addr⌉)', fontsize=12)
+    ax_cost.grid(True, axis='y', alpha=0.3)
+
+    plt.tight_layout()
+    plt.savefig(out_path, dpi=140, bbox_inches='tight')
+    print(f'Saved: {out_path}')
+    plt.close()
+
+    print('Per-region summary:')
+    print(f"  {'region':>8s}  {'addrs':>12s}  {'reads':>8s}  {'mean':>6s}  "
+          f"{'cost':>10s}  {'%cost':>6s}")
+    for region in region_order:
+        lo, hi = regions[region]
+        reg_reads = int(counts[lo:hi + 1].sum())
+        reg_cost = int(per_addr_cost[lo - 1:hi].sum())
+        mean_reads = reg_reads / (hi - lo + 1)
+        print(f"  {region:>8s}  {lo:>5}..{hi:<5}  {reg_reads:>8,}  "
+              f"{mean_reads:>6.1f}  {reg_cost:>10,}  {100 * reg_cost / cost:>5.1f}%")
+
+
 def main():
     N = int(sys.argv[1]) if len(sys.argv) > 1 else 16
     tile = int(sys.argv[2]) if len(sys.argv) > 2 else 4
-    out_path = os.path.join(os.path.dirname(__file__), f'manual_trace_n{N}.png')
-    plot_trace(N=N, tile_size=tile, out_path=out_path)
+    out_dir = os.path.dirname(__file__)
+    plot_trace(N=N, tile_size=tile,
+                out_path=os.path.join(out_dir, f'manual_trace_n{N}.png'))
+    plot_reads_per_addr(N=N, tile_size=tile,
+                        out_path=os.path.join(out_dir,
+                                              f'manual_reads_per_addr_n{N}.png'))
 
 
 if __name__ == '__main__':
