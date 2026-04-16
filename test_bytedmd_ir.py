@@ -90,15 +90,21 @@ def test_l3_load_addrs_match_store_addrs():
     l2, _ = b2.trace(f, (3, 5))
     for policy_name in b2.ALLOCATORS:
         l3 = b2.ALLOCATORS[policy_name](l2)
-        var_to_addr = {}
+        var_to_addr: dict = {}
         for ev in l3:
             if isinstance(ev, b2.L3Store):
                 var_to_addr[ev.var] = ev.addr
             elif isinstance(ev, b2.L3Load):
                 assert ev.var in var_to_addr, f"{policy_name}: load of unallocated var {ev.var}"
-                assert var_to_addr[ev.var] == ev.addr, (
-                    f"{policy_name}: load addr {ev.addr} != store addr {var_to_addr[ev.var]}"
-                )
+                if policy_name == "tombstone":
+                    # addr moves on reads under mobile LRU-with-holes; just
+                    # require the recorded load addr to be valid (1..).
+                    assert ev.addr >= 1
+                else:
+                    assert var_to_addr[ev.var] == ev.addr, (
+                        f"{policy_name}: load addr {ev.addr} != store addr "
+                        f"{var_to_addr[ev.var]}"
+                    )
 
 
 # ---------------------------------------------------------------------------
@@ -213,6 +219,26 @@ def test_rmm_envelope_widens_with_N():
         live = b2.bytedmd_live(l2)
         ratios.append(classic / live)
     assert ratios[0] < ratios[1] < ratios[2], f"ratios={ratios}"
+
+
+@pytest.mark.parametrize("N", [2, 4, 8])
+@pytest.mark.parametrize("algo_name", ["matmul_tiled", "matmul_rmm"])
+def test_tombstone_between_live_and_classic(N, algo_name):
+    """DMD-live <= Tombstone <= Classic DMD on the algorithms the experiment plots.
+
+    (The relation can invert on naive ijk, whose long chain of partial-sum
+    updates triggers stack extension on every reread — in that case Tombstone
+    can exceed Classic because LRU bumping-via-extension grows the stack
+    faster than LRU bumping-by-pointer does in Classic.)
+    """
+    A, B = b2.make_inputs(N)
+    func = getattr(b2, algo_name)
+    l2, _ = b2.trace(func, (A, B))
+    live = b2.bytedmd_live(l2)
+    classic = b2.bytedmd_classic(l2)
+    tomb = b2.cost(b2.compile_tombstone(l2))
+    assert live <= tomb, f"{algo_name} N={N}: live {live} > tombstone {tomb}"
+    assert tomb <= classic, f"{algo_name} N={N}: tombstone {tomb} > classic {classic}"
 
 
 def test_bytedmd_live_never_reads_dead_var():

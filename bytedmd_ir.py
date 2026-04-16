@@ -314,19 +314,108 @@ def compile_belady(events: Sequence[L2Event]) -> List[L3Event]:
     return out
 
 
+def compile_tombstone(events: Sequence[L2Event]) -> List[L3Event]:
+    """Mobile LRU stack with tombstones — the realistic middle model.
+
+    A stack grows from bottom (index 0) to top (highest index). The address
+    of a variable equals its distance from the top: top slot has addr 1,
+    bottom slot has addr len(stack). Cost of a LOAD at addr d is
+    ceil(sqrt(d)) (same as every other allocator).
+
+    Semantics:
+      - On STORE: place the new variable in the highest-index hole;
+        if no hole exists, extend the stack by one slot at the top.
+      - On LOAD: record the variable's current address, then remove it
+        from its slot (leaving a hole), and re-insert it into the
+        highest-index hole ABOVE the old slot. If no such hole exists,
+        extend the stack (which places the variable at the new top).
+      - Dead variables (past their last LOAD) leave permanent tombstones.
+
+    Unlike stationary min-heap reuse, live variables DO move on each read —
+    repeated reads of a frequently-used input bring it back toward the top.
+    Unlike full liveness compaction, dead slots are never reclaimed by
+    sliding live data inward. This matches the "Tombstone / High-Water
+    Mark" picture from gemini/15apr26-dmdlive-analysis.md.
+    """
+    last_load = _liveness(events)
+    stack: List[Optional[int]] = []
+    positions: Dict[int, int] = {}
+    hole_heap: List[int] = []  # max-heap over hole indices (negated)
+    out: List[L3Event] = []
+
+    def push_hole(slot: int) -> None:
+        heapq.heappush(hole_heap, -slot)
+
+    def pop_nearest_hole() -> Optional[int]:
+        while hole_heap:
+            slot = -heapq.heappop(hole_heap)
+            if 0 <= slot < len(stack) and stack[slot] is None:
+                return slot
+        return None
+
+    def addr_of_slot(slot: int) -> int:
+        return len(stack) - slot
+
+    for i, ev in enumerate(events):
+        if isinstance(ev, L2Store):
+            slot = pop_nearest_hole()
+            if slot is None:
+                stack.append(ev.var)
+                slot = len(stack) - 1
+            else:
+                stack[slot] = ev.var
+            positions[ev.var] = slot
+            out.append(L3Store(ev.var, addr_of_slot(slot)))
+            if last_load.get(ev.var, -1) < i:
+                # Dead at birth — immediately becomes a tombstone.
+                stack[slot] = None
+                del positions[ev.var]
+                push_hole(slot)
+        elif isinstance(ev, L2Load):
+            slot = positions[ev.var]
+            out.append(L3Load(ev.var, addr_of_slot(slot)))
+            stack[slot] = None
+            del positions[ev.var]
+            if last_load.get(ev.var) == i:
+                push_hole(slot)
+                continue
+            candidate = pop_nearest_hole()
+            if candidate is not None and candidate > slot:
+                stack[candidate] = ev.var
+                positions[ev.var] = candidate
+                push_hole(slot)
+            else:
+                if candidate is not None:
+                    push_hole(candidate)
+                push_hole(slot)
+                stack.append(ev.var)
+                positions[ev.var] = len(stack) - 1
+        else:  # L2Op — metadata
+            in_addrs = tuple(
+                addr_of_slot(positions[v]) if v in positions else 0
+                for v in ev.in_vars
+            )
+            out_slot = positions.get(ev.out_var) if ev.out_var is not None else None
+            out_addr = addr_of_slot(out_slot) if out_slot is not None else None
+            out.append(L3Op(ev.name, ev.in_vars, in_addrs, ev.out_var, out_addr))
+    return out
+
+
 ALLOCATORS: Dict[str, Callable[[Sequence[L2Event]], List[L3Event]]] = {
     "no_reuse":   compile_no_reuse,
     "min_heap":   compile_min_heap,
     "lru_static": compile_lru_static,
     "belady":     compile_belady,
+    "tombstone":  compile_tombstone,
 }
 
 # Human-readable display names for each allocator.
 POLICY_DISPLAY: Dict[str, str] = {
     "no_reuse":   "No reuse",
-    "min_heap":   "Min-heap reuse",
+    "min_heap":   "Min-heap (stationary)",
     "lru_static": "LIFO slots",
     "belady":     "Belady (offline)",
+    "tombstone":  "Tombstone (LRU+holes)",
 }
 
 
