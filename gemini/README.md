@@ -104,3 +104,4 @@ Research notes on **ByteDMD** (Byte-level Data Movement Distance): a concrete me
 | [simplified-manual-rmm.md](simplified-manual-rmm.md) | Pyramid-and-Forklift RMM walkthrough; connection to HMM (1987) and Hong-Kung; 3 ways to beat the 2D bound |
 | [rmm-logn-simplified.md](rmm-logn-simplified.md) | Cleaned-up Pyramid/Forklift RMM code; Master-Theorem proof of Θ(N³ log N) from T(K) = 8T(K/2) + Θ(K³) recurrence |
 | [bytedmd-logn-proof.md](bytedmd-logn-proof.md) | Two proofs that RMM under bytedmd_live is Θ(N³ log N): Master Theorem and a Hong–Kung cache-miss integral identity |
+| [flops-are-a-lie.md](flops-are-a-lie.md) | Six cross-CS examples where FLOP counts mislead: Fibonacci heaps, sparse matmul, Winograd vs Im2Col, gradient checkpointing, LUTs, quicksort vs heapsort, Flash vs Sparse attention |
