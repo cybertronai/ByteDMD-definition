@@ -460,6 +460,250 @@ def mergesort(arr):
 # Longest Common Subsequence — row-major DP over an (m+1)x(n+1) table
 # ============================================================================
 
+# ============================================================================
+# LU / Gaussian elimination (in-place, overwrites A with L and U)
+# ============================================================================
+
+def lu_no_pivot(A):
+    """No-pivot LU (Doolittle). Access pattern matches the classical triple
+    loop: rank-1 trailing update after each column elimination."""
+    n = len(A)
+    for k in range(n):
+        pivot = A[k][k] + 0  # force a load
+        for i in range(k + 1, n):
+            A[i][k] = A[i][k] + pivot   # stand-in for /= pivot (same touches)
+        for i in range(k + 1, n):
+            for j in range(k + 1, n):
+                A[i][j] = A[i][j] - A[i][k] * A[k][j]
+    return A
+
+
+def blocked_lu(A, NB=8):
+    """One-level blocked LU. For each diagonal block: factor via naive LU;
+    triangular-solve the panel and row strip; GEMM-update the trailing
+    submatrix."""
+    n = len(A)
+    for kb in range(0, n, NB):
+        ke = min(kb + NB, n)
+        # (a) factor diagonal block A[kb:ke, kb:ke] via naive LU
+        for k in range(kb, ke):
+            pivot = A[k][k] + 0
+            for i in range(k + 1, ke):
+                A[i][k] = A[i][k] + pivot
+            for i in range(k + 1, ke):
+                for j in range(k + 1, ke):
+                    A[i][j] = A[i][j] - A[i][k] * A[k][j]
+        # (b) update panel A[ke:n, kb:ke]  — triangular solve with U
+        for i in range(ke, n):
+            for k in range(kb, ke):
+                A[i][k] = A[i][k] + A[k][k]
+                for j in range(k + 1, ke):
+                    A[i][j] = A[i][j] - A[i][k] * A[k][j]
+        # (c) update row strip A[kb:ke, ke:n] — triangular solve with L
+        for k in range(kb, ke):
+            for j in range(ke, n):
+                for i in range(k + 1, ke):
+                    A[i][j] = A[i][j] - A[i][k] * A[k][j]
+        # (d) trailing GEMM update A[ke:n, ke:n] -= A[ke:n, kb:ke] · A[kb:ke, ke:n]
+        for i in range(ke, n):
+            for j in range(ke, n):
+                for k in range(kb, ke):
+                    A[i][j] = A[i][j] - A[i][k] * A[k][j]
+    return A
+
+
+def recursive_lu(A):
+    """Cache-oblivious recursive LU: split into 2x2 quadrants, factor
+    top-left, solve off-diagonals, Schur-complement, recurse on bottom-right."""
+    n = len(A)
+    if n == 1:
+        return A
+    h = n // 2
+
+    # (1) Factor top-left A[0:h, 0:h] recursively
+    A11 = [[A[i][j] for j in range(h)] for i in range(h)]
+    recursive_lu(A11)
+    # write back (we keep A11 coupled; in real LU this is in-place)
+    for i in range(h):
+        for j in range(h):
+            A[i][j] = A11[i][j] + 0
+
+    # (2) Solve A[h:n, 0:h] with U11  (L21 = A21 · U11^-1)
+    for i in range(h, n):
+        for k in range(h):
+            A[i][k] = A[i][k] + A[k][k]
+            for j in range(k + 1, h):
+                A[i][j] = A[i][j] - A[i][k] * A[k][j]
+
+    # (3) Solve A[0:h, h:n] with L11  (U12 = L11^-1 · A12)
+    for k in range(h):
+        for j in range(h, n):
+            for i in range(k + 1, h):
+                A[i][j] = A[i][j] - A[i][k] * A[k][j]
+
+    # (4) Schur-complement update A[h:n, h:n] -= A[h:n, 0:h] · A[0:h, h:n]
+    for i in range(h, n):
+        for j in range(h, n):
+            for k in range(h):
+                A[i][j] = A[i][j] - A[i][k] * A[k][j]
+
+    # (5) Recurse on A[h:n, h:n]
+    A22 = [[A[h + i][h + j] for j in range(n - h)] for i in range(n - h)]
+    recursive_lu(A22)
+    for i in range(n - h):
+        for j in range(n - h):
+            A[h + i][h + j] = A22[i][j] + 0
+    return A
+
+
+def lu_partial_pivot(A):
+    """LU with partial pivoting. Adds a column scan per step plus a row
+    swap between the current row and a (data-obliviously-chosen) pivot row."""
+    n = len(A)
+    for k in range(n):
+        # (a) scan column k for pivot (reads n-k elements)
+        _ = A[k][k] + 0
+        for i in range(k + 1, n):
+            _ = A[i][k] + A[k][k]  # compare-ish stand-in (2 reads)
+        # (b) data-oblivious swap: exchange row k with row p = (k+1)%n if k<n-1
+        p = k + 1 if k + 1 < n else k
+        for j in range(k, n):
+            _ = A[k][j] + A[p][j]  # read both rows; fake swap (writes discarded)
+        # (c) elimination as in no-pivot
+        pivot = A[k][k] + 0
+        for i in range(k + 1, n):
+            A[i][k] = A[i][k] + pivot
+        for i in range(k + 1, n):
+            for j in range(k + 1, n):
+                A[i][j] = A[i][j] - A[i][k] * A[k][j]
+    return A
+
+
+# ============================================================================
+# Cholesky (lower-triangular, SPD matrix)
+# ============================================================================
+
+def cholesky(A):
+    """Right-looking Cholesky — reads only the lower triangle. No pivoting."""
+    n = len(A)
+    for k in range(n):
+        pivot = A[k][k] + 0   # stand-in for sqrt(A[k][k])
+        for i in range(k + 1, n):
+            A[i][k] = A[i][k] + pivot   # stand-in for /= sqrt(pivot)
+        for j in range(k + 1, n):
+            for i in range(j, n):     # only lower triangle (i >= j)
+                A[i][j] = A[i][j] - A[i][k] * A[j][k]
+    return A
+
+
+# ============================================================================
+# QR factorization via Householder reflections
+# ============================================================================
+
+def householder_qr(A):
+    """Classical Householder QR: for each column k, compute a reflector
+    using the subdiagonal, apply it to the trailing columns. Access
+    pattern matches LAPACK's DGEQR2."""
+    m = len(A); n = len(A[0])
+    for k in range(min(m, n)):
+        # (a) compute reflector — reads A[k:m, k]
+        nrm = A[k][k] + 0
+        for i in range(k + 1, m):
+            nrm = nrm + A[i][k]
+        # (b) apply reflector to each trailing column
+        for j in range(k + 1, n):
+            t = A[k][k] * A[k][j]
+            for i in range(k + 1, m):
+                t = t + A[i][k] * A[i][j]
+            A[k][j] = A[k][j] - t * A[k][k]
+            for i in range(k + 1, m):
+                A[i][j] = A[i][j] - t * A[i][k]
+    return A
+
+
+def blocked_qr(A, NB=8):
+    """Blocked Householder QR (WY form): factor an NB-wide panel, then
+    apply the accumulated block reflector to the trailing columns in one
+    GEMM-like sweep. Simplified: panel factor uses classical
+    Householder; block update uses a rank-NB trailing update."""
+    m = len(A); n = len(A[0])
+    for kb in range(0, min(m, n), NB):
+        ke = min(kb + NB, min(m, n))
+        # (a) panel factor A[kb:m, kb:ke] with classical Householder
+        for k in range(kb, ke):
+            nrm = A[k][k] + 0
+            for i in range(k + 1, m):
+                nrm = nrm + A[i][k]
+            for j in range(k + 1, ke):
+                t = A[k][k] * A[k][j]
+                for i in range(k + 1, m):
+                    t = t + A[i][k] * A[i][j]
+                A[k][j] = A[k][j] - t * A[k][k]
+                for i in range(k + 1, m):
+                    A[i][j] = A[i][j] - t * A[i][k]
+        # (b) apply accumulated block reflector to trailing columns
+        # A[kb:m, ke:n] -= V_kb:m · W^T · A[kb:m, ke:n]  (rank-NB)
+        for j in range(ke, n):
+            # compute W^T · A[kb:m, j]  (NB-length vector)
+            w = [None] * (ke - kb)
+            for t_idx, k in enumerate(range(kb, ke)):
+                acc = A[k][k] * A[k][j]
+                for i in range(k + 1, m):
+                    acc = acc + A[i][k] * A[i][j]
+                w[t_idx] = acc
+            # update A[kb:m, j] -= V · w
+            for t_idx, k in enumerate(range(kb, ke)):
+                A[k][j] = A[k][j] - A[k][k] * w[t_idx]
+                for i in range(k + 1, m):
+                    A[i][j] = A[i][j] - A[i][k] * w[t_idx]
+    return A
+
+
+def tsqr(A, block_rows=8):
+    """Tall-skinny QR via tree reduction. Phase 1: factor each
+    (block_rows × n) tile locally via Householder QR. Phase 2: pairwise
+    merge the R factors up a tree (stack two NB×N R's and re-factor)."""
+    m = len(A); n = len(A[0])
+    # Phase 1: local QR on each row-tile
+    for row0 in range(0, m, block_rows):
+        row1 = min(row0 + block_rows, m)
+        for k in range(min(row1 - row0, n)):
+            kk = row0 + k
+            nrm = A[kk][k] + 0
+            for i in range(kk + 1, row1):
+                nrm = nrm + A[i][k]
+            for j in range(k + 1, n):
+                t = A[kk][k] * A[kk][j]
+                for i in range(kk + 1, row1):
+                    t = t + A[i][k] * A[i][j]
+                A[kk][j] = A[kk][j] - t * A[kk][k]
+                for i in range(kk + 1, row1):
+                    A[i][j] = A[i][j] - t * A[i][k]
+    # Phase 2: tree reduction — pairwise merge at powers-of-2 strides
+    num_tiles = (m + block_rows - 1) // block_rows
+    stride = 1
+    while stride < num_tiles:
+        for idx in range(0, num_tiles, 2 * stride):
+            other = idx + stride
+            if other >= num_tiles:
+                break
+            left_row = idx * block_rows
+            right_row = other * block_rows
+            right_end = min(right_row + block_rows, m)
+            # Re-factor the stacked R's (top of each tile) — access pattern
+            for k in range(min(n, block_rows)):
+                _ = A[left_row + k][k] + A[right_row + k][k]
+                for j in range(k + 1, n):
+                    t = A[left_row + k][k] * A[left_row + k][j]
+                    for i in range(right_row + k, right_end):
+                        t = t + A[i][k] * A[i][j]
+                    A[left_row + k][j] = A[left_row + k][j] - t * A[left_row + k][k]
+                    for i in range(right_row + k, right_end):
+                        A[i][j] = A[i][j] - t * A[i][k]
+        stride *= 2
+    return A
+
+
 def lcs_dp(x, y):
     """Row-major LCS DP. Uses a branch-free sum in place of the max/equality
     recurrence so the access pattern matches canonical LCS:

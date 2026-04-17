@@ -75,6 +75,10 @@ H_CV, W_CV, K_CV, CIN, COUT = 16, 16, 3, 4, 4   # regular (multi-channel) conv
 N_FFTC = 256                             # FFT-accelerated 1D convolution
 N_SORT = 64                              # mergesort input length
 M_LCS, N_LCS = 32, 32                    # LCS DP table (m+1) x (n+1)
+N_LU = 32                                # LU / Cholesky square size
+NB_LU = 8                                # block size for blocked_lu / blocked_qr
+M_QR, N_QR = 32, 32                      # Householder / blocked QR
+M_TSQR, N_TSQR, BR_TSQR = 64, 16, 8      # tall-skinny QR: 64x16, block=8
 
 # Each algorithm is (display_name, traced_fn, traced_args, manual_cost_fn)
 ALGOS: List[Tuple[str, Callable, Tuple, Callable[[], int]]] = [
@@ -147,6 +151,33 @@ ALGOS: List[Tuple[str, Callable, Tuple, Callable[[], int]]] = [
         alg.lcs_dp,
         (vec(M_LCS), vec(N_LCS)),
         lambda: man.manual_lcs_dp(M_LCS, N_LCS)),
+    (f"lu_no_pivot(n={N_LU})",
+        alg.lu_no_pivot,             (mat(N_LU),),
+        lambda: man.manual_lu_no_pivot(N_LU)),
+    (f"blocked_lu(n={N_LU},NB={NB_LU})",
+        lambda A: alg.blocked_lu(A, NB=NB_LU),
+        (mat(N_LU),),
+        lambda: man.manual_blocked_lu(N_LU, NB=NB_LU)),
+    (f"recursive_lu(n={N_LU})",
+        alg.recursive_lu,            (mat(N_LU),),
+        lambda: man.manual_recursive_lu(N_LU)),
+    (f"lu_partial_pivot(n={N_LU})",
+        alg.lu_partial_pivot,        (mat(N_LU),),
+        lambda: man.manual_lu_partial_pivot(N_LU)),
+    (f"cholesky(n={N_LU})",
+        alg.cholesky,                (mat(N_LU),),
+        lambda: man.manual_cholesky(N_LU)),
+    (f"householder_qr({M_QR}x{N_QR})",
+        alg.householder_qr,          (rect(M_QR, N_QR),),
+        lambda: man.manual_householder_qr(M_QR, N_QR)),
+    (f"blocked_qr({M_QR}x{N_QR},NB={NB_LU})",
+        lambda A: alg.blocked_qr(A, NB=NB_LU),
+        (rect(M_QR, N_QR),),
+        lambda: man.manual_blocked_qr(M_QR, N_QR, NB=NB_LU)),
+    (f"tsqr({M_TSQR}x{N_TSQR},br={BR_TSQR})",
+        lambda A: alg.tsqr(A, block_rows=BR_TSQR),
+        (rect(M_TSQR, N_TSQR),),
+        lambda: man.manual_tsqr(M_TSQR, N_TSQR, block_rows=BR_TSQR)),
 ]
 
 

@@ -45,6 +45,9 @@ placement strategies:
 | FFT-conv     | N=256 circular convolution via two FFTs + pointwise + IFFT        |
 | sort         | quicksort (in-place), heapsort (in-place), mergesort (with temps) |
 | DP           | LCS dynamic programming (branch-free recurrence)                  |
+| LU           | no-pivot, blocked (NB=8), recursive (2×2 split), partial pivoting |
+| Cholesky     | right-looking, lower-triangle only, no pivoting                   |
+| QR           | classical Householder, blocked Householder (WY), tall-skinny TSQR |
 
 Only `fused_strassen` (Zero-Allocation Fused Strassen / ZAFS) has a
 non-trivial trace difference vs naive Strassen; their abstract arithmetic
@@ -75,6 +78,14 @@ DAGs are identical, so `bytedmd_live` / `bytedmd_classic` match — only
 | [heapsort(N=64)](#heapsort)                                           |        4,548 |       4,779 |           7,164 |
 | [mergesort(N=64)](#mergesort)                                         |        2,691 |       8,416 |           4,344 |
 | [lcs_dp(32x32)](#lcs_dp)                                              |       30,253 |      85,929 |          47,066 |
+| [lu_no_pivot(n=32)](#lu_no_pivot)                                     |      386,558 |     706,548 |         636,149 |
+| [blocked_lu(n=32,NB=8)](#blocked_lu)                                  |      257,195 |     821,347 |         482,405 |
+| [recursive_lu(n=32)](#recursive_lu)                                   |      278,434 |     705,856 |         531,521 |
+| [lu_partial_pivot(n=32)](#lu_partial_pivot)                           |      400,190 |     748,712 |         659,733 |
+| [cholesky(n=32)](#cholesky)                                           |      154,263 |     449,296 |         251,196 |
+| [householder_qr(32x32)](#householder_qr)                              |      580,208 |   1,101,368 |       1,034,689 |
+| [blocked_qr(32x32,NB=8)](#blocked_qr)                                 |      580,929 |   1,130,424 |       1,032,323 |
+| [tsqr(64x16,br=8)](#tsqr)                                             |      247,874 |     684,862 |         523,708 |
 
 ## Run
 
@@ -428,3 +439,139 @@ heuristics — a clean case where fixed-placement is a *pessimistic*
 upper envelope.
 
 ![](traces/lcs_dp_32x32.png)
+
+---
+
+## lu_no_pivot
+`n=32`. **Algorithm.** Doolittle-style Gaussian elimination without
+pivoting. For each k: read pivot `A[k][k]`, scale subdiagonal
+column `A[k+1:,k]`, then rank-1 update the trailing submatrix
+`A[k+1:, k+1:] -= A[k+1:, k] · A[k, k+1:]`. Classical `O(n³/3)`
+triple loop.
+
+**Manual placement.** A at addrs 1..n² — everything in-place, no
+scratch (rank-1 updates touch each A cell directly). Per step k the
+pivot address `A + k·n + k` sits at depth proportional to `k·n + k`,
+and every MAC reads three A cells — one fixed (pivot-column), one
+shared per-row, and one shared per-column — so the dominant
+contribution is the trailing submatrix rank-1 loop.
+
+![](traces/lu_no_pivot_n_32.png)
+
+---
+
+## blocked_lu
+`n=32, NB=8`. **Algorithm.** Block LU with four-step pattern per
+diagonal block: (a) factor the NB×NB block via naive LU; (b)
+triangular-solve the trailing column panel; (c) triangular-solve the
+trailing row strip; (d) GEMM-update the trailing submatrix.
+
+**Manual placement.** Three NB×NB scratchpads (`S_diag, S_panel,
+S_row`) at addrs 1..3·NB² hold staged blocks; A at bulk. The
+diagonal-block factorization is cheap (stays in scratch), but my
+implementation reloads the trailing updates directly from A — so
+total manual cost (821,347) actually **exceeds** `lu_no_pivot`'s
+706,548. The scratchpad pays its overhead without enough reuse to
+recoup it at n=32; the crossover would happen at larger n.
+
+![](traces/blocked_lu_n_32_nb_8.png)
+
+---
+
+## recursive_lu
+`n=32`. **Algorithm.** Cache-oblivious divide-and-conquer: split A
+into 2×2 quadrants, factor A11 recursively, triangular-solve A12/A21,
+Schur-complement A22, recurse on A22. Equivalent FLOP count to the
+triple-loop version but with a block-decomposed access pattern.
+
+**Manual placement.** In-place on A — the recursion works on address
+ranges, no temp allocation. Manual (705,856) is essentially tied
+with `lu_no_pivot` — in the fixed-placement Manhattan model, the
+touched-cell set and multiplicities are identical; only the LRU-based
+heuristics spread them differently.
+
+![](traces/recursive_lu_n_32.png)
+
+---
+
+## lu_partial_pivot
+`n=32`. **Algorithm.** Same elimination as `lu_no_pivot` but each
+step first scans column k for the max-magnitude pivot and swaps that
+row into position. Data-oblivious stand-in: pretend the pivot is
+always row k+1 and perform the swap unconditionally.
+
+**Manual placement.** Same A-only layout. The column scan adds `n-k`
+extra reads per step (≈ n²/2 extra touches total) and the row swap
+adds 2(n-k) reads per step (another n² touches). Manual cost
+(748,712) is ~6% above `lu_no_pivot` — the pivoting overhead is
+real but modest, since the dominant cost remains the rank-1 update.
+
+![](traces/lu_partial_pivot_n_32.png)
+
+---
+
+## cholesky
+`n=32`. **Algorithm.** Right-looking Cholesky for an SPD matrix:
+factor `A = L·Lᵀ` in place, reading only the lower triangle. For
+each k: stand-in-sqrt on `A[k][k]`, scale `A[k+1:, k]`, rank-1
+update `A[i][j] -= A[i][k]·A[j][k]` for `i ≥ j > k`.
+
+**Manual placement.** Just A at 1..n². Because the rank-1 update
+runs only over `i ≥ j`, the total touch count is **half** of LU's
+— manual cost 449,296 vs lu_no_pivot's 706,548. The clean
+triangular-only access pattern is exactly why Cholesky is the
+textbook "locality isolate" benchmark.
+
+![](traces/cholesky_n_32.png)
+
+---
+
+## householder_qr
+`32×32`. **Algorithm.** Classical Householder QR: for each column k,
+compute a reflector from `A[k:m, k]`, apply it to each trailing
+column `A[k:m, k+1:n]` (dot-product then rank-1 update). Access
+pattern matches LAPACK's DGEQR2.
+
+**Manual placement.** In-place on A at 1..m·n. The "apply reflector"
+phase touches every subdiagonal of A[k:m, k] twice per trailing
+column (once for dot-product, once for rank-1 update), so each
+column-pair sees ~4(m-k) reads — the characteristic "panel
+read-read-write" pattern.
+
+![](traces/householder_qr_32x32.png)
+
+---
+
+## blocked_qr
+`32×32, NB=8`. **Algorithm.** WY-form block Householder (simplified):
+factor an NB-column panel with classical Householder, then apply the
+accumulated block reflector to the trailing columns in one
+rank-NB sweep per column (compute NB-vector `w = W^T · col`, then
+`col -= V · w`).
+
+**Manual placement.** NB-vector `w` at hottest addrs 1..NB; A at
+bulk. Manual cost (1,130,424) is basically the same as classical
+Householder (1,101,368) — my implementation still reads V and the
+input columns directly from A, so the WY tight inner loop doesn't
+pay off in the fixed-placement model at this size.
+
+![](traces/blocked_qr_32x32_nb_8.png)
+
+---
+
+## tsqr
+`64×16, block_rows=8`. **Algorithm.** Communication-avoiding TSQR:
+split the tall 64×16 matrix into 8 row-tiles of 8 rows; factor each
+tile independently with local Householder QR; merge the resulting R
+factors pairwise up a binary tree (log₂(#tiles) levels of
+reductions).
+
+**Manual placement.** A at 1..m·n; all work is in-place. The
+per-tile QR cost is small (only 8×16) so phase 1 is cheap; phase 2
+touches only the top NB rows of each surviving tile at each merge
+level. Manual cost 684,862 is well below the square
+`householder_qr` (1,101,368) despite using **more** total cells
+(1024 vs 1024 — same footprint but different aspect ratio) because
+the tall-skinny shape makes each local QR dominate less.
+
+![](traces/tsqr_64x16_br_8.png)

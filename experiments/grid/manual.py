@@ -813,6 +813,295 @@ def manual_mergesort(N: int) -> int:
 # Longest Common Subsequence DP
 # ============================================================================
 
+# ============================================================================
+# LU / Gaussian elimination
+# ============================================================================
+
+def manual_lu_no_pivot(n: int) -> int:
+    """In-place no-pivot LU. A at addrs 1..n²; all traffic stays inside A.
+    Per step k: read pivot, (n-k-1) column scales, (n-k-1)² rank-1 MACs
+    (3 reads each: A[i][j], A[i][k], A[k][j])."""
+    a = _alloc()
+    A = a.alloc(n * n)
+    for k in range(n):
+        pivot_addr = A + k * n + k
+        a.touch(pivot_addr)                       # read pivot
+        for i in range(k + 1, n):
+            a.touch(A + i * n + k)                # A[i][k]
+            a.touch(pivot_addr)                   # /pivot
+        for i in range(k + 1, n):
+            for j in range(k + 1, n):
+                a.touch(A + i * n + j)            # A[i][j]
+                a.touch(A + i * n + k)            # A[i][k]
+                a.touch(A + k * n + j)            # A[k][j]
+    return a.cost
+
+
+def manual_blocked_lu(n: int, NB: int = 8) -> int:
+    """One-level blocked LU with scratchpad for the NB×NB panel/row-strip
+    staging. Scratch at addrs 1..3NB²; A in the bulk region."""
+    a = _alloc()
+    S_diag = a.alloc(NB * NB)     # diagonal block scratchpad
+    S_panel = a.alloc(NB * NB)    # below-diagonal panel scratch
+    S_row = a.alloc(NB * NB)      # row strip scratch
+    A = a.alloc(n * n)
+
+    def panel_lu(base_r: int, base_c: int, sz: int, scratch: int) -> None:
+        # Copy A[base_r:+sz, base_c:+sz] into scratch, factor, copy back
+        for ii in range(sz):
+            for jj in range(sz):
+                a.touch(A + (base_r + ii) * n + base_c + jj)
+        for k in range(sz):
+            pivot_addr = scratch + k * sz + k
+            a.touch(pivot_addr)
+            for i in range(k + 1, sz):
+                a.touch(scratch + i * sz + k)
+                a.touch(pivot_addr)
+            for i in range(k + 1, sz):
+                for j in range(k + 1, sz):
+                    a.touch(scratch + i * sz + j)
+                    a.touch(scratch + i * sz + k)
+                    a.touch(scratch + k * sz + j)
+        for ii in range(sz):
+            for jj in range(sz):
+                a.touch(scratch + ii * sz + jj)   # flush back to A
+
+    for kb in range(0, n, NB):
+        ke = min(kb + NB, n)
+        sz = ke - kb
+        # (a) factor diagonal block via scratchpad
+        panel_lu(kb, kb, sz, S_diag)
+        # (b) update trailing panel rows — triangular solve (L11 used)
+        for i in range(ke, n):
+            for k in range(kb, ke):
+                a.touch(A + i * n + k)
+                a.touch(A + k * n + k)
+                for j in range(k + 1, ke):
+                    a.touch(A + i * n + j)
+                    a.touch(A + i * n + k)
+                    a.touch(A + k * n + j)
+        # (c) update trailing row strip — triangular solve (U11 used)
+        for k in range(kb, ke):
+            for j in range(ke, n):
+                for i in range(k + 1, ke):
+                    a.touch(A + i * n + j)
+                    a.touch(A + i * n + k)
+                    a.touch(A + k * n + j)
+        # (d) GEMM trailing update — rank-NB into scratch then back
+        for i in range(ke, n):
+            for j in range(ke, n):
+                for k in range(kb, ke):
+                    a.touch(A + i * n + j)
+                    a.touch(A + i * n + k)
+                    a.touch(A + k * n + j)
+    return a.cost
+
+
+def manual_recursive_lu(n: int) -> int:
+    """Recursive LU. Top-level A at addrs 1..n². Sub-blocks are processed
+    in-place — no temp allocation, only address arithmetic."""
+    a = _alloc()
+    A = a.alloc(n * n)
+
+    def rec(r0: int, c0: int, sz: int) -> None:
+        if sz == 1:
+            return
+        h = sz // 2
+        # (1) Factor top-left h×h via nested recursion
+        rec(r0, c0, h)
+        # (2) Solve off-diag column A[r0+h:r0+sz, c0:c0+h] with U11
+        for i in range(r0 + h, r0 + sz):
+            for k in range(c0, c0 + h):
+                a.touch(A + i * n + k)
+                a.touch(A + k * n + k)
+                for j in range(k + 1, c0 + h):
+                    a.touch(A + i * n + j)
+                    a.touch(A + i * n + k)
+                    a.touch(A + k * n + j)
+        # (3) Solve off-diag row A[r0:r0+h, c0+h:c0+sz] with L11
+        for k in range(r0, r0 + h):
+            for j in range(c0 + h, c0 + sz):
+                for i in range(k + 1, r0 + h):
+                    a.touch(A + i * n + j)
+                    a.touch(A + i * n + k)
+                    a.touch(A + k * n + j)
+        # (4) Schur complement A22 -= A21 · A12
+        for i in range(r0 + h, r0 + sz):
+            for j in range(c0 + h, c0 + sz):
+                for k in range(c0, c0 + h):
+                    a.touch(A + i * n + j)
+                    a.touch(A + i * n + k)
+                    a.touch(A + k * n + j)
+        # (5) Recurse on A22
+        rec(r0 + h, c0 + h, sz - h)
+
+    rec(0, 0, n)
+    return a.cost
+
+
+def manual_lu_partial_pivot(n: int) -> int:
+    """LU with partial pivoting. Adds a column scan (n-k reads) per step
+    and a row-swap pass touching row k and row p=(k+1) across n-k columns."""
+    a = _alloc()
+    A = a.alloc(n * n)
+    for k in range(n):
+        # (a) column scan
+        for i in range(k, n):
+            a.touch(A + i * n + k)
+            a.touch(A + k * n + k)
+        # (b) oblivious row swap with row p = k+1 (or k if k+1 >= n)
+        p = k + 1 if k + 1 < n else k
+        for j in range(k, n):
+            a.touch(A + k * n + j)
+            a.touch(A + p * n + j)
+        # (c) elimination
+        pivot_addr = A + k * n + k
+        a.touch(pivot_addr)
+        for i in range(k + 1, n):
+            a.touch(A + i * n + k); a.touch(pivot_addr)
+        for i in range(k + 1, n):
+            for j in range(k + 1, n):
+                a.touch(A + i * n + j)
+                a.touch(A + i * n + k)
+                a.touch(A + k * n + j)
+    return a.cost
+
+
+# ============================================================================
+# Cholesky
+# ============================================================================
+
+def manual_cholesky(n: int) -> int:
+    """Right-looking Cholesky. Lower triangle only — reads span i >= j
+    only, so ~half the touches of full LU. A at addrs 1..n²."""
+    a = _alloc()
+    A = a.alloc(n * n)
+    for k in range(n):
+        pivot_addr = A + k * n + k
+        a.touch(pivot_addr)   # sqrt(A[k][k]) stand-in
+        for i in range(k + 1, n):
+            a.touch(A + i * n + k)
+            a.touch(pivot_addr)
+        for j in range(k + 1, n):
+            for i in range(j, n):   # lower triangle (i >= j)
+                a.touch(A + i * n + j)
+                a.touch(A + i * n + k)
+                a.touch(A + j * n + k)
+    return a.cost
+
+
+# ============================================================================
+# QR — Householder family
+# ============================================================================
+
+def manual_householder_qr(m: int, n: int) -> int:
+    """Classical Householder QR in place. For each column k: scan
+    subdiagonal (m-k reads), then reflect each trailing column (2 reads
+    per dot-product entry + 2 reads per update entry)."""
+    a = _alloc()
+    A = a.alloc(m * n)
+    for k in range(min(m, n)):
+        # (a) compute reflector norm
+        a.touch(A + k * n + k)
+        for i in range(k + 1, m):
+            a.touch(A + i * n + k)
+        # (b) apply reflector to each trailing column
+        for j in range(k + 1, n):
+            # dot product: sum_i A[i][k] * A[i][j]
+            a.touch(A + k * n + k); a.touch(A + k * n + j)
+            for i in range(k + 1, m):
+                a.touch(A + i * n + k); a.touch(A + i * n + j)
+            # rank-1 update: A[i][j] -= t * A[i][k]
+            a.touch(A + k * n + j); a.touch(A + k * n + k)
+            for i in range(k + 1, m):
+                a.touch(A + i * n + j); a.touch(A + i * n + k)
+    return a.cost
+
+
+def manual_blocked_qr(m: int, n: int, NB: int = 8) -> int:
+    """Blocked QR (WY form, simplified). Panel factored via classical
+    Householder; trailing columns updated in one rank-NB sweep per
+    column. W-vector of length NB stored in hot region."""
+    a = _alloc()
+    w = a.alloc(NB)   # temp NB-vector for rank-NB update
+    A = a.alloc(m * n)
+    for kb in range(0, min(m, n), NB):
+        ke = min(kb + NB, min(m, n))
+        # (a) panel factor
+        for k in range(kb, ke):
+            a.touch(A + k * n + k)
+            for i in range(k + 1, m):
+                a.touch(A + i * n + k)
+            for j in range(k + 1, ke):
+                a.touch(A + k * n + k); a.touch(A + k * n + j)
+                for i in range(k + 1, m):
+                    a.touch(A + i * n + k); a.touch(A + i * n + j)
+                a.touch(A + k * n + j); a.touch(A + k * n + k)
+                for i in range(k + 1, m):
+                    a.touch(A + i * n + j); a.touch(A + i * n + k)
+        # (b) block apply to trailing columns
+        for j in range(ke, n):
+            for t_idx, k in enumerate(range(kb, ke)):
+                a.touch(A + k * n + k); a.touch(A + k * n + j)
+                for i in range(k + 1, m):
+                    a.touch(A + i * n + k); a.touch(A + i * n + j)
+                # write w[t_idx] — free
+            for t_idx, k in enumerate(range(kb, ke)):
+                a.touch(A + k * n + j); a.touch(A + k * n + k); a.touch(w + t_idx)
+                for i in range(k + 1, m):
+                    a.touch(A + i * n + j); a.touch(A + i * n + k); a.touch(w + t_idx)
+    return a.cost
+
+
+def manual_tsqr(m: int, n: int, block_rows: int = 8) -> int:
+    """Tall-skinny QR: local Householder QR per row-tile, then pairwise
+    tree-reduction over stacked R factors."""
+    a = _alloc()
+    A = a.alloc(m * n)
+    # Phase 1: local QR per row-tile
+    for row0 in range(0, m, block_rows):
+        row1 = min(row0 + block_rows, m)
+        for k in range(min(row1 - row0, n)):
+            kk = row0 + k
+            a.touch(A + kk * n + k)
+            for i in range(kk + 1, row1):
+                a.touch(A + i * n + k)
+            for j in range(k + 1, n):
+                a.touch(A + kk * n + k); a.touch(A + kk * n + j)
+                for i in range(kk + 1, row1):
+                    a.touch(A + i * n + k); a.touch(A + i * n + j)
+                a.touch(A + kk * n + j); a.touch(A + kk * n + k)
+                for i in range(kk + 1, row1):
+                    a.touch(A + i * n + j); a.touch(A + i * n + k)
+    # Phase 2: tree reduction
+    num_tiles = (m + block_rows - 1) // block_rows
+    stride = 1
+    while stride < num_tiles:
+        for idx in range(0, num_tiles, 2 * stride):
+            other = idx + stride
+            if other >= num_tiles:
+                break
+            left_row = idx * block_rows
+            right_row = other * block_rows
+            right_end = min(right_row + block_rows, m)
+            for k in range(min(n, block_rows)):
+                a.touch(A + (left_row + k) * n + k)
+                a.touch(A + (right_row + k) * n + k)
+                for j in range(k + 1, n):
+                    a.touch(A + (left_row + k) * n + k); a.touch(A + (left_row + k) * n + j)
+                    for i in range(right_row + k, right_end):
+                        a.touch(A + i * n + k); a.touch(A + i * n + j)
+                    a.touch(A + (left_row + k) * n + j); a.touch(A + (left_row + k) * n + k)
+                    for i in range(right_row + k, right_end):
+                        a.touch(A + i * n + j); a.touch(A + i * n + k)
+        stride *= 2
+    return a.cost
+
+
+# ============================================================================
+# Longest Common Subsequence DP
+# ============================================================================
+
 def manual_lcs_dp(m: int, n: int) -> int:
     """Row-major LCS DP. Cell (i,j) reads D[i-1][j-1], D[i-1][j], D[i][j-1]
     and the two input characters x[i-1], y[j-1]."""
