@@ -1,7 +1,9 @@
+from experiments.memory_management.algorithms import naive_matmul
 from experiments.heuristic_grid.algorithms import (
     build_algorithm_specs,
     blocked_transpose,
     flash_attention,
+    fused_strassen,
     iterative_fft,
     jacobi_stencil_naive,
     jacobi_stencil_recursive,
@@ -15,6 +17,13 @@ from experiments.heuristic_grid.algorithms import (
 )
 from experiments.heuristic_grid.measure import measure_function
 from experiments.heuristic_grid.run_experiment import CLASSIC, LIVE, TARGET, collect_results
+
+
+def test_fused_strassen_matches_standard_output():
+    a = make_matrix(8)
+    b = make_matrix(8, offset=1000)
+
+    assert fused_strassen(a, b, leaf=2) == naive_matmul(a, b)
 
 
 def test_transpose_variants_match():
@@ -64,8 +73,11 @@ def test_flash_attention_beats_regular_attention_on_selected_workload():
 def test_collect_results_has_expected_shape_and_budget():
     results = collect_results()
     rows = results["algorithms"]
+    keys = {spec.key for spec in build_algorithm_specs()}
 
-    assert len(rows) == len(build_algorithm_specs())
+    assert len(rows) == len(keys)
+    assert "fused-strassen-16" in keys
+    assert any(row["key"] == "fused-strassen-16" for row in rows)
     assert results["overall_max_cell_seconds"] < 10.0
     assert results["metric_columns"] == [TARGET, CLASSIC, LIVE]
     assert all(TARGET in row and CLASSIC in row and LIVE in row for row in rows)

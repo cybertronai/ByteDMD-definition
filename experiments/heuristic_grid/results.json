@@ -9,12 +9,12 @@
       "ByteDMD-classic": 62694,
       "ByteDMD-live": 46926,
       "cell_seconds": {
-        "Manual-2D": 0.0681,
-        "ByteDMD-classic": 0.1004,
-        "ByteDMD-live": 0.0557
+        "Manual-2D": 0.0731,
+        "ByteDMD-classic": 0.1008,
+        "ByteDMD-live": 0.0558
       },
-      "max_cell_seconds": 0.1004,
-      "total_traced_seconds": 0.2241
+      "max_cell_seconds": 0.1008,
+      "total_traced_seconds": 0.2296
     },
     {
       "key": "vecmat-32",
@@ -25,12 +25,12 @@
       "ByteDMD-classic": 59331,
       "ByteDMD-live": 42795,
       "cell_seconds": {
-        "Manual-2D": 0.0577,
-        "ByteDMD-classic": 0.0905,
-        "ByteDMD-live": 0.0561
+        "Manual-2D": 0.0592,
+        "ByteDMD-classic": 0.0919,
+        "ByteDMD-live": 0.056
       },
-      "max_cell_seconds": 0.0905,
-      "total_traced_seconds": 0.2044
+      "max_cell_seconds": 0.0919,
+      "total_traced_seconds": 0.2072
     },
     {
       "key": "transpose-naive-32",
@@ -41,12 +41,12 @@
       "ByteDMD-classic": 40447,
       "ByteDMD-live": 40447,
       "cell_seconds": {
-        "Manual-2D": 0.1153,
-        "ByteDMD-classic": 0.0694,
-        "ByteDMD-live": 0.1024
+        "Manual-2D": 0.1151,
+        "ByteDMD-classic": 0.0684,
+        "ByteDMD-live": 0.1023
       },
-      "max_cell_seconds": 0.1153,
-      "total_traced_seconds": 0.2871
+      "max_cell_seconds": 0.1151,
+      "total_traced_seconds": 0.2858
     },
     {
       "key": "transpose-blocked-32",
@@ -57,12 +57,12 @@
       "ByteDMD-classic": 39806,
       "ByteDMD-live": 39806,
       "cell_seconds": {
-        "Manual-2D": 0.1129,
-        "ByteDMD-classic": 0.0667,
-        "ByteDMD-live": 0.101
+        "Manual-2D": 0.1143,
+        "ByteDMD-classic": 0.0669,
+        "ByteDMD-live": 0.1012
       },
-      "max_cell_seconds": 0.1129,
-      "total_traced_seconds": 0.2806
+      "max_cell_seconds": 0.1143,
+      "total_traced_seconds": 0.2824
     },
     {
       "key": "transpose-recursive-32",
@@ -73,12 +73,12 @@
       "ByteDMD-classic": 39737,
       "ByteDMD-live": 39737,
       "cell_seconds": {
-        "Manual-2D": 0.1214,
-        "ByteDMD-classic": 0.0677,
-        "ByteDMD-live": 0.1041
+        "Manual-2D": 0.1158,
+        "ByteDMD-classic": 0.067,
+        "ByteDMD-live": 0.1009
       },
-      "max_cell_seconds": 0.1214,
-      "total_traced_seconds": 0.2931
+      "max_cell_seconds": 0.1158,
+      "total_traced_seconds": 0.2838
     },
     {
       "key": "scan-row-64",
@@ -89,12 +89,12 @@
       "ByteDMD-classic": 325675,
       "ByteDMD-live": 270334,
       "cell_seconds": {
-        "Manual-2D": 0.9127,
-        "ByteDMD-classic": 1.1143,
-        "ByteDMD-live": 0.7184
+        "Manual-2D": 0.8951,
+        "ByteDMD-classic": 1.0688,
+        "ByteDMD-live": 0.7128
       },
-      "max_cell_seconds": 1.1143,
-      "total_traced_seconds": 2.7454
+      "max_cell_seconds": 1.0688,
+      "total_traced_seconds": 2.6768
     },
     {
       "key": "scan-column-64",
@@ -105,12 +105,12 @@
       "ByteDMD-classic": 294101,
       "ByteDMD-live": 231311,
       "cell_seconds": {
-        "Manual-2D": 0.7579,
-        "ByteDMD-classic": 0.9923,
-        "ByteDMD-live": 0.7539
+        "Manual-2D": 0.7424,
+        "ByteDMD-classic": 0.9175,
+        "ByteDMD-live": 0.7384
       },
-      "max_cell_seconds": 0.9923,
-      "total_traced_seconds": 2.5042
+      "max_cell_seconds": 0.9175,
+      "total_traced_seconds": 2.3982
     },
     {
       "key": "naive-matmul-16",
@@ -121,12 +121,12 @@
       "ByteDMD-classic": 178324,
       "ByteDMD-live": 117935,
       "cell_seconds": {
-        "Manual-2D": 0.0946,
-        "ByteDMD-classic": 0.2182,
-        "ByteDMD-live": 0.0907
+        "Manual-2D": 0.0934,
+        "ByteDMD-classic": 0.2064,
+        "ByteDMD-live": 0.0877
       },
-      "max_cell_seconds": 0.2182,
-      "total_traced_seconds": 0.4035
+      "max_cell_seconds": 0.2064,
+      "total_traced_seconds": 0.3875
     },
     {
       "key": "tiled-matmul-16",
@@ -137,12 +137,12 @@
       "ByteDMD-classic": 143280,
       "ByteDMD-live": 88687,
       "cell_seconds": {
-        "Manual-2D": 0.0651,
-        "ByteDMD-classic": 0.1866,
-        "ByteDMD-live": 0.062
+        "Manual-2D": 0.0637,
+        "ByteDMD-classic": 0.1804,
+        "ByteDMD-live": 0.0618
       },
-      "max_cell_seconds": 0.1866,
-      "total_traced_seconds": 0.3137
+      "max_cell_seconds": 0.1804,
+      "total_traced_seconds": 0.3058
     },
     {
       "key": "rmm-16",
@@ -153,12 +153,12 @@
       "ByteDMD-classic": 154251,
       "ByteDMD-live": 95462,
       "cell_seconds": {
-        "Manual-2D": 0.0824,
-        "ByteDMD-classic": 0.206,
-        "ByteDMD-live": 0.072
+        "Manual-2D": 0.084,
+        "ByteDMD-classic": 0.2066,
+        "ByteDMD-live": 0.0739
       },
-      "max_cell_seconds": 0.206,
-      "total_traced_seconds": 0.3604
+      "max_cell_seconds": 0.2066,
+      "total_traced_seconds": 0.3645
     },
     {
       "key": "rmm-lex-16",
@@ -169,12 +169,12 @@
       "ByteDMD-classic": 162049,
       "ByteDMD-live": 91212,
       "cell_seconds": {
-        "Manual-2D": 0.073,
-        "ByteDMD-classic": 0.2496,
-        "ByteDMD-live": 0.0724
+        "Manual-2D": 0.0744,
+        "ByteDMD-classic": 0.2429,
+        "ByteDMD-live": 0.0705
       },
-      "max_cell_seconds": 0.2496,
-      "total_traced_seconds": 0.395
+      "max_cell_seconds": 0.2429,
+      "total_traced_seconds": 0.3878
     },
     {
       "key": "rmm-gray-16",
@@ -185,12 +185,12 @@
       "ByteDMD-classic": 155454,
       "ByteDMD-live": 86402,
       "cell_seconds": {
-        "Manual-2D": 0.0711,
-        "ByteDMD-classic": 0.2433,
-        "ByteDMD-live": 0.0669
+        "Manual-2D": 0.0693,
+        "ByteDMD-classic": 0.2438,
+        "ByteDMD-live": 0.0691
       },
-      "max_cell_seconds": 0.2433,
-      "total_traced_seconds": 0.3813
+      "max_cell_seconds": 0.2438,
+      "total_traced_seconds": 0.3822
     },
     {
       "key": "strassen-16",
@@ -201,12 +201,28 @@
       "ByteDMD-classic": 353207,
       "ByteDMD-live": 204752,
       "cell_seconds": {
-        "Manual-2D": 0.2159,
-        "ByteDMD-classic": 0.6049,
-        "ByteDMD-live": 0.1543
+        "Manual-2D": 0.208,
+        "ByteDMD-classic": 0.5821,
+        "ByteDMD-live": 0.1513
       },
-      "max_cell_seconds": 0.6049,
-      "total_traced_seconds": 0.9751
+      "max_cell_seconds": 0.5821,
+      "total_traced_seconds": 0.9414
+    },
+    {
+      "key": "fused-strassen-16",
+      "algorithm": "Fused Strassen",
+      "workload": "16x16, leaf=8",
+      "notes": "zero-allocation virtual sums with direct accumulation into C",
+      "Manual-2D": 197358,
+      "ByteDMD-classic": 313340,
+      "ByteDMD-live": 183684,
+      "cell_seconds": {
+        "Manual-2D": 0.1425,
+        "ByteDMD-classic": 0.498,
+        "ByteDMD-live": 0.137
+      },
+      "max_cell_seconds": 0.498,
+      "total_traced_seconds": 0.7775
     },
     {
       "key": "fft-iterative-32",
@@ -218,11 +234,11 @@
       "ByteDMD-live": 1691,
       "cell_seconds": {
         "Manual-2D": 0.0013,
-        "ByteDMD-classic": 0.0017,
-        "ByteDMD-live": 0.0015
+        "ByteDMD-classic": 0.0016,
+        "ByteDMD-live": 0.0012
       },
-      "max_cell_seconds": 0.0017,
-      "total_traced_seconds": 0.0045
+      "max_cell_seconds": 0.0016,
+      "total_traced_seconds": 0.004
     },
     {
       "key": "fft-recursive-32",
@@ -234,11 +250,11 @@
       "ByteDMD-live": 1366,
       "cell_seconds": {
         "Manual-2D": 0.0012,
-        "ByteDMD-classic": 0.0013,
+        "ByteDMD-classic": 0.0012,
         "ByteDMD-live": 0.0011
       },
-      "max_cell_seconds": 0.0013,
-      "total_traced_seconds": 0.0036
+      "max_cell_seconds": 0.0012,
+      "total_traced_seconds": 0.0034
     },
     {
       "key": "jacobi-naive-32",
@@ -249,12 +265,12 @@
       "ByteDMD-classic": 94490,
       "ByteDMD-live": 68807,
       "cell_seconds": {
-        "Manual-2D": 0.1356,
-        "ByteDMD-classic": 0.1711,
-        "ByteDMD-live": 0.1107
+        "Manual-2D": 0.1311,
+        "ByteDMD-classic": 0.1654,
+        "ByteDMD-live": 0.1105
       },
-      "max_cell_seconds": 0.1711,
-      "total_traced_seconds": 0.4174
+      "max_cell_seconds": 0.1654,
+      "total_traced_seconds": 0.407
     },
     {
       "key": "jacobi-recursive-32",
@@ -265,12 +281,12 @@
       "ByteDMD-classic": 86431,
       "ByteDMD-live": 62206,
       "cell_seconds": {
-        "Manual-2D": 0.1299,
-        "ByteDMD-classic": 0.1608,
-        "ByteDMD-live": 0.1229
+        "Manual-2D": 0.1263,
+        "ByteDMD-classic": 0.1622,
+        "ByteDMD-live": 0.1232
       },
-      "max_cell_seconds": 0.1608,
-      "total_traced_seconds": 0.4135
+      "max_cell_seconds": 0.1622,
+      "total_traced_seconds": 0.4117
     },
     {
       "key": "regular-attention-32x4",
@@ -281,12 +297,12 @@
       "ByteDMD-classic": 474581,
       "ByteDMD-live": 303850,
       "cell_seconds": {
-        "Manual-2D": 0.3839,
-        "ByteDMD-classic": 0.9436,
-        "ByteDMD-live": 0.3911
+        "Manual-2D": 0.3754,
+        "ByteDMD-classic": 0.9208,
+        "ByteDMD-live": 0.3703
       },
-      "max_cell_seconds": 0.9436,
-      "total_traced_seconds": 1.7186
+      "max_cell_seconds": 0.9208,
+      "total_traced_seconds": 1.6665
     },
     {
       "key": "flash-attention-32x4",
@@ -297,26 +313,26 @@
       "ByteDMD-classic": 335704,
       "ByteDMD-live": 197629,
       "cell_seconds": {
-        "Manual-2D": 0.1366,
-        "ByteDMD-classic": 0.5061,
-        "ByteDMD-live": 0.1271
+        "Manual-2D": 0.1299,
+        "ByteDMD-classic": 0.4866,
+        "ByteDMD-live": 0.1187
       },
-      "max_cell_seconds": 0.5061,
-      "total_traced_seconds": 0.7698
+      "max_cell_seconds": 0.4866,
+      "total_traced_seconds": 0.7352
     }
   ],
   "ranking": [
     {
       "metric": "ByteDMD-live",
-      "spearman_rho": 0.9964912280701752,
-      "scale_fit": 1.0746916618458167,
-      "scaled_mape": 0.04688094513726317
+      "spearman_rho": 0.9969924812030075,
+      "scale_fit": 1.074670573912911,
+      "scaled_mape": 0.04453778120675931
     },
     {
       "metric": "ByteDMD-classic",
-      "spearman_rho": 0.9771929824561402,
-      "scale_fit": 0.7183477265276154,
-      "scaled_mape": 0.12536012288447898
+      "spearman_rho": 0.9774436090225563,
+      "scale_fit": 0.7087853364699134,
+      "scaled_mape": 0.12576952434924618
     }
   ],
   "metric_columns": [
@@ -329,5 +345,5 @@
     "ByteDMD-classic",
     "ByteDMD-live"
   ],
-  "overall_max_cell_seconds": 1.1143
+  "overall_max_cell_seconds": 1.0688
 }

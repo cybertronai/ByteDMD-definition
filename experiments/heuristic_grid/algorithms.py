@@ -67,6 +67,22 @@ def one_level_tiled_matmul(A, B):
     return _tiled_matmul(A, B, tile_size=4)
 
 
+@dataclass(frozen=True)
+class MatrixBlock:
+    """A mutable square view into a matrix."""
+
+    base: list[list[object]]
+    row: int
+    col: int
+    size: int
+
+    def get(self, i: int, j: int):
+        return self.base[self.row + i][self.col + j]
+
+    def set(self, i: int, j: int, value) -> None:
+        self.base[self.row + i][self.col + j] = value
+
+
 def _copy_proxy(x):
     """Tracked copy with one read and one output."""
 
@@ -89,6 +105,114 @@ def _inv_proxy(x):
     """Proxy for reciprocal with one read and one output."""
 
     return x * x
+
+
+def _split_block(block: MatrixBlock) -> tuple[MatrixBlock, MatrixBlock, MatrixBlock, MatrixBlock]:
+    half = block.size // 2
+    return (
+        MatrixBlock(block.base, block.row, block.col, half),
+        MatrixBlock(block.base, block.row, block.col + half, half),
+        MatrixBlock(block.base, block.row + half, block.col, half),
+        MatrixBlock(block.base, block.row + half, block.col + half, half),
+    )
+
+
+def _quadrant_terms(
+    terms: list[tuple[int, MatrixBlock]],
+    quadrant: int,
+) -> list[tuple[int, MatrixBlock]]:
+    return [(sign, _split_block(block)[quadrant]) for sign, block in terms]
+
+
+def _virtual_value(terms: list[tuple[int, MatrixBlock]], i: int, j: int):
+    value = None
+    for sign, block in terms:
+        term = block.get(i, j)
+        signed = term if sign == 1 else (-1 * term)
+        value = signed if value is None else value + signed
+    return value
+
+
+def _accumulate_targets(targets: list[tuple[int, MatrixBlock]], i: int, j: int, value) -> None:
+    for sign, block in targets:
+        contribution = (1 * value) if sign == 1 else (-1 * value)
+        existing = block.get(i, j)
+        block.set(i, j, contribution if existing is None else existing + contribution)
+
+
+def _fused_strassen_accumulate(
+    a_terms: list[tuple[int, MatrixBlock]],
+    b_terms: list[tuple[int, MatrixBlock]],
+    c_targets: list[tuple[int, MatrixBlock]],
+    *,
+    leaf: int,
+) -> None:
+    size = a_terms[0][1].size
+    if size <= leaf:
+        for i in range(size):
+            for j in range(size):
+                total = None
+                for k in range(size):
+                    a_value = _virtual_value(a_terms, i, k)
+                    b_value = _virtual_value(b_terms, k, j)
+                    product = a_value * b_value
+                    total = product if total is None else total + product
+                _accumulate_targets(c_targets, i, j, total)
+        return
+
+    m1_targets: list[tuple[int, MatrixBlock]] = []
+    m2_targets: list[tuple[int, MatrixBlock]] = []
+    m3_targets: list[tuple[int, MatrixBlock]] = []
+    m4_targets: list[tuple[int, MatrixBlock]] = []
+    m5_targets: list[tuple[int, MatrixBlock]] = []
+    m6_targets: list[tuple[int, MatrixBlock]] = []
+    m7_targets: list[tuple[int, MatrixBlock]] = []
+
+    for sign, block in c_targets:
+        q11, q12, q21, q22 = _split_block(block)
+        m1_targets.extend([(sign, q11), (sign, q22)])
+        m2_targets.extend([(sign, q21), (-sign, q22)])
+        m3_targets.extend([(sign, q12), (sign, q22)])
+        m4_targets.extend([(sign, q11), (sign, q21)])
+        m5_targets.extend([(-sign, q11), (sign, q12)])
+        m6_targets.append((sign, q22))
+        m7_targets.append((sign, q11))
+
+    a11 = _quadrant_terms(a_terms, 0)
+    a12 = _quadrant_terms(a_terms, 1)
+    a21 = _quadrant_terms(a_terms, 2)
+    a22 = _quadrant_terms(a_terms, 3)
+    b11 = _quadrant_terms(b_terms, 0)
+    b12 = _quadrant_terms(b_terms, 1)
+    b21 = _quadrant_terms(b_terms, 2)
+    b22 = _quadrant_terms(b_terms, 3)
+
+    _fused_strassen_accumulate(a11 + a22, b11 + b22, m1_targets, leaf=leaf)
+    _fused_strassen_accumulate(a21 + a22, b11, m2_targets, leaf=leaf)
+    _fused_strassen_accumulate(a11, b12 + [(-sign, block) for sign, block in b22], m3_targets, leaf=leaf)
+    _fused_strassen_accumulate(a22, b21 + [(-sign, block) for sign, block in b11], m4_targets, leaf=leaf)
+    _fused_strassen_accumulate(a11 + a12, b22, m5_targets, leaf=leaf)
+    _fused_strassen_accumulate(a21 + [(-sign, block) for sign, block in a11], b11 + b12, m6_targets, leaf=leaf)
+    _fused_strassen_accumulate(a12 + [(-sign, block) for sign, block in a22], b21 + b22, m7_targets, leaf=leaf)
+
+
+def fused_strassen(A, B, *, leaf: int = 8):
+    """Zero-allocation fused Strassen with virtual sums and direct accumulation."""
+
+    n = len(A)
+    if n == 0 or n != len(B) or n != len(B[0]) or n != len(A[0]):
+        raise ValueError("fused_strassen expects same-size square matrices")
+    if n & (n - 1):
+        raise ValueError("fused_strassen requires a power-of-two size")
+
+    out = [[None] * n for _ in range(n)]
+    _fused_strassen_accumulate(
+        [(1, MatrixBlock(A, 0, 0, n))],
+        [(1, MatrixBlock(B, 0, 0, n))],
+        [(1, MatrixBlock(out, 0, 0, n))],
+        leaf=leaf,
+    )
+    return out
 
 
 def naive_transpose(A):
@@ -546,6 +670,15 @@ def build_algorithm_specs() -> list[AlgorithmSpec]:
             workload="16x16",
             notes="leaf size 1 to expose temporary traffic",
             func=strassen,
+            args_factory=lambda: (make_matrix(16), make_matrix(16, offset=1000)),
+            flops=flops_strassen(16),
+        ),
+        AlgorithmSpec(
+            key="fused-strassen-16",
+            label="Fused Strassen",
+            workload="16x16, leaf=8",
+            notes="zero-allocation virtual sums with direct accumulation into C",
+            func=lambda A, B: fused_strassen(A, B, leaf=8),
             args_factory=lambda: (make_matrix(16), make_matrix(16, offset=1000)),
             flops=flops_strassen(16),
         ),

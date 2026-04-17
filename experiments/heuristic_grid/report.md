@@ -2,7 +2,7 @@
 
 This experiment compares a concrete no-free-compaction 2D cost against the two abstract ByteDMD heuristics on a small suite of workloads.
 
-Every traced metric cell finished under 1.114 seconds on this run.
+Every traced metric cell finished under 1.069 seconds on this run.
 
 ## Algorithms
 
@@ -21,6 +21,7 @@ Every traced metric cell finished under 1.114 seconds on this run.
 | Recursive In-Place (Lex) | 16x16 | manual in-place schedule, lexicographic order |
 | Recursive In-Place (Gray) | 16x16 | manual in-place schedule, Gray-code order |
 | Strassen | 16x16 | leaf size 1 to expose temporary traffic |
+| Fused Strassen | 16x16, leaf=8 | zero-allocation virtual sums with direct accumulation into C |
 | FFT (Iterative) | N=32 | iterative radix-2 Cooley-Tukey |
 | FFT (Recursive) | N=32 | recursive radix-2 Cooley-Tukey |
 | Stencil (Naive) | 32x32, one sweep | row-major Jacobi stencil |
@@ -53,6 +54,7 @@ Attention uses proxy `max`, `exp`, and reciprocal operators with the same read a
 | Recursive In-Place (Lex) | 96,130 | 162,049 | 91,212 |
 | Recursive In-Place (Gray) | 89,378 | 155,454 | 86,402 |
 | Strassen | 250,051 | 353,207 | 204,752 |
+| Fused Strassen | 197,358 | 313,340 | 183,684 |
 | FFT (Iterative) | 1,773 | 2,139 | 1,691 |
 | FFT (Recursive) | 1,522 | 1,708 | 1,366 |
 | Stencil (Naive) | 73,287 | 94,490 | 68,807 |
@@ -64,32 +66,33 @@ Attention uses proxy `max`, `exp`, and reciprocal operators with the same read a
 
 | Heuristic | Spearman rho | Scaled MAPE |
 | --- | --- | --- |
-| ByteDMD-live | 0.996 | 4.7% |
-| ByteDMD-classic | 0.977 | 12.5% |
+| ByteDMD-live | 0.997 | 4.5% |
+| ByteDMD-classic | 0.977 | 12.6% |
 
 ## Runtime
 
 | Algorithm | Max traced cell (s) | Total traced time (s) |
 | --- | --- | --- |
-| Matvec | 0.100 | 0.224 |
-| Vecmat | 0.090 | 0.204 |
-| Transpose (Naive) | 0.115 | 0.287 |
-| Transpose (Blocked) | 0.113 | 0.281 |
-| Transpose (Recursive) | 0.121 | 0.293 |
-| Row Scan | 1.114 | 2.745 |
-| Column Scan | 0.992 | 2.504 |
-| Naive Matmul | 0.218 | 0.404 |
-| Tiled Matmul | 0.187 | 0.314 |
-| Recursive Matmul | 0.206 | 0.360 |
-| Recursive In-Place (Lex) | 0.250 | 0.395 |
-| Recursive In-Place (Gray) | 0.243 | 0.381 |
-| Strassen | 0.605 | 0.975 |
+| Matvec | 0.101 | 0.230 |
+| Vecmat | 0.092 | 0.207 |
+| Transpose (Naive) | 0.115 | 0.286 |
+| Transpose (Blocked) | 0.114 | 0.282 |
+| Transpose (Recursive) | 0.116 | 0.284 |
+| Row Scan | 1.069 | 2.677 |
+| Column Scan | 0.917 | 2.398 |
+| Naive Matmul | 0.206 | 0.388 |
+| Tiled Matmul | 0.180 | 0.306 |
+| Recursive Matmul | 0.207 | 0.364 |
+| Recursive In-Place (Lex) | 0.243 | 0.388 |
+| Recursive In-Place (Gray) | 0.244 | 0.382 |
+| Strassen | 0.582 | 0.941 |
+| Fused Strassen | 0.498 | 0.777 |
 | FFT (Iterative) | 0.002 | 0.004 |
-| FFT (Recursive) | 0.001 | 0.004 |
-| Stencil (Naive) | 0.171 | 0.417 |
-| Stencil (Recursive) | 0.161 | 0.413 |
-| Regular Attention | 0.944 | 1.719 |
-| Flash Attention | 0.506 | 0.770 |
+| FFT (Recursive) | 0.001 | 0.003 |
+| Stencil (Naive) | 0.165 | 0.407 |
+| Stencil (Recursive) | 0.162 | 0.412 |
+| Regular Attention | 0.921 | 1.667 |
+| Flash Attention | 0.487 | 0.735 |
 
 Run the experiment with:
 
