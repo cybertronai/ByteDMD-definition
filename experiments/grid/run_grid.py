@@ -185,7 +185,7 @@ def main() -> None:
     print(header)
     print("-" * len(header))
     for ri, hname in enumerate(row_names):
-        row = f"{hname:<{first_w}}" + "".join(f"{grid[ri][ci]:>{col_w+2}}" for ci in range(len(col_names)))
+        row = f"{hname:<{first_w}}" + "".join(f"{grid[ri][ci]:>{col_w+2},}" for ci in range(len(col_names)))
         print(row)
 
     print("\nCell time (s)")
@@ -208,7 +208,9 @@ def main() -> None:
 
     # --- Markdown table ---
     md_path = os.path.join(HERE, "grid.md")
-    col_widths = [max(len(c), max(len(str(grid[ri][ci])) for ri in range(len(row_names))))
+    def fmt(v: int) -> str:
+        return f"{v:,}"
+    col_widths = [max(len(c), max(len(fmt(grid[ri][ci])) for ri in range(len(row_names))))
                   for ci, c in enumerate(col_names)]
     fw = max(len("heuristic"), max(len(r) for r in row_names))
     with open(md_path, "w") as f:
@@ -220,7 +222,7 @@ def main() -> None:
                 + "|\n")
         for ri, hname in enumerate(row_names):
             f.write("| " + hname.ljust(fw) + " | "
-                    + " | ".join(str(grid[ri][ci]).rjust(col_widths[ci])
+                    + " | ".join(fmt(grid[ri][ci]).rjust(col_widths[ci])
                                  for ci in range(len(col_names)))
                     + " |\n")
     print(f"Saved {md_path}")
