@@ -35,6 +35,32 @@ def _subm(A, B):
     return [[A[i][j] - B[i][j] for j in range(n)] for i in range(n)]
 
 
+def matmul_tiled_explicit(A, B, tile=4):
+    """Tiled matmul with explicit DMA: per tile, copy A/B/C blocks into
+    fresh _Tracked variables via `+ 0.0` before the MAC, and flush sC
+    back to C at the end. This materializes the scratchpad in the L2
+    trace so space_dmd can rank the short-lived tile vars at the hot
+    addresses. The LRU heuristics don't benefit — they already get that
+    effect automatically via recency bump."""
+    n = len(A)
+    zero = A[0][0] - A[0][0]  # tracked zero for C init
+    C = [[zero + 0.0 for _ in range(n)] for _ in range(n)]
+    for bi in range(0, n, tile):
+        for bj in range(0, n, tile):
+            sC = [[C[bi + i][bj + j] + 0.0 for j in range(tile)] for i in range(tile)]
+            for bk in range(0, n, tile):
+                sA = [[A[bi + i][bk + k] + 0.0 for k in range(tile)] for i in range(tile)]
+                sB = [[B[bk + k][bj + j] + 0.0 for j in range(tile)] for k in range(tile)]
+                for i in range(tile):
+                    for j in range(tile):
+                        for k in range(tile):
+                            sC[i][j] = sC[i][j] + sA[i][k] * sB[k][j]
+            for i in range(tile):
+                for j in range(tile):
+                    C[bi + i][bj + j] = sC[i][j] + 0.0
+    return C
+
+
 def matmul_naive_abt(A, B):
     """Naive triple loop computing C = A @ B^T, i.e.,
     C[i][j] = sum_k A[i][k] * B[j][k]. Both A and B are read row-major

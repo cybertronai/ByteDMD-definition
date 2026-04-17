@@ -61,6 +61,7 @@ DAGs are identical, so `bytedmd_live` / `bytedmd_classic` match — only
 |-----------------------------------------------------------------------|----------:|-------------:|------------:|----------------:|
 | [naive_matmul(n=16)](#naive_matmul)                                   |    89,410 |      107,675 |     128,304 |         178,716 |
 | [tiled_matmul(n=16)](#tiled_matmul)                                   |    98,206 |       74,560 |      86,030 |         143,280 |
+| [tiled_matmul_explicit(n=16,T=4)](#tiled_matmul_explicit)             |    71,731 |       97,486 |      86,030 |         203,220 |
 | [rmm(n=16)](#rmm)                                                     |   108,075 |       80,716 |      95,222 |         154,251 |
 | [naive_strassen(n=16)](#naive_strassen)                               |   131,673 |      173,919 |     282,382 |         353,901 |
 | [fused_strassen(n=16)](#fused_strassen)                               |   131,673 |      173,919 |     140,526 |         353,901 |
@@ -162,6 +163,40 @@ load C tile into sC; for each bk: load A/B tiles into sA/sB; MAC into sC
 (accumulator read once per (ii,jj) outside kk-loop); flush sC back.
 
 ![](traces/tiled_matmul_n_16.png)
+
+---
+
+## tiled_matmul_explicit
+`n=16, T=4`. **Algorithm.** Same arithmetic as `tiled_matmul` but with
+**explicit DMA materialization** in the trace: before each tile's MAC,
+`sA, sB, sC` are populated by `[... A[..] + 0.0 ...]` comprehensions
+that emit `L2Load → L2Op("add") → L2Store(fresh_var)` — creating
+short-lived, high-density tile-local variables. At the end of each
+`(bi, bj)` the final `sC` is flushed back to `C` via the same idiom.
+
+**Why this row exists.** The original `tiled_matmul` reads directly
+from `A`, `B`, `C` in the inner MAC; the trace never mentions a
+scratchpad. SpaceDMD can only rank the *actual traced variables*, so
+it's stuck paying long-distance reads to A/B on every inner iteration
+(manual 86,030; space_dmd 98,206). The explicit version materializes
+the scratchpad into the trace itself: SpaceDMD then pins the tile-local
+vars to Rank 1..3T² and drops to **71,731** — below the hand-placed
+`manual` 86,030, because density ranking finds a slightly better
+layout than my bump-pointer order.
+
+Notice the LRU metrics go the *other* way: `bytedmd_live` climbs
+74,560 → 97,486 and `bytedmd_classic` 143,280 → 203,220. LRU's
+dynamic recency bump was already building a scratchpad for free via
+depth-1 promotion, so the extra DMA events just add cost without
+offsetting benefit. This is the **TPU / software-scratchpad vs
+GPU / hardware-LRU** framing from [gemini/space-dmd.md](../../gemini/space-dmd.md)
+and [gemini/debug-spacedmd-scratchpad.md](../../gemini/debug-spacedmd-scratchpad.md):
+SpaceDMD is the static compiler, LRU is the dynamic hardware cache.
+Manual uses the same physical schedule as this explicit version, so
+it has the same cost (86,030) — all three "explicit" / "manual" /
+"SpaceDMD-of-explicit" converge onto the TPU bound.
+
+![](traces/tiled_matmul_explicit_n_16_t_4.png)
 
 ---
 
