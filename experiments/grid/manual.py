@@ -643,6 +643,42 @@ def manual_spatial_convolution(H: int, W: int, K: int) -> int:
     return a.cost
 
 
+def manual_fft_conv(N: int) -> int:
+    """Convolution via FFT: two forward FFTs + pointwise multiply + inverse
+    FFT. Arrays X, Y, Z allocated at the lowest addresses."""
+    a = Allocator()
+    X = a.alloc(N); Y = a.alloc(N); Z = a.alloc(N)
+
+    def fft_in_place(base: int) -> None:
+        # Bit-reverse
+        j = 0
+        for i in range(1, N):
+            bit = N >> 1
+            while j & bit:
+                j ^= bit
+                bit >>= 1
+            j ^= bit
+            if i < j:
+                a.touch(base + i); a.touch(base + j)
+        # Butterflies
+        m = 1
+        while m < N:
+            for k in range(0, N, m * 2):
+                for jj in range(m):
+                    a.touch(base + k + jj + m)
+                    a.touch(base + k + jj)
+            m *= 2
+
+    fft_in_place(X)
+    fft_in_place(Y)
+    # Pointwise multiply: Z[k] = X[k] * Y[k]
+    for k in range(N):
+        a.touch(X + k)
+        a.touch(Y + k)
+    fft_in_place(Z)  # inverse FFT — same access pattern
+    return a.cost
+
+
 def manual_regular_convolution(H: int, W: int, K: int, Cin: int, Cout: int) -> int:
     """Full multi-channel CNN layer. Layout: s (1) | Wk (K*K*Cin*Cout) |
     img (H*W*Cin). Image channel-inner-most, kernel channel-pair inner-most.
@@ -663,4 +699,60 @@ def manual_regular_convolution(H: int, W: int, K: int, Cin: int, Cout: int) -> i
                         for ci in range(Cin):
                             a.touch(img + ((i + ki) * W + (j + kj)) * Cin + ci)
                             a.touch(Wk + ((ki * K + kj) * Cin + ci) * Cout + co)
+    return a.cost
+
+
+# ============================================================================
+# Mergesort (recursive, out-of-place merge with push/pop stack of temps)
+# ============================================================================
+
+def manual_mergesort(N: int) -> int:
+    """Recursive mergesort on an N-slot array at addr 1..N. Each merge level
+    allocates a temp of the merge size (popped after copy-back). Each merge
+    does 2*sz reads (both frontiers) and sz reads (copy-back temp → base)."""
+    a = Allocator()
+    arr = a.alloc(N)
+
+    def rec(base: int, sz: int) -> None:
+        if sz <= 1:
+            if sz == 1:
+                a.touch(base)
+            return
+        ckpt = a.push()
+        half = sz // 2
+        rec(base, half)
+        rec(base + half, sz - half)
+        # Merge: allocate temp, read both frontiers into temp
+        temp = a.alloc(sz)
+        for k in range(sz):
+            a.touch(base + (k if k < half else half - 1))
+            a.touch(base + half + (k - half if k >= half else 0))
+        # Copy temp back to base
+        for k in range(sz):
+            a.touch(temp + k)
+        a.pop(ckpt)
+
+    rec(arr, N)
+    return a.cost
+
+
+# ============================================================================
+# Longest Common Subsequence DP
+# ============================================================================
+
+def manual_lcs_dp(m: int, n: int) -> int:
+    """Row-major LCS DP. Cell (i,j) reads D[i-1][j-1], D[i-1][j], D[i][j-1]
+    and the two input characters x[i-1], y[j-1]."""
+    a = Allocator()
+    # Strings at low addrs (repeatedly touched), DP table at higher addrs
+    x = a.alloc(m); y = a.alloc(n)
+    D = a.alloc((m + 1) * (n + 1))
+    stride = n + 1
+    for i in range(1, m + 1):
+        for j in range(1, n + 1):
+            a.touch(D + (i - 1) * stride + (j - 1))
+            a.touch(D + (i - 1) * stride + j)
+            a.touch(D + i * stride + (j - 1))
+            a.touch(x + i - 1)
+            a.touch(y + j - 1)
     return a.cost

@@ -73,6 +73,9 @@ N_STENCIL = 32       # stencil grid side
 LEAF_STENCIL = 8     # tile-recursion base size
 H_SP, W_SP, K_SP = 32, 32, 5           # spatial (single-channel) convolution
 H_CV, W_CV, K_CV, CIN, COUT = 16, 16, 3, 4, 4   # regular (multi-channel) conv
+N_FFTC = 32                              # FFT-accelerated 1D convolution
+N_SORT = 64                              # mergesort input length
+M_LCS, N_LCS = 32, 32                    # LCS DP table (m+1) x (n+1)
 
 # Each algorithm is (display_name, traced_fn, traced_args, manual_cost_fn)
 ALGOS: List[Tuple[str, Callable, Tuple, Callable[[], int]]] = [
@@ -131,6 +134,18 @@ ALGOS: List[Tuple[str, Callable, Tuple, Callable[[], int]]] = [
         alg.regular_convolution,
         (cube(H_CV, W_CV, CIN), tensor4(K_CV, K_CV, CIN, COUT)),
         lambda: man.manual_regular_convolution(H_CV, W_CV, K_CV, CIN, COUT)),
+    (f"fft_conv(N={N_FFTC})",
+        alg.fft_conv,
+        (vec(N_FFTC), vec(N_FFTC)),
+        lambda: man.manual_fft_conv(N_FFTC)),
+    (f"mergesort(N={N_SORT})",
+        alg.mergesort,
+        (vec(N_SORT),),
+        lambda: man.manual_mergesort(N_SORT)),
+    (f"lcs_dp({M_LCS}x{N_LCS})",
+        alg.lcs_dp,
+        (vec(M_LCS), vec(N_LCS)),
+        lambda: man.manual_lcs_dp(M_LCS, N_LCS)),
 ]
 
 

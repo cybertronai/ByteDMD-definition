@@ -334,6 +334,16 @@ def spatial_convolution(A, Wk):
     return O
 
 
+def fft_conv(x_in, y_in):
+    """1D circular convolution via FFT: IFFT(FFT(x) * FFT(y)).
+    All three FFTs share the iterative radix-2 structure; the middle
+    stage is an N-element pointwise multiply."""
+    X = fft_iterative(x_in)
+    Y = fft_iterative(y_in)
+    Z = [X[k] * Y[k] for k in range(len(X))]
+    return fft_iterative(Z)
+
+
 def regular_convolution(A, Wk):
     """Full multi-channel CNN layer.
     A: H x W x Cin (nested list). Wk: K x K x Cin x Cout.
@@ -356,3 +366,45 @@ def regular_convolution(A, Wk):
                             acc = acc + A[i + ki][j + kj][ci] * Wk[ki][kj][ci][co]
                 O[i][j][co] = acc
     return O
+
+
+# ============================================================================
+# Mergesort (data-oblivious stand-in — _Tracked has no __lt__, so we emit the
+# read/write pattern of mergesort without actually comparing)
+# ============================================================================
+
+def mergesort(arr):
+    """Recursive mergesort. The merge step is oblivious: each output cell
+    combines one element from the left half and one from the right half,
+    matching the 2n reads-per-merge traffic of a real data-dependent merge
+    without needing __lt__."""
+    n = len(arr)
+    if n <= 1:
+        return [v + 0 for v in arr]
+    mid = n // 2
+    left = mergesort(arr[:mid])
+    right = mergesort(arr[mid:])
+    out = [None] * n
+    for k in range(n):
+        li = k if k < mid else mid - 1
+        ri = (k - mid) if k >= mid else 0
+        out[k] = left[li] + right[ri]
+    return out
+
+
+# ============================================================================
+# Longest Common Subsequence — row-major DP over an (m+1)x(n+1) table
+# ============================================================================
+
+def lcs_dp(x, y):
+    """Row-major LCS DP. Uses a branch-free sum in place of the max/equality
+    recurrence so the access pattern matches canonical LCS:
+    each cell reads D[i-1][j-1], D[i-1][j], D[i][j-1], x[i-1], y[j-1]."""
+    m = len(x); n = len(y)
+    # zero-initialized first row/col (use tracked zeros via x[0] - x[0])
+    zero = x[0] - x[0]
+    D = [[zero + 0 for _ in range(n + 1)] for _ in range(m + 1)]
+    for i in range(1, m + 1):
+        for j in range(1, n + 1):
+            D[i][j] = D[i - 1][j - 1] + D[i - 1][j] + D[i][j - 1] + x[i - 1] + y[j - 1]
+    return D[m][n]

@@ -16,3 +16,6 @@ stencil_naive(32x32),44468,99276,92817
 "stencil_recursive(32x32,leaf=8)",37737,99276,85079
 "spatial_conv(32x32,K=5)",373936,527312,678749
 "regular_conv(16x16,K=3,Cin=4,Cout=4)",762860,963512,1289844
+fft_conv(N=32),5629,4253,8489
+mergesort(N=64),2691,8416,4344
+lcs_dp(32x32),30253,85929,47066
