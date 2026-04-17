@@ -95,6 +95,45 @@ def trace_naive(N: int) -> tuple[list, dict, int]:
     return addrs, regions, cost
 
 
+def trace_naive_transposed(N: int) -> tuple[list, dict, int]:
+    """Naive A * B^T: C[i][j] = sum_k A[i][k] * B[j][k].
+
+    B is stored in normal row-major order but accessed as B^T, so the
+    inner loop reads B[j][k] = addr ptrB + j*N + k — sequential in k
+    (stride 1), unlike the standard A*B which reads B[k][j] (stride N).
+    """
+    A_in = [[1] * N for _ in range(N)]
+    B_in = [[1] * N for _ in range(N)]
+
+    def setup(alloc):
+        ptrA = mm._load_matrix(alloc, A_in)
+        ptrB = mm._load_matrix(alloc, B_in)
+        C_in = [[0.0] * N for _ in range(N)]
+        ptrC = mm._load_matrix(alloc, C_in)
+        return {
+            'main_A': (ptrA, ptrA + N * N - 1),
+            'main_B': (ptrB, ptrB + N * N - 1),
+            'main_C': (ptrC, ptrC + N * N - 1),
+            '_ptrA': ptrA, '_ptrB': ptrB, '_ptrC': ptrC,
+        }
+
+    def run(alloc, regions):
+        ptrA, ptrB, ptrC = regions['_ptrA'], regions['_ptrB'], regions['_ptrC']
+        for i in range(N):
+            for j in range(N):
+                c_val = alloc.read(ptrC + i * N + j)
+                for k in range(N):
+                    # A[i][k] same as before
+                    # B^T access: B[j][k] at ptrB + j*N + k (sequential in k)
+                    c_val += alloc.read(ptrA + i * N + k) * alloc.read(ptrB + j * N + k)
+                alloc.write(ptrC + i * N + j, c_val)
+
+    addrs, regions, cost = _trace(run, region_setup=setup)
+    for internal in ('_ptrA', '_ptrB', '_ptrC'):
+        regions.pop(internal, None)
+    return addrs, regions, cost
+
+
 def trace_rmm(N: int, tile_size: int = 4) -> tuple[list, dict, int]:
     A_in = [[1] * N for _ in range(N)]
     B_in = [[1] * N for _ in range(N)]
@@ -288,12 +327,77 @@ def plot_accesses_per_addr(N: int, tile_size: int, out_path: str) -> None:
     plt.close()
 
 
+def plot_trace_transposed(N: int, tile_size: int, out_path: str) -> None:
+    """Naive A*B^T (top) vs RMM (bottom)."""
+    trans_addrs, trans_regions, trans_cost = trace_naive_transposed(N)
+    rmm_addrs, rmm_regions, rmm_cost = trace_rmm(N, tile_size)
+    y_max = max(max(trans_addrs), max(rmm_addrs)) + 1
+
+    fig, axes = plt.subplots(2, 1, figsize=(14, 8), sharex=False)
+    _plot_trace_panel(axes[0], None, trans_addrs, trans_regions,
+                       f'NAIVE  A·Bᵀ   (N={N})', trans_cost, y_max)
+    _plot_trace_panel(axes[1], None, rmm_addrs, rmm_regions,
+                       f'RMM + scratchpad   (N={N}, tile={tile_size})',
+                       rmm_cost, y_max)
+    axes[1].set_xlabel('Access index', fontsize=11)
+    fig.suptitle(f'Manual matmul access traces  —  naive A·Bᵀ vs RMM  —  '
+                  f'energy ratio  naive_transposed / rmm = {trans_cost / rmm_cost:.2f}×',
+                  fontsize=14, y=1.00)
+    plt.tight_layout()
+    plt.savefig(out_path, dpi=140, bbox_inches='tight')
+    print(f'Saved: {out_path}')
+    plt.close()
+    print(f'NAIVE A·Bᵀ — {len(trans_addrs):,} accesses, cost {trans_cost:,}')
+    print(f'RMM        — {len(rmm_addrs):,} accesses, cost {rmm_cost:,}')
+    print(f'Energy ratio (naive_transposed / rmm) = {trans_cost / rmm_cost:.2f}×')
+
+
+def plot_accesses_per_addr_transposed(N: int, tile_size: int, out_path: str) -> None:
+    """Accesses-per-addr histogram: naive A*B^T (top pair) vs RMM (bottom pair)."""
+    trans_addrs, trans_regions, trans_cost = trace_naive_transposed(N)
+    rmm_addrs, rmm_regions, rmm_cost = trace_rmm(N, tile_size)
+
+    x_max = max(max(trans_addrs), max(rmm_addrs)) + 1
+
+    def analyse(addrs):
+        m = max(addrs)
+        cnt = np.zeros(m + 1, dtype=np.int64)
+        for a in addrs:
+            cnt[a] += 1
+        per_cost = cnt[1:] * np.array([math.isqrt(a - 1) + 1 for a in range(1, m + 1)])
+        return cnt.max(), per_cost.max()
+
+    t_cnt_max, t_cost_max = analyse(trans_addrs)
+    r_cnt_max, r_cost_max = analyse(rmm_addrs)
+    cnt_ymax = int(max(t_cnt_max, r_cnt_max) * 1.05) + 1
+    cost_ymax = int(max(t_cost_max, r_cost_max) * 1.05) + 1
+
+    fig, axes = plt.subplots(4, 1, figsize=(14, 11),
+                              gridspec_kw={'height_ratios': [1, 1, 1, 1]})
+    _plot_accesses_per_addr_panel(axes[0], axes[1], trans_addrs, trans_regions,
+                                  f'NAIVE A·Bᵀ  (N={N})',
+                                  trans_cost, x_max, cnt_ymax, cost_ymax)
+    _plot_accesses_per_addr_panel(axes[2], axes[3], rmm_addrs, rmm_regions,
+                                  f'RMM + scratchpad  (N={N}, tile={tile_size})',
+                                  rmm_cost, x_max, cnt_ymax, cost_ymax)
+    axes[3].set_xlabel('Physical address', fontsize=12)
+    fig.suptitle(f'Manual matmul:  accesses & cost per physical address  —  '
+                  f'energy ratio  naive_transposed / rmm = {trans_cost / rmm_cost:.2f}×',
+                  fontsize=14, y=1.00)
+    plt.tight_layout()
+    plt.savefig(out_path, dpi=140, bbox_inches='tight')
+    print(f'\nSaved: {out_path}')
+    plt.close()
+
+
 def main() -> None:
     N = int(sys.argv[1]) if len(sys.argv) > 1 else 16
     tile = int(sys.argv[2]) if len(sys.argv) > 2 else 4
     out_dir = os.path.dirname(__file__)
     plot_trace(N, tile, os.path.join(out_dir, f'manual_trace_n{N}.png'))
     plot_accesses_per_addr(N, tile, os.path.join(out_dir, f'manual_accesses_per_addr_n{N}.png'))
+    plot_trace_transposed(N, tile, os.path.join(out_dir, f'manual_trace_n{N}_matmul_transposed.png'))
+    plot_accesses_per_addr_transposed(N, tile, os.path.join(out_dir, f'manual_accesses_per_addr_n{N}_matmul_transposed.png'))
 
 
 if __name__ == '__main__':
