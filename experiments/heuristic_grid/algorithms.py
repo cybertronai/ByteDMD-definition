@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import cmath
 from dataclasses import dataclass
+import math
 from typing import Callable
 
 from experiments.matmul_hierarchy.hierarchy import tiled_matmul as _tiled_matmul
@@ -65,6 +67,12 @@ def one_level_tiled_matmul(A, B):
     return _tiled_matmul(A, B, tile_size=4)
 
 
+def _copy_proxy(x):
+    """Tracked copy with one read and one output."""
+
+    return x + 0
+
+
 def _max2(a, b):
     """Proxy for max with the right read arity."""
 
@@ -81,6 +89,173 @@ def _inv_proxy(x):
     """Proxy for reciprocal with one read and one output."""
 
     return x * x
+
+
+def naive_transpose(A):
+    """Naive row-major transpose."""
+
+    rows = len(A)
+    cols = len(A[0])
+    out = [[None] * rows for _ in range(cols)]
+    for i in range(rows):
+        for j in range(cols):
+            out[j][i] = _copy_proxy(A[i][j])
+    return out
+
+
+def blocked_transpose(A, *, block: int = 8):
+    """Blocked transpose."""
+
+    rows = len(A)
+    cols = len(A[0])
+    out = [[None] * rows for _ in range(cols)]
+    for bi in range(0, rows, block):
+        for bj in range(0, cols, block):
+            for i in range(bi, min(bi + block, rows)):
+                for j in range(bj, min(bj + block, cols)):
+                    out[j][i] = _copy_proxy(A[i][j])
+    return out
+
+
+def recursive_transpose(A, *, leaf: int = 8):
+    """Cache-oblivious recursive transpose."""
+
+    rows = len(A)
+    cols = len(A[0])
+    if rows <= leaf or cols <= leaf:
+        return naive_transpose(A)
+    if rows >= cols:
+        mid = rows // 2
+        top = recursive_transpose(A[:mid], leaf=leaf)
+        bottom = recursive_transpose(A[mid:], leaf=leaf)
+        return [top_row + bottom_row for top_row, bottom_row in zip(top, bottom)]
+    mid = cols // 2
+    left = recursive_transpose([row[:mid] for row in A], leaf=leaf)
+    right = recursive_transpose([row[mid:] for row in A], leaf=leaf)
+    return left + right
+
+
+def row_scan(A):
+    """Row-major traversal sum."""
+
+    rows = len(A)
+    cols = len(A[0])
+    acc = _copy_proxy(A[0][0])
+    for i in range(rows):
+        start = 1 if i == 0 else 0
+        for j in range(start, cols):
+            acc = acc + A[i][j]
+    return acc
+
+
+def column_scan(A):
+    """Column-major traversal sum."""
+
+    rows = len(A)
+    cols = len(A[0])
+    acc = _copy_proxy(A[0][0])
+    for j in range(cols):
+        start = 1 if j == 0 else 0
+        for i in range(start, rows):
+            acc = acc + A[i][j]
+    return acc
+
+
+def _bit_reverse(index: int, bits: int) -> int:
+    out = 0
+    for _ in range(bits):
+        out = (out << 1) | (index & 1)
+        index >>= 1
+    return out
+
+
+def iterative_fft(x):
+    """Iterative radix-2 Cooley-Tukey FFT."""
+
+    n = len(x)
+    bits = int(math.log2(n))
+    out = [_copy_proxy(x[_bit_reverse(i, bits)]) for i in range(n)]
+    size = 2
+    while size <= n:
+        half = size // 2
+        omega_m = cmath.exp(-2j * math.pi / size)
+        for start in range(0, n, size):
+            omega = 1.0 + 0.0j
+            for j in range(half):
+                t = omega * out[start + j + half]
+                u = out[start + j]
+                out[start + j] = u + t
+                out[start + j + half] = u - t
+                omega *= omega_m
+        size *= 2
+    return out
+
+
+def recursive_fft(x):
+    """Recursive radix-2 Cooley-Tukey FFT."""
+
+    n = len(x)
+    if n == 1:
+        return [_copy_proxy(x[0])]
+    even = recursive_fft(x[0::2])
+    odd = recursive_fft(x[1::2])
+    out = [None] * n
+    for k in range(n // 2):
+        omega = cmath.exp(-2j * math.pi * k / n)
+        t = omega * odd[k]
+        out[k] = even[k] + t
+        out[k + n // 2] = even[k] - t
+    return out
+
+
+def jacobi_stencil_naive(A):
+    """One Jacobi sweep in naive row-major order."""
+
+    n = len(A)
+    out = [[None] * n for _ in range(n)]
+    for i in range(n):
+        for j in range(n):
+            if i == 0 or j == 0 or i == n - 1 or j == n - 1:
+                out[i][j] = _copy_proxy(A[i][j])
+                continue
+            acc = A[i][j] + A[i - 1][j]
+            acc = acc + A[i + 1][j]
+            acc = acc + A[i][j - 1]
+            acc = acc + A[i][j + 1]
+            out[i][j] = 0.2 * acc
+    return out
+
+
+def jacobi_stencil_recursive(A, *, leaf: int = 8):
+    """Tile-recursive Jacobi sweep."""
+
+    n = len(A)
+    out = [[None] * n for _ in range(n)]
+
+    def fill(r0: int, r1: int, c0: int, c1: int) -> None:
+        if (r1 - r0) <= leaf and (c1 - c0) <= leaf:
+            for i in range(r0, r1):
+                for j in range(c0, c1):
+                    if i == 0 or j == 0 or i == n - 1 or j == n - 1:
+                        out[i][j] = _copy_proxy(A[i][j])
+                        continue
+                    acc = A[i][j] + A[i - 1][j]
+                    acc = acc + A[i + 1][j]
+                    acc = acc + A[i][j - 1]
+                    acc = acc + A[i][j + 1]
+                    out[i][j] = 0.2 * acc
+            return
+        if (r1 - r0) >= (c1 - c0):
+            mid = (r0 + r1) // 2
+            fill(r0, mid, c0, c1)
+            fill(mid, r1, c0, c1)
+        else:
+            mid = (c0 + c1) // 2
+            fill(r0, r1, c0, mid)
+            fill(r0, r1, mid, c1)
+
+    fill(0, n, 0, n)
+    return out
 
 
 def regular_attention(Q, K, V):
@@ -204,6 +379,23 @@ def vecmat_flops(n: int) -> int:
     return matvec_flops(n)
 
 
+def transpose_flops(rows: int, cols: int) -> int:
+    return rows * cols
+
+
+def scan_flops(rows: int, cols: int) -> int:
+    return rows * cols - 1
+
+
+def fft_flops(n: int) -> int:
+    return 3 * (n // 2) * int(math.log2(n))
+
+
+def jacobi_flops(n: int) -> int:
+    interior = max(0, n - 2) ** 2
+    return n * n + 5 * interior
+
+
 def regular_attention_flops(n: int, d: int) -> int:
     return n * n * (2 * d - 1) + n * ((n - 1) + n + n + (n - 1) + 1 + n) + n * d * (2 * n - 1)
 
@@ -259,6 +451,51 @@ def build_algorithm_specs() -> list[AlgorithmSpec]:
             flops=vecmat_flops(32),
         ),
         AlgorithmSpec(
+            key="transpose-naive-32",
+            label="Transpose (Naive)",
+            workload="32x32",
+            notes="direct row-major transpose copy",
+            func=naive_transpose,
+            args_factory=lambda: (make_matrix(32),),
+            flops=transpose_flops(32, 32),
+        ),
+        AlgorithmSpec(
+            key="transpose-blocked-32",
+            label="Transpose (Blocked)",
+            workload="32x32, block=8",
+            notes="blocked transpose copy",
+            func=lambda A: blocked_transpose(A, block=8),
+            args_factory=lambda: (make_matrix(32),),
+            flops=transpose_flops(32, 32),
+        ),
+        AlgorithmSpec(
+            key="transpose-recursive-32",
+            label="Transpose (Recursive)",
+            workload="32x32, leaf=8",
+            notes="cache-oblivious recursive transpose",
+            func=lambda A: recursive_transpose(A, leaf=8),
+            args_factory=lambda: (make_matrix(32),),
+            flops=transpose_flops(32, 32),
+        ),
+        AlgorithmSpec(
+            key="scan-row-64",
+            label="Row Scan",
+            workload="64x64",
+            notes="row-major traversal sum",
+            func=row_scan,
+            args_factory=lambda: (make_matrix(64),),
+            flops=scan_flops(64, 64),
+        ),
+        AlgorithmSpec(
+            key="scan-column-64",
+            label="Column Scan",
+            workload="64x64",
+            notes="column-major traversal sum",
+            func=column_scan,
+            args_factory=lambda: (make_matrix(64),),
+            flops=scan_flops(64, 64),
+        ),
+        AlgorithmSpec(
             key="naive-matmul-16",
             label="Naive Matmul",
             workload="16x16",
@@ -311,6 +548,42 @@ def build_algorithm_specs() -> list[AlgorithmSpec]:
             func=strassen,
             args_factory=lambda: (make_matrix(16), make_matrix(16, offset=1000)),
             flops=flops_strassen(16),
+        ),
+        AlgorithmSpec(
+            key="fft-iterative-32",
+            label="FFT (Iterative)",
+            workload="N=32",
+            notes="iterative radix-2 Cooley-Tukey",
+            func=iterative_fft,
+            args_factory=lambda: ([complex(v, 0.5 * v) for v in make_vector(32)],),
+            flops=fft_flops(32),
+        ),
+        AlgorithmSpec(
+            key="fft-recursive-32",
+            label="FFT (Recursive)",
+            workload="N=32",
+            notes="recursive radix-2 Cooley-Tukey",
+            func=recursive_fft,
+            args_factory=lambda: ([complex(v, 0.5 * v) for v in make_vector(32)],),
+            flops=fft_flops(32),
+        ),
+        AlgorithmSpec(
+            key="jacobi-naive-32",
+            label="Stencil (Naive)",
+            workload="32x32, one sweep",
+            notes="row-major Jacobi stencil",
+            func=jacobi_stencil_naive,
+            args_factory=lambda: (make_matrix(32),),
+            flops=jacobi_flops(32),
+        ),
+        AlgorithmSpec(
+            key="jacobi-recursive-32",
+            label="Stencil (Recursive)",
+            workload="32x32, one sweep, leaf=8",
+            notes="tile-recursive Jacobi stencil",
+            func=lambda A: jacobi_stencil_recursive(A, leaf=8),
+            args_factory=lambda: (make_matrix(32),),
+            flops=jacobi_flops(32),
         ),
         AlgorithmSpec(
             key="regular-attention-32x4",

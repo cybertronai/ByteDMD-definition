@@ -1,13 +1,42 @@
 from experiments.heuristic_grid.algorithms import (
     build_algorithm_specs,
+    blocked_transpose,
     flash_attention,
+    iterative_fft,
+    jacobi_stencil_naive,
+    jacobi_stencil_recursive,
     make_matrix,
     make_vector,
     matvec,
+    naive_transpose,
+    recursive_fft,
+    recursive_transpose,
     regular_attention,
 )
 from experiments.heuristic_grid.measure import measure_function
 from experiments.heuristic_grid.run_experiment import CLASSIC, LIVE, TARGET, collect_results
+
+
+def test_transpose_variants_match():
+    matrix = make_matrix(8)
+    expected = naive_transpose(matrix)
+
+    assert blocked_transpose(matrix, block=4) == expected
+    assert recursive_transpose(matrix, leaf=4) == expected
+
+
+def test_fft_variants_match_on_small_input():
+    vector = [complex(v, 0.5 * v) for v in make_vector(8)]
+    iterative = iterative_fft(vector)
+    recursive = recursive_fft(vector)
+
+    assert all(abs(a - b) < 1e-9 for a, b in zip(iterative, recursive))
+
+
+def test_recursive_jacobi_matches_naive():
+    matrix = make_matrix(8)
+
+    assert jacobi_stencil_recursive(matrix, leaf=4) == jacobi_stencil_naive(matrix)
 
 
 def test_measure_function_orders_simple_matvec():
