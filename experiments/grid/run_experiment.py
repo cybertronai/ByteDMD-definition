@@ -16,9 +16,9 @@ ROOT = Path(__file__).resolve().parents[2]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from experiments.heuristic_grid.algorithms import build_algorithm_specs
-from experiments.heuristic_grid.manual_2d import measure_manual_2d
-from experiments.heuristic_grid.measure import measure_function, measure_space_dmd
+from experiments.grid.algorithms import build_algorithm_specs
+from experiments.grid.manual_2d import measure_manual_2d
+from experiments.grid.measure import measure_function, measure_space_dmd
 
 
 SPACE = "SpaceDMD"
@@ -241,7 +241,7 @@ def render_report(results: dict[str, object]) -> str:
         "Run the experiment with:",
         "",
         "```bash",
-        "uv run experiments/heuristic_grid/run_experiment.py",
+        "uv run experiments/grid/run_experiment.py",
         "```",
     ]
     return "\n".join(lines)

@@ -1,5 +1,5 @@
 from experiments.memory_management.algorithms import naive_matmul
-from experiments.heuristic_grid.algorithms import (
+from experiments.grid.algorithms import (
     blocked_cholesky,
     blocked_lu,
     blocked_qr,
@@ -40,9 +40,9 @@ from experiments.heuristic_grid.algorithms import (
     spatial_conv2d,
     tsqr,
 )
-from experiments.heuristic_grid.manual_2d import measure_manual_2d
-from experiments.heuristic_grid.measure import SpaceDMD, measure_function, measure_space_dmd
-from experiments.heuristic_grid.run_experiment import CLASSIC, LIVE, SPACE, TARGET, collect_results
+from experiments.grid.manual_2d import measure_manual_2d
+from experiments.grid.measure import SpaceDMD, measure_function, measure_space_dmd
+from experiments.grid.run_experiment import CLASSIC, LIVE, SPACE, TARGET, collect_results
 
 
 def _matmul_numeric(A, B):

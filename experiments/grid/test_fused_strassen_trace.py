@@ -1,4 +1,4 @@
-from experiments.heuristic_grid.fused_strassen_trace import run_fused_strassen, run_rmm
+from experiments.grid.fused_strassen_trace import run_fused_strassen, run_rmm
 
 
 def test_fused_strassen_stays_inside_expected_memory_envelope():

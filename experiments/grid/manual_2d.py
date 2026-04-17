@@ -7,8 +7,8 @@ import importlib.util
 from pathlib import Path
 from typing import Callable
 
-from experiments.heuristic_grid.algorithms import make_pivot_matrix
-from experiments.heuristic_grid.fused_strassen_trace import run_fused_strassen, run_rmm
+from experiments.grid.algorithms import make_pivot_matrix
+from experiments.grid.fused_strassen_trace import run_fused_strassen, run_rmm
 from experiments.memory_management.tracer import trace_to_cost_continuous, trace_to_cost_discrete
 
 

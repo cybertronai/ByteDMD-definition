@@ -2,7 +2,7 @@
 
 This experiment compares a concrete no-free-compaction 2D cost against SpaceDMD and the two abstract ByteDMD heuristics on a small suite of workloads.
 
-Every traced metric cell finished under 2.791 seconds on this run.
+Every traced metric cell finished under 2.832 seconds on this run.
 
 ## Algorithms
 
@@ -125,52 +125,52 @@ Attention uses proxy `max`, `exp`, and reciprocal operators with the same read a
 
 | Algorithm | Max traced cell (s) | Total traced time (s) |
 | --- | --- | --- |
-| Matvec | 0.106 | 0.176 |
-| Vecmat | 0.097 | 0.165 |
-| Matvec Row | 1.577 | 2.428 |
-| Matvec Column | 1.396 | 2.261 |
-| Transpose (Naive) | 0.107 | 0.186 |
-| Transpose (Blocked) | 0.108 | 0.185 |
-| Transpose (Recursive) | 0.103 | 0.177 |
-| Row Scan | 1.097 | 1.851 |
-| Column Scan | 1.020 | 1.829 |
-| Naive Matmul | 0.220 | 0.351 |
-| Tiled Matmul | 0.192 | 0.308 |
-| Recursive Matmul | 0.215 | 0.340 |
-| Recursive In-Place (Lex) | 0.252 | 0.368 |
-| Recursive In-Place (Gray) | 0.254 | 0.368 |
-| Strassen | 0.644 | 0.884 |
-| Fused Strassen | 0.511 | 0.741 |
-| Gaussian Elimination | 0.392 | 0.627 |
-| Gauss-Jordan Inverse | 0.611 | 0.942 |
-| LU (No Pivot) | 0.318 | 0.547 |
-| LU (Blocked) | 0.302 | 0.522 |
-| LU (Recursive) | 0.315 | 0.527 |
-| LU (Partial Pivot) | 0.421 | 0.665 |
-| Cholesky | 0.086 | 0.154 |
-| Cholesky (Blocked) | 0.104 | 0.205 |
-| Cholesky (Recursive) | 0.173 | 0.303 |
-| Householder QR | 0.450 | 0.723 |
-| Blocked QR | 0.446 | 0.729 |
-| TSQR | 0.523 | 0.805 |
-| FFT (Iterative) | 1.244 | 1.898 |
-| FFT (Recursive) | 0.865 | 1.266 |
-| 2D Convolution (Spatial) | 0.143 | 0.253 |
-| Spatial Conv | 1.533 | 2.144 |
-| Regular Conv | 2.791 | 3.844 |
-| 2D Convolution (FFT) | 1.876 | 2.913 |
+| Matvec | 0.102 | 0.172 |
+| Vecmat | 0.092 | 0.162 |
+| Matvec Row | 1.530 | 2.414 |
+| Matvec Column | 1.443 | 2.378 |
+| Transpose (Naive) | 0.103 | 0.178 |
+| Transpose (Blocked) | 0.102 | 0.176 |
+| Transpose (Recursive) | 0.100 | 0.173 |
+| Row Scan | 1.113 | 1.876 |
+| Column Scan | 0.945 | 1.734 |
+| Naive Matmul | 0.229 | 0.366 |
+| Tiled Matmul | 0.212 | 0.326 |
+| Recursive Matmul | 0.224 | 0.355 |
+| Recursive In-Place (Lex) | 0.265 | 0.389 |
+| Recursive In-Place (Gray) | 0.258 | 0.377 |
+| Strassen | 0.615 | 0.856 |
+| Fused Strassen | 0.533 | 0.762 |
+| Gaussian Elimination | 0.387 | 0.618 |
+| Gauss-Jordan Inverse | 0.616 | 0.943 |
+| LU (No Pivot) | 0.285 | 0.508 |
+| LU (Blocked) | 0.321 | 0.540 |
+| LU (Recursive) | 0.296 | 0.504 |
+| LU (Partial Pivot) | 0.431 | 0.676 |
+| Cholesky | 0.085 | 0.150 |
+| Cholesky (Blocked) | 0.103 | 0.202 |
+| Cholesky (Recursive) | 0.169 | 0.297 |
+| Householder QR | 0.454 | 0.732 |
+| Blocked QR | 0.445 | 0.719 |
+| TSQR | 0.533 | 0.814 |
+| FFT (Iterative) | 1.245 | 1.908 |
+| FFT (Recursive) | 0.875 | 1.290 |
+| 2D Convolution (Spatial) | 0.135 | 0.243 |
+| Spatial Conv | 1.496 | 2.104 |
+| Regular Conv | 2.832 | 3.883 |
+| 2D Convolution (FFT) | 1.951 | 2.981 |
 | FFT Conv | 0.005 | 0.014 |
-| Stencil (Naive) | 0.167 | 0.301 |
-| Stencil (Recursive) | 0.162 | 0.309 |
-| Regular Attention | 0.966 | 1.431 |
-| Naive Attention | 0.561 | 0.882 |
-| Flash Attention | 0.543 | 0.781 |
-| Flash Attention (Bk=8) | 0.168 | 0.283 |
-| Mergesort | 0.003 | 0.009 |
-| LCS DP | 0.074 | 0.111 |
+| Stencil (Naive) | 0.176 | 0.323 |
+| Stencil (Recursive) | 0.172 | 0.326 |
+| Regular Attention | 0.951 | 1.429 |
+| Naive Attention | 0.570 | 0.904 |
+| Flash Attention | 0.513 | 0.747 |
+| Flash Attention (Bk=8) | 0.162 | 0.276 |
+| Mergesort | 0.003 | 0.008 |
+| LCS DP | 0.078 | 0.113 |
 
 Run the experiment with:
 
 ```bash
-uv run experiments/heuristic_grid/run_experiment.py
+uv run experiments/grid/run_experiment.py
 ```
