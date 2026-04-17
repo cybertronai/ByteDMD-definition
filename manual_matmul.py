@@ -219,10 +219,10 @@ def _allocate_hierarchy(alloc: ManualAllocator, N: int) -> dict:
 def _dma_copy(alloc: ManualAllocator,
               src_base: int, src_stride: int, src_r: int, src_c: int,
               dst_base: int, dst_stride: int, dst_r: int, dst_c: int,
-              H: int) -> None:
-    """Block-copy an H x H sub-matrix from src to dst. Reads are priced."""
-    for i in range(H):
-        for j in range(H):
+              size: int) -> None:
+    """Software DMA: explicitly copies a 2D block from src to dst. Reads are priced."""
+    for i in range(size):
+        for j in range(size):
             val = alloc.read(src_base + (src_r + i) * src_stride + (src_c + j))
             alloc.write(dst_base + (dst_r + i) * dst_stride + (dst_c + j), val)
 
@@ -232,29 +232,21 @@ def _rmm_explicit_recurse(alloc: ManualAllocator, ptrs: dict,
                           stride: int) -> None:
     """Hierarchical RMM: DMA data into child-level buffers before recursing."""
     if size == 1:
-        a = alloc.read(pA)
-        b = alloc.read(pB)
-        c = alloc.read(pC)
+        a, b, c = alloc.read(pA), alloc.read(pB), alloc.read(pC)
         alloc.write(pC, c + a * b)
         return
 
     H = size // 2
     sA, sB, sC = ptrs[H]['A'], ptrs[H]['B'], ptrs[H]['C']
 
-    def compute_quadrant(rC, cC, rA1, cA1, rB1, cB1, rA2, cA2, rB2, cB2):
-        _dma_copy(alloc, pC, stride, rC, cC, sC, H, 0, 0, H)
-        _dma_copy(alloc, pA, stride, rA1, cA1, sA, H, 0, 0, H)
-        _dma_copy(alloc, pB, stride, rB1, cB1, sB, H, 0, 0, H)
-        _rmm_explicit_recurse(alloc, ptrs, H, sA, sB, sC, H)
-        _dma_copy(alloc, pA, stride, rA2, cA2, sA, H, 0, 0, H)
-        _dma_copy(alloc, pB, stride, rB2, cB2, sB, H, 0, 0, H)
-        _rmm_explicit_recurse(alloc, ptrs, H, sA, sB, sC, H)
-        _dma_copy(alloc, sC, H, 0, 0, pC, stride, rC, cC, H)
-
-    compute_quadrant(0, 0,  0, 0, 0, 0,  0, H, H, 0)
-    compute_quadrant(0, H,  0, 0, 0, H,  0, H, H, H)
-    compute_quadrant(H, 0,  H, 0, 0, 0,  H, H, H, 0)
-    compute_quadrant(H, H,  H, 0, 0, H,  H, H, H, H)
+    for i in (0, H):
+        for j in (0, H):
+            _dma_copy(alloc, pC, stride, i, j, sC, H, 0, 0, H)
+            for k in (0, H):
+                _dma_copy(alloc, pA, stride, i, k, sA, H, 0, 0, H)
+                _dma_copy(alloc, pB, stride, k, j, sB, H, 0, 0, H)
+                _rmm_explicit_recurse(alloc, ptrs, H, sA, sB, sC, H)
+            _dma_copy(alloc, sC, H, 0, 0, pC, stride, i, j, H)
 
 
 def matmul_explicit_rmm(A_in: List[List[float]], B_in: List[List[float]]) -> int:
