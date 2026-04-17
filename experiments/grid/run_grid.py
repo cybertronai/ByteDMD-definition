@@ -34,8 +34,6 @@ from bytedmd_ir import (
     L2Event,
     bytedmd_classic,
     bytedmd_live,
-    compile_belady,
-    cost,
     matmul_naive,
     matmul_rmm,
     matmul_tiled,
@@ -104,16 +102,11 @@ ALGOS: List[Tuple[str, Callable, Tuple, Callable[[], int]]] = [
 ]
 
 
-def belady_cost(events: Sequence[L2Event]) -> int:
-    return cost(compile_belady(events))
-
-
 # Column order for the output table. "manual" is a sentinel — value comes
 # from ALGOS[i][3]() rather than from a trace-based heuristic.
 METRICS: List[Tuple[str, Callable[[Sequence[L2Event]], int] | None]] = [
     ("bytedmd_live",    bytedmd_live),
     ("manual",          None),
-    ("belady",          belady_cost),
     ("bytedmd_classic", bytedmd_classic),
 ]
 

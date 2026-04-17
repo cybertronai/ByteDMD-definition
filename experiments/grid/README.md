@@ -34,7 +34,6 @@ sub-additions are folded directly into the L1 tile loads).
 |-------------------|-------------------------------------------------------------------|
 | `bytedmd_live`    | LRU with liveness compaction (lower-envelope heuristic)           |
 | `manual`          | hand-placed schedule — **gold standard** per-algorithm reference  |
-| `belady`          | offline-optimal allocator — best automatic placement              |
 | `bytedmd_classic` | Mattson LRU stack-depth estimate, no liveness (upper-envelope)    |
 
 ## Manual placement
