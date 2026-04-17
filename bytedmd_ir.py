@@ -515,6 +515,104 @@ POLICY_DISPLAY: Dict[str, str] = {
 
 
 # ============================================================================
+# Static allocation bounds (MWIS lower bound + min-heap upper bound)
+# ============================================================================
+
+import bisect
+
+
+@dataclass
+class _Interval:
+    var_id: int
+    start: int
+    end: int
+    reads: int
+
+
+def _extract_intervals(events: Sequence[L2Event]) -> List[_Interval]:
+    """Build liveness intervals with per-variable read counts."""
+    starts: Dict[int, int] = {}
+    ends: Dict[int, int] = {}
+    reads: Dict[int, int] = {}
+    for i, ev in enumerate(events):
+        if isinstance(ev, L2Store):
+            starts[ev.var] = i
+            if ev.var not in ends:
+                ends[ev.var] = i
+        elif isinstance(ev, L2Load):
+            ends[ev.var] = i
+            reads[ev.var] = reads.get(ev.var, 0) + 1
+    out: List[_Interval] = []
+    for var, start in starts.items():
+        r = reads.get(var, 0)
+        if r > 0:
+            out.append(_Interval(var, start, ends[var], r))
+    return out
+
+
+def _mwis_weight(intervals: List[_Interval]) -> int:
+    """Maximum Weight Independent Set on an interval graph via O(N log N) DP.
+
+    Returns the maximum total reads that can be served by a single physical
+    address — equivalently, the max-weight set of non-overlapping intervals.
+    """
+    if not intervals:
+        return 0
+    sorted_ivs = sorted(intervals, key=lambda x: x.end)
+    n = len(sorted_ivs)
+    ends = [iv.end for iv in sorted_ivs]
+
+    dp = [0] * (n + 1)
+    for i in range(1, n + 1):
+        iv = sorted_ivs[i - 1]
+        idx = bisect.bisect_left(ends, iv.start)
+        take = iv.reads + dp[idx]
+        leave = dp[i - 1]
+        dp[i] = max(take, leave)
+    return dp[n]
+
+
+def mwis_lower_bound(events: Sequence[L2Event]) -> int:
+    """Strict lower bound on the cost of any static (stationary-addr) allocator.
+
+    Uses "water-pouring": the MWIS weight W is the maximum total reads any
+    single physical address can serve (because non-overlapping intervals can
+    share an address, but overlapping ones cannot). We pack W reads into
+    addr 1 at cost 1 each, W reads into addr 2 at cost ceil(sqrt(2)) each,
+    etc., until all reads are accounted for. Since we're distributing reads
+    as cheaply as possible without violating physical constraints, the result
+    is a strict lower bound on the optimal static allocation cost.
+
+    Reference: gemini/mwis-bounds.md.
+    """
+    intervals = _extract_intervals(events)
+    if not intervals:
+        return 0
+    max_reads_per_addr = _mwis_weight(intervals)
+    total_reads = sum(iv.reads for iv in intervals)
+
+    total_cost = 0
+    remaining = total_reads
+    addr = 1
+    while remaining > 0:
+        take = min(remaining, max_reads_per_addr)
+        total_cost += take * (math.isqrt(addr - 1) + 1)
+        remaining -= take
+        addr += 1
+    return total_cost
+
+
+def static_upper_bound(events: Sequence[L2Event]) -> int:
+    """Achievable upper bound: cost of the greedy min-heap static allocator.
+
+    Because min-heap is a valid physical assignment (each variable gets a
+    fixed address, freed slots are recycled to the smallest available), its
+    cost is an upper bound on the optimal static allocation.
+    """
+    return cost(compile_min_heap(events))
+
+
+# ============================================================================
 # L2-level ByteDMD metrics (no allocator)
 # ============================================================================
 

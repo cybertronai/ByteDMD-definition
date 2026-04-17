@@ -49,11 +49,13 @@ ALGORITHMS = [
 # kind='l2' -> computed directly on L2 trace
 # kind='l3' -> computed via allocator -> L3 trace
 MEASURES = [
-    ('bytedmd_classic', 'Classic DMD',     'tab:red',    'o', '-',  'l2'),
+    ('mwis_lb',         'MWIS lower',      'black',      'v', ':',  'bound'),
     ('bytedmd_live',    'DMD-live',        'tab:green',  '^', '-',  'l2'),
-    ('tombstone',       'Tombstone',       'tab:blue',   's', '--', 'l3'),
-    ('ripple',          'Ripple Shift',    'tab:purple', 'D', ':',  'l3'),
+    ('ripple',          'Ripple Shift',    'tab:purple', 'D', '-',  'l3'),
     ('manual',          'Manual',          'tab:brown',  'x', '-.', 'manual'),
+    ('tombstone',       'Tombstone',       'tab:blue',   's', '--', 'l3'),
+    ('bytedmd_classic', 'Classic DMD',     'tab:red',    'o', '-',  'l2'),
+    ('static_ub',       'Static upper',    'dimgray',    'P', ':',  'bound'),
 ]
 
 
@@ -64,12 +66,12 @@ def run_one(func, N: int) -> dict:
     results = {'N': N}
     results['bytedmd_classic'] = b2.bytedmd_classic(l2)
     results['bytedmd_live']    = b2.bytedmd_live(l2)
+    results['mwis_lb']         = b2.mwis_lower_bound(l2)
+    results['static_ub']       = b2.static_upper_bound(l2)
     for key, _, _, _, _, kind in MEASURES:
         if kind == 'l3':
             l3 = b2.ALLOCATORS[key](l2)
             results[key] = b2.cost(l3)
-    # Manual: hand-written RMM with bump-allocated physical memory +
-    # software-managed scratchpad. Runs the algorithm itself, not the trace.
     results['manual'] = mm.matmul_rmm_manual(A, B, tile_size=4)
     return results
 
@@ -82,9 +84,9 @@ def collect(Ns):
             print(f'  {label}  N={N}', end='', flush=True)
             row = run_one(func, N)
             rows.append(row)
-            print(f"  classic={row['bytedmd_classic']:,}  tombstone={row['tombstone']:,}"
-                  f"  ripple={row['ripple']:,}  live={row['bytedmd_live']:,}"
-                  f"  manual={row['manual']:,}")
+            print(f"  mwis_lb={row['mwis_lb']:,}  live={row['bytedmd_live']:,}"
+                  f"  ripple={row['ripple']:,}  manual={row['manual']:,}"
+                  f"  classic={row['bytedmd_classic']:,}  static_ub={row['static_ub']:,}")
         table[label] = rows
     return table
 
