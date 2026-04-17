@@ -1,12 +1,32 @@
 # grid — per-algorithm report
 
-Cache-energy estimates under the 2D Manhattan-distance model
-(`cost = Σ ⌈√addr⌉` over every memory touch, stores free). Each row is
-one algorithm. Columns:
+## Cost model
 
-- **bytedmd_live** — LRU with liveness compaction (trace-based heuristic)
-- **manual** — hand-placed bump-pointer schedule (gold standard)
-- **bytedmd_classic** — Mattson LRU stack depth, no liveness (upper envelope)
+Every cell in the table below is a **total memory-access cost** computed
+under the **2D Manhattan-distance cache model**
+([figure](https://github.com/cybertronai/ByteDMD/blob/main/docs/manhattan_figure.svg)).
+Memory cells are laid out on a 2D grid; address `a` (1-indexed in
+allocation order) sits at Manhattan distance `⌈√a⌉` from the compute
+origin (1 cell at distance 1, 3 at distance 2, 5 at distance 3, …; a
+disc of radius r holds r² cells). The energy of one access at address
+`a` is that distance, so the algorithm-level cost is
+
+    cost = Σ ⌈√addr⌉   over every memory touch (stores free).
+
+Every number in this report — `bytedmd_live`, `manual`, and
+`bytedmd_classic` — is this same sum, evaluated under three different
+placement strategies:
+
+- **bytedmd_live** — LRU with liveness compaction; dead variables are
+  dropped from the stack on their last load (trace-based lower-envelope
+  heuristic).
+- **manual** — hand-placed bump-pointer schedule; hot scalars and
+  scratchpads occupy the lowest addresses, bulk data lives farther out,
+  recursion uses push/pop so intermediates unwind cleanly (gold
+  standard — the per-algorithm section below spells out the layout).
+- **bytedmd_classic** — Mattson LRU stack depth with no liveness
+  compaction; dead variables pollute deeper rings (upper-envelope
+  heuristic).
 
 | algorithm                                                             | bytedmd_live | manual      | bytedmd_classic |
 |-----------------------------------------------------------------------|-------------:|------------:|----------------:|
