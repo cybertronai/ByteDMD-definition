@@ -704,7 +704,7 @@ def lp_lower_bound(events: Sequence[L2Event]) -> float:
     # Cap at MAX_LAYERS to keep runtime manageable for large traces.
     # The bound remains valid (just slightly looser) because truncated
     # layers contribute diminishing sqrt-difference weights.
-    MAX_LAYERS = 1000
+    MAX_LAYERS = 300
     remaining = list(intervals)
     M: List[int] = [0]
     for _ in range(MAX_LAYERS):

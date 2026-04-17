@@ -200,6 +200,88 @@ def matmul_naive_manual(A_in: List[List[float]], B_in: List[List[float]]) -> int
     return alloc.cost
 
 
+def _allocate_hierarchy(alloc: ManualAllocator, N: int) -> dict:
+    """Pre-allocate an inverted pyramid of buffers: smallest at lowest addrs.
+
+    Level K gets 3*K*K addresses for A, B, C buffers. K=1 is at the absolute
+    fastest addresses; K=N is at the deepest (main RAM). Total footprint
+    < 4*N*N thanks to the geometric series.
+    """
+    offsets = {}
+    K = 1
+    while K <= N:
+        base = alloc.alloc(3 * K * K)
+        offsets[K] = {'A': base, 'B': base + K * K, 'C': base + 2 * K * K}
+        K *= 2
+    return offsets
+
+
+def _dma_copy(alloc: ManualAllocator,
+              src_base: int, src_stride: int, src_r: int, src_c: int,
+              dst_base: int, dst_stride: int, dst_r: int, dst_c: int,
+              H: int) -> None:
+    """Block-copy an H x H sub-matrix from src to dst. Reads are priced."""
+    for i in range(H):
+        for j in range(H):
+            val = alloc.read(src_base + (src_r + i) * src_stride + (src_c + j))
+            alloc.write(dst_base + (dst_r + i) * dst_stride + (dst_c + j), val)
+
+
+def _rmm_explicit_recurse(alloc: ManualAllocator, ptrs: dict,
+                          size: int, pA: int, pB: int, pC: int,
+                          stride: int) -> None:
+    """Hierarchical RMM: DMA data into child-level buffers before recursing."""
+    if size == 1:
+        a = alloc.read(pA)
+        b = alloc.read(pB)
+        c = alloc.read(pC)
+        alloc.write(pC, c + a * b)
+        return
+
+    H = size // 2
+    sA, sB, sC = ptrs[H]['A'], ptrs[H]['B'], ptrs[H]['C']
+
+    def compute_quadrant(rC, cC, rA1, cA1, rB1, cB1, rA2, cA2, rB2, cB2):
+        _dma_copy(alloc, pC, stride, rC, cC, sC, H, 0, 0, H)
+        _dma_copy(alloc, pA, stride, rA1, cA1, sA, H, 0, 0, H)
+        _dma_copy(alloc, pB, stride, rB1, cB1, sB, H, 0, 0, H)
+        _rmm_explicit_recurse(alloc, ptrs, H, sA, sB, sC, H)
+        _dma_copy(alloc, pA, stride, rA2, cA2, sA, H, 0, 0, H)
+        _dma_copy(alloc, pB, stride, rB2, cB2, sB, H, 0, 0, H)
+        _rmm_explicit_recurse(alloc, ptrs, H, sA, sB, sC, H)
+        _dma_copy(alloc, sC, H, 0, 0, pC, stride, rC, cC, H)
+
+    compute_quadrant(0, 0,  0, 0, 0, 0,  0, H, H, 0)
+    compute_quadrant(0, H,  0, 0, 0, H,  0, H, H, H)
+    compute_quadrant(H, 0,  H, 0, 0, 0,  H, H, H, 0)
+    compute_quadrant(H, H,  H, 0, 0, H,  H, H, H, H)
+
+
+def matmul_explicit_rmm(A_in: List[List[float]], B_in: List[List[float]]) -> int:
+    """Hierarchical-scratchpad RMM. Returns total ByteDMD read cost.
+
+    Pre-allocates an inverted pyramid: 1x1 buffers at the fastest addrs,
+    NxN buffers at the deepest. Each recursion level DMAs sub-blocks from
+    parent to child buffers before recursing, so base-case reads always
+    hit addresses 1..3. Achieves O(N^3 log N) without any LRU magic.
+
+    Reference: gemini/bytedmd_explicit_rmm.md.
+    """
+    n = len(A_in)
+    alloc = ManualAllocator()
+    ptrs = _allocate_hierarchy(alloc, n)
+    main_A = ptrs[n]['A']
+    main_B = ptrs[n]['B']
+    main_C = ptrs[n]['C']
+    for i in range(n):
+        for j in range(n):
+            alloc.write(main_A + i * n + j, A_in[i][j])
+            alloc.write(main_B + i * n + j, B_in[i][j])
+            alloc.write(main_C + i * n + j, 0.0)
+    _rmm_explicit_recurse(alloc, ptrs, n, main_A, main_B, main_C, n)
+    return alloc.cost
+
+
 if __name__ == "__main__":
     for N in [8, 16, 32]:
         A = [[1 for _ in range(N)] for _ in range(N)]

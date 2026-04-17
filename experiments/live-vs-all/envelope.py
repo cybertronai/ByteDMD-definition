@@ -50,10 +50,10 @@ ALGORITHMS = [
 # kind='l3' -> computed via allocator -> L3 trace
 MEASURES = [
     ('lp_lb',           'LP lower',        'black',      'v', ':',  'bound'),
-    ('mwis_lb',         'MWIS lower',      'dimgray',    '2', ':',  'bound'),
     ('bytedmd_live',    'DMD-live',        'tab:green',  '^', '-',  'l2'),
     ('ripple',          'Ripple Shift',    'tab:purple', 'D', '-',  'l3'),
     ('manual',          'Manual',          'tab:brown',  'x', '-.', 'manual'),
+    ('explicit',        'Explicit RMM',    'tab:pink',   '*', '-.', 'manual'),
     ('tombstone',       'Tombstone',       'tab:blue',   's', '--', 'l3'),
     ('bytedmd_classic', 'Classic DMD',     'tab:red',    'o', '-',  'l2'),
 ]
@@ -66,13 +66,13 @@ def run_one(func, N: int) -> dict:
     results = {'N': N}
     results['bytedmd_classic'] = b2.bytedmd_classic(l2)
     results['bytedmd_live']    = b2.bytedmd_live(l2)
-    results['mwis_lb']         = b2.mwis_lower_bound(l2)
     results['lp_lb']           = b2.lp_lower_bound(l2)
     for key, _, _, _, _, kind in MEASURES:
         if kind == 'l3':
             l3 = b2.ALLOCATORS[key](l2)
             results[key] = b2.cost(l3)
     results['manual'] = mm.matmul_rmm_manual(A, B, tile_size=4)
+    results['explicit'] = mm.matmul_explicit_rmm(A, B)
     return results
 
 
