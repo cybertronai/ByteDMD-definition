@@ -40,7 +40,7 @@ placement strategies:
 |--------------|-------------------------------------------------------------------|
 | matmul       | naive (AB^T), tiled, rmm (cache-oblivious), naive_strassen, fused_strassen (ZAFS) |
 | attention    | naive, flash (Bk-block online softmax)                            |
-| matvec       | row-major, column-major                                           |
+| matvec       | row-major, column-major, blocked (streaming-A + x-tile scratch)   |
 | FFT          | iterative (in-place), recursive (out-of-place), N=256             |
 | stencil      | naive row-major sweep, tile-recursive (leaf=8)                    |
 | convolution  | spatial (single-channel 2D), regular (multi-channel CNN)          |
@@ -70,6 +70,7 @@ DAGs are identical, so `bytedmd_live` / `bytedmd_classic` match — only
 | [flash_attn(N=32,d=2,Bk=8)](#flash_attn)                              |    83,163 |       101,967 |       97,856 |     137,184 |         167,803 |
 | [matvec_row(n=64)](#matvec_row)                                       |    72,775 |       245,472 |      229,199 |     238,853 |         450,939 |
 | [matvec_col(n=64)](#matvec_col)                                       |    88,673 |       245,368 |      177,873 |     212,776 |         433,535 |
+| [matvec_blocked(n=64,B=4)](#matvec_blocked)                           |    64,864 |       233,888 |      212,861 |      55,104 |         451,847 |
 | [fft_iterative(N=256)](#fft_iterative)                                |    29,324 |        45,209 |       44,212 |      25,528 |          68,311 |
 | [fft_recursive(N=256)](#fft_recursive)                                |    22,876 |        31,242 |       30,012 |     103,290 |          63,195 |
 | [stencil_naive(32x32)](#stencil_naive)                                |    30,271 |        47,574 |       44,468 |      99,276 |          92,817 |
@@ -319,6 +320,36 @@ the whole bulk region in stride-n jumps, which `bytedmd_live` rewards
 again, the sum is fixed.
 
 ![](traces/matvec_col_n_64.png)
+
+---
+
+## matvec_blocked
+`n=64, B=4`. **Algorithm.** Tile matvec into B×B sub-matrix blocks; for
+each tile, DMA-load the current B-slice of `x` into short-lived
+`x_tile` vars (`+ 0.0` idiom — forces real `L2Load/L2Store` events),
+then run a tight B×B MAC against the corresponding A block
+accumulating into B running sums `s[0..B-1]`. Written to match
+[gemini/efficient-matvec.md](../../gemini/efficient-matvec.md).
+
+**Manual placement.** The critical trick is **streaming A**:
+addresses are `s[0..B-1]` at 1..B, `x_tile` at B+1..2B, `tmp` at 2B+1,
+**a single `A_stream` FIFO port at 2B+2**, and `x_main` at
+2B+3..2B+n+2. The whole N² matrix A is *never* statically allocated
+in the spatial grid — every A element is read from the same low
+address as if it were streaming through a hardware register.
+Combined with the x-tile scratchpad, this drops manual from
+`matvec_row`'s 238,853 to **55,104 (4.3× cheaper)** — the doc's
+headline result.
+
+Notice that the trace-based heuristics barely change:
+`bytedmd_live` 229k → 213k, `bytedmd_classic` 451k → 452k,
+`space_dmd` 73k → 65k. The trace still shows 4,096 distinct A
+variables at "high" positions; it has no way to encode "all these
+vars share a single FIFO port." This is the same phenomenon as
+`tiled_matmul` vs `manual_tiled_matmul` — some hardware tricks live
+outside what an abstract L2 trace can represent.
+
+![](traces/matvec_blocked_n_64_b_4.png)
 
 ---
 

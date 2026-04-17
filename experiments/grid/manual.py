@@ -518,6 +518,42 @@ def manual_matvec_row(n: int) -> int:
     return a.cost
 
 
+def manual_matvec_blocked(n: int, B: int = 4) -> int:
+    """Blocked matvec with streaming-A and x-tile scratchpad, per
+    gemini/efficient-matvec.md. Layout:
+      addrs 1..B        : B accumulators s[0..B-1]
+      addrs B+1..2B     : x_tile (B-slot scratchpad)
+      addr  2B+1        : tmp (A·x product)
+      addr  2B+2        : A_stream — single streaming FIFO port
+      addrs 2B+3..2B+n+2: x_main (cold bulk for x)
+    A is never statically stored in the spatial grid; every read of
+    an A element goes to the same A_stream address."""
+    a = _alloc()
+    s = [a.alloc(1) for _ in range(B)]            # 1..B
+    x_tile = a.alloc(B)                            # B+1..2B
+    tmp = a.alloc(1)                               # 2B+1
+    A_stream = a.alloc(1)                          # 2B+2
+    x_main = a.alloc(n)                            # 2B+3..2B+n+2
+
+    for i_out in range(0, n, B):
+        for j_out in range(0, n, B):
+            # DMA-load x tile from x_main → x_tile (writes free)
+            for j in range(B):
+                a.touch(x_main + j_out + j)
+            # B×B MAC, streaming A through a single port
+            for i in range(B):
+                for j in range(B):
+                    a.touch(A_stream)              # stream next A element
+                    a.touch(x_tile + j)            # hot x tile read
+                    if j_out != 0 or j != 0:
+                        a.touch(s[i])              # read accumulator
+                    a.touch(tmp)                   # read A*x product
+        # Flush accumulators to y (reads of s, writes of y are free)
+        for i in range(B):
+            a.touch(s[i])
+    return a.cost
+
+
 def manual_matvec_col(n: int) -> int:
     """Outer loop over j: y[i] += A[i][j] * x[j] — A read column-major (strided).
     Hot slots first: tmp, y, x at low addrs; A is the cold bulk region."""

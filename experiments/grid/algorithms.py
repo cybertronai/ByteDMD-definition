@@ -249,6 +249,30 @@ def matvec_row(A, x):
     return y
 
 
+def matvec_blocked(A, x, B=4):
+    """Tiled matvec with explicit x-tile DMA: every inner tile loads the
+    current B-slice of x into short-lived `x_tile` vars via `+ 0.0`,
+    then does a B×B MAC against the corresponding A tile and accumulates
+    into B running sums. Models the "streaming-A + x-tile scratchpad"
+    schedule from gemini/efficient-matvec.md."""
+    n = len(A)
+    y = [None] * n
+    for i_out in range(0, n, B):
+        s = [None] * B
+        for j_out in range(0, n, B):
+            # DMA-load x tile into short-lived, high-density tile vars
+            x_tile = [x[j_out + j] + 0.0 for j in range(B)]
+            for i in range(B):
+                for j in range(B):
+                    if s[i] is None:
+                        s[i] = A[i_out + i][j_out + j] * x_tile[j]
+                    else:
+                        s[i] = s[i] + A[i_out + i][j_out + j] * x_tile[j]
+        for i in range(B):
+            y[i_out + i] = s[i] + 0.0
+    return y
+
+
 def matvec_col(A, x):
     """Column-major matvec: accumulate y column-by-column — strided reads of A."""
     n = len(A)
