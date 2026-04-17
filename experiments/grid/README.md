@@ -13,14 +13,20 @@ approximates the total energy `∑ ceil(sqrt(addr))` over all memory touches.
 
 ## Axes
 
-**Rows — algorithms**:
+**Rows — algorithms** (20 total):
 
-| family    | variants                                           |
-|-----------|----------------------------------------------------|
-| matmul    | naive, tiled, rmm (cache-oblivious), fused strassen|
-| attention | naive, flash (Bk-block online softmax)             |
-| transpose | naive (column-major read), blocked, recursive (CO) |
-| matvec    | row-major, column-major                            |
+| family       | variants                                                     |
+|--------------|--------------------------------------------------------------|
+| matmul       | naive, tiled, rmm (cache-oblivious), fused_strassen (ZAFS)   |
+| attention    | naive, flash (Bk-block online softmax)                       |
+| transpose    | naive (column-major read), blocked, recursive (CO)           |
+| matvec       | row-major, column-major                                      |
+| FFT          | iterative (in-place), recursive (out-of-place)               |
+| stencil      | naive row-major sweep, tile-recursive (leaf=8)               |
+| convolution  | spatial (single-channel 2D), regular (multi-channel CNN)     |
+| FFT-conv     | N-point circular convolution via two FFTs + pointwise + IFFT |
+| sort         | mergesort (data-oblivious merge stand-in)                    |
+| DP           | LCS dynamic programming (branch-free recurrence)             |
 
 Only `fused_strassen` (Zero-Allocation Fused Strassen / ZAFS) is shown for
 the Strassen family — its abstract arithmetic DAG is identical to standard
@@ -53,9 +59,11 @@ respectively at n=16, T=4).
 
 ## Run
 
-    ./run_grid.py
+    ./run_grid.py          # tabulate: writes grid.csv, grid.md
+    ./generate_traces.py   # visualize: writes traces/<slug>.png per algorithm
 
-Outputs: `grid.csv`, `grid.md`, stdout table.
+See **[REPORT.md](REPORT.md)** for the narrated per-algorithm writeup —
+descriptions, manual allocation strategies, and embedded memory traces.
 
 ## Notes
 
@@ -69,7 +77,14 @@ Outputs: `grid.csv`, `grid.md`, stdout table.
 - Hot-slot allocation matters a lot for `matvec`: putting accumulator `y`
   and input `x` at addresses 1..2n cuts manual cost roughly in half
   compared to the default order.
-- Skipped for now (each warrants its own design pass): FFT (complex
-  arithmetic needs care in the tracer), mergesort (comparisons need a
-  trace-safe stand-in), and the cache-oblivious counterparts of Jacobi
-  stencil / LCS DP (trapezoidal decomposition, not one-nighters).
+- **Manual can exceed `bytedmd_classic`** for `mergesort` (8,416 vs 4,344)
+  and `lcs_dp` (85,929 vs 47,066). When temporaries are many and live
+  briefly (mergesort's merge temps) or the working set is one large bulk
+  region at high addresses (LCS's (m+1)(n+1) DP table), fixed-placement
+  pays the full `⌈√addr⌉` on every access while LRU heuristics amortize
+  via recency. Fixed Manhattan is not always an upper envelope.
+- **Manual can beat `bytedmd_live`** for `fft_iterative` (788 vs 1,646),
+  `fft_conv` (4,253 vs 5,629), and `fused_strassen` (140,526 vs 173,919).
+  A tight in-place layout that parks everything in the hot region
+  short-circuits what any recency heuristic can model on the abstract
+  trace.

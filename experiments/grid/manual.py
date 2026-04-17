@@ -16,14 +16,16 @@ class Allocator:
     """Bump-pointer allocator with push/pop stack discipline.
 
     touch(addr) charges ceil(sqrt(addr)) — modelling one memory access
-    at that address in the continuous-Manhattan cache.
+    at that address in the continuous-Manhattan cache. When logging=True,
+    also records the address sequence into .log for trace visualization.
     """
-    __slots__ = ("cost", "ptr", "peak")
+    __slots__ = ("cost", "ptr", "peak", "log")
 
-    def __init__(self) -> None:
+    def __init__(self, logging: bool = False) -> None:
         self.cost = 0
         self.ptr = 1
         self.peak = 1
+        self.log = [] if logging else None
 
     def alloc(self, size: int) -> int:
         addr = self.ptr
@@ -40,6 +42,25 @@ class Allocator:
 
     def touch(self, addr: int) -> None:
         self.cost += math.isqrt(max(0, addr - 1)) + 1
+        if self.log is not None:
+            self.log.append(addr)
+
+
+# Module-level override for the allocator used inside manual_* functions.
+# Normally None (each function creates its own). generate_traces.py sets this
+# to a logging Allocator so the captured .log reflects a single call's trace.
+_CURRENT_ALLOC: Allocator | None = None
+
+
+def set_allocator(a: Allocator | None) -> None:
+    """Override the allocator returned by _alloc() until set_allocator(None).
+    Used by generate_traces.py to inject a logging allocator."""
+    global _CURRENT_ALLOC
+    _CURRENT_ALLOC = a
+
+
+def _alloc() -> Allocator:
+    return _CURRENT_ALLOC if _CURRENT_ALLOC is not None else Allocator()
 
 
 # ============================================================================
@@ -49,7 +70,7 @@ class Allocator:
 def manual_naive_matmul(n: int) -> int:
     """Hand-placed naive triple loop. Accumulator s at addr 1; read once per
     (i,j) outside the k-loop, 2 reads (A, B) per MAC."""
-    a = Allocator()
+    a = _alloc()
     s = a.alloc(1)
     A = a.alloc(n * n); B = a.alloc(n * n); C = a.alloc(n * n)
     for i in range(n):
@@ -68,7 +89,7 @@ def manual_tiled_matmul(n: int, T: int | None = None) -> int:
     sC read once per (ii,jj) outside kk-loop; 2 reads per MAC."""
     if T is None:
         T = max(1, int(round(n ** 0.5)))
-    a = Allocator()
+    a = _alloc()
     sA = a.alloc(T * T); sB = a.alloc(T * T); sC = a.alloc(T * T)
     A = a.alloc(n * n); B = a.alloc(n * n); C = a.alloc(n * n)
 
@@ -106,7 +127,7 @@ def manual_rmm(n: int, T: int = 4) -> int:
     MAC convention: fast_C read once per (i,j) outside k-loop; bulk read of
     fast_C before MAC; on first write of a C-tile, skip pre-load of pC
     (the tile is fresh)."""
-    a = Allocator()
+    a = _alloc()
     sA = a.alloc(T * T); sB = a.alloc(T * T); sC = a.alloc(T * T)
     A = a.alloc(n * n); B = a.alloc(n * n); C = a.alloc(n * n)
     # is_first is checked against the PREVIOUS compute_tile's C coordinate
@@ -162,7 +183,7 @@ def manual_strassen(n: int, T: int = 4) -> int:
     """Standard Strassen with scratchpad at base case + push/pop stack for 7
     materialized M-intermediates (SA, SB, M[0..6] — this is what fused_strassen
     avoids). MAC convention matches manual_rmm / strassen_trace.py."""
-    a = Allocator()
+    a = _alloc()
     sA = a.alloc(T * T); sB = a.alloc(T * T); sC = a.alloc(T * T)
     A = a.alloc(n * n); B = a.alloc(n * n); C = a.alloc(n * n)
 
@@ -250,7 +271,7 @@ def manual_fused_strassen(n: int, T: int = 4) -> int:
     loads and the 7 M-products are flushed straight into their target C
     quadrants. MAC convention matches strassen_trace.py / Gemini's
     reference: fast_C is read once per (i,j) outside the k-loop."""
-    a = Allocator()
+    a = _alloc()
     fast_A = a.alloc(T * T); fast_B = a.alloc(T * T); fast_C = a.alloc(T * T)
     A = a.alloc(n * n); B = a.alloc(n * n); C = a.alloc(n * n)
 
@@ -309,7 +330,7 @@ def manual_fused_strassen(n: int, T: int = 4) -> int:
 
 def manual_naive_attention(N: int, d: int) -> int:
     """Three stages: S = Q K^T, P = softmax(S), O = P V. Full N×N S materialized."""
-    a = Allocator()
+    a = _alloc()
     # Hot scratch scalars at low addresses
     s_acc = a.alloc(1); tmp = a.alloc(1)
     row_max = a.alloc(1); row_sum = a.alloc(1); inv_sum = a.alloc(1)
@@ -364,7 +385,7 @@ def manual_naive_attention(N: int, d: int) -> int:
 
 def manual_flash_attention(N: int, d: int, Bk: int) -> int:
     """Flash attention: stream K/V in blocks; never materialize full N×N S."""
-    a = Allocator()
+    a = _alloc()
     # Hot scalars
     m_i = a.alloc(1); l_i = a.alloc(1)
     m_block = a.alloc(1); l_block = a.alloc(1)
@@ -432,7 +453,7 @@ def manual_flash_attention(N: int, d: int, Bk: int) -> int:
 
 def manual_transpose_naive(n: int) -> int:
     """Read A column-major (B[i][j] = A[j][i]) — one read per cell."""
-    a = Allocator()
+    a = _alloc()
     A = a.alloc(n * n); B = a.alloc(n * n)
     for i in range(n):
         for j in range(n):
@@ -446,7 +467,7 @@ def manual_transpose_blocked(n: int, T: int | None = None) -> int:
     address Manhattan model). Reads each A cell once in block order."""
     if T is None:
         T = max(1, int(round(n ** 0.5)))
-    a = Allocator()
+    a = _alloc()
     A = a.alloc(n * n); B = a.alloc(n * n)
     for bi in range(0, n, T):
         for bj in range(0, n, T):
@@ -458,7 +479,7 @@ def manual_transpose_blocked(n: int, T: int | None = None) -> int:
 
 def manual_transpose_recursive(n: int) -> int:
     """Cache-oblivious transpose: recursively split into 4 quadrants."""
-    a = Allocator()
+    a = _alloc()
     A = a.alloc(n * n); B = a.alloc(n * n)
 
     def rec(ar: int, ac: int, br: int, bc: int, sz: int) -> None:
@@ -482,7 +503,7 @@ def manual_transpose_recursive(n: int) -> int:
 def manual_matvec_row(n: int) -> int:
     """y[i] = sum_j A[i][j] * x[j], outer loop over i — A read row-major.
     Hot slots first: s, tmp, y, x at low addrs; A is the cold bulk region."""
-    a = Allocator()
+    a = _alloc()
     s = a.alloc(1); tmp = a.alloc(1)
     y = a.alloc(n); x = a.alloc(n)
     A = a.alloc(n * n)
@@ -498,7 +519,7 @@ def manual_matvec_row(n: int) -> int:
 def manual_matvec_col(n: int) -> int:
     """Outer loop over j: y[i] += A[i][j] * x[j] — A read column-major (strided).
     Hot slots first: tmp, y, x at low addrs; A is the cold bulk region."""
-    a = Allocator()
+    a = _alloc()
     tmp = a.alloc(1)
     y = a.alloc(n); x = a.alloc(n)
     A = a.alloc(n * n)
@@ -519,7 +540,7 @@ def manual_matvec_col(n: int) -> int:
 
 def manual_fft_iterative(N: int) -> int:
     """In-place radix-2 Cooley-Tukey on an N-slot array at low addresses."""
-    a = Allocator()
+    a = _alloc()
     x = a.alloc(N)
     # Bit-reverse permutation — ~N/2 real swaps, 2 reads each
     j = 0
@@ -547,7 +568,7 @@ def manual_fft_recursive(N: int) -> int:
     """Out-of-place recursive radix-2: at each level push/pop fresh
     even/odd temp arrays. Temps live briefly but drive the allocator
     pointer up during recursion."""
-    a = Allocator()
+    a = _alloc()
     x = a.alloc(N)
 
     def rec(base: int, sz: int) -> None:
@@ -579,7 +600,7 @@ def manual_fft_recursive(N: int) -> int:
 def manual_stencil_naive(n: int) -> int:
     """Row-major single sweep of 5-point Jacobi. 5 reads of A per
     interior cell; writes to B are free."""
-    a = Allocator()
+    a = _alloc()
     A = a.alloc(n * n); B = a.alloc(n * n)
     for i in range(1, n - 1):
         for j in range(1, n - 1):
@@ -595,7 +616,7 @@ def manual_stencil_recursive(n: int, leaf: int = 8) -> int:
     """Tile-recursive 5-point Jacobi. Same set of reads as naive — in
     the fixed-placement Manhattan model the total cost is identical;
     only access ORDER differs (visible to bytedmd_classic/bytedmd_live)."""
-    a = Allocator()
+    a = _alloc()
     A = a.alloc(n * n); B = a.alloc(n * n)
 
     def rec(r0: int, c0: int, sz: int) -> None:
@@ -627,7 +648,7 @@ def manual_spatial_convolution(H: int, W: int, K: int) -> int:
     """2D single-channel convolution. Accumulator s and the K*K kernel Wk
     live at the lowest addresses (hot); the H*W image is the cold bulk.
     Per output cell: 1 accumulator read + K*K * (image read + kernel read)."""
-    a = Allocator()
+    a = _alloc()
     s = a.alloc(1)
     Wk = a.alloc(K * K)
     img = a.alloc(H * W)
@@ -646,7 +667,7 @@ def manual_spatial_convolution(H: int, W: int, K: int) -> int:
 def manual_fft_conv(N: int) -> int:
     """Convolution via FFT: two forward FFTs + pointwise multiply + inverse
     FFT. Arrays X, Y, Z allocated at the lowest addresses."""
-    a = Allocator()
+    a = _alloc()
     X = a.alloc(N); Y = a.alloc(N); Z = a.alloc(N)
 
     def fft_in_place(base: int) -> None:
@@ -684,7 +705,7 @@ def manual_regular_convolution(H: int, W: int, K: int, Cin: int, Cout: int) -> i
     img (H*W*Cin). Image channel-inner-most, kernel channel-pair inner-most.
     Per output cell: 1 accumulator read + K*K*Cin*Cout * (image + kernel)
     for each of Cout output channels."""
-    a = Allocator()
+    a = _alloc()
     s = a.alloc(1)
     Wk = a.alloc(K * K * Cin * Cout)
     img = a.alloc(H * W * Cin)
@@ -710,7 +731,7 @@ def manual_mergesort(N: int) -> int:
     """Recursive mergesort on an N-slot array at addr 1..N. Each merge level
     allocates a temp of the merge size (popped after copy-back). Each merge
     does 2*sz reads (both frontiers) and sz reads (copy-back temp → base)."""
-    a = Allocator()
+    a = _alloc()
     arr = a.alloc(N)
 
     def rec(base: int, sz: int) -> None:
@@ -743,7 +764,7 @@ def manual_mergesort(N: int) -> int:
 def manual_lcs_dp(m: int, n: int) -> int:
     """Row-major LCS DP. Cell (i,j) reads D[i-1][j-1], D[i-1][j], D[i][j-1]
     and the two input characters x[i-1], y[j-1]."""
-    a = Allocator()
+    a = _alloc()
     # Strings at low addrs (repeatedly touched), DP table at higher addrs
     x = a.alloc(m); y = a.alloc(n)
     D = a.alloc((m + 1) * (n + 1))
