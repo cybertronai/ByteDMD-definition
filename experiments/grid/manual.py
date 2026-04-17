@@ -47,98 +47,103 @@ class Allocator:
 # ============================================================================
 
 def manual_naive_matmul(n: int) -> int:
-    """Hand-placed naive triple loop. Scratch slots s, t at addrs 1,2."""
+    """Hand-placed naive triple loop. Accumulator s at addr 1; read once per
+    (i,j) outside the k-loop, 2 reads (A, B) per MAC."""
     a = Allocator()
-    s = a.alloc(1); t = a.alloc(1)
+    s = a.alloc(1)
     A = a.alloc(n * n); B = a.alloc(n * n); C = a.alloc(n * n)
     for i in range(n):
         for j in range(n):
-            # s = A[i][0] * B[0][j]
-            a.touch(A + i * n + 0); a.touch(B + 0 * n + j)
-            for k in range(1, n):
-                # t = A[i][k] * B[k][j]
-                a.touch(A + i * n + k); a.touch(B + k * n + j)
-                # s = s + t
-                a.touch(s); a.touch(t)
-            # C[i][j] = s
-            a.touch(s)
+            a.touch(s)  # accumulator init read, once per (i,j)
+            for k in range(n):
+                a.touch(A + i * n + k)
+                a.touch(B + k * n + j)
+            # write C[i][j] = s (free)
     return a.cost
 
 
 def manual_tiled_matmul(n: int, T: int | None = None) -> int:
-    """One-level blocked matmul. Scratchpad holds sA, sB, sC (T*T each)
-    at the lowest addresses, reloaded per (bi,bj,bk) tile."""
+    """One-level blocked matmul. Scratchpad holds sA, sB, sC (T*T each) at
+    the lowest addresses, reloaded per (bi,bj,bk) tile. MAC convention:
+    sC read once per (ii,jj) outside kk-loop; 2 reads per MAC."""
     if T is None:
         T = max(1, int(round(n ** 0.5)))
     a = Allocator()
-    # Scratchpad first — hottest addresses
     sA = a.alloc(T * T); sB = a.alloc(T * T); sC = a.alloc(T * T)
-    tmp = a.alloc(1)
     A = a.alloc(n * n); B = a.alloc(n * n); C = a.alloc(n * n)
-
-    def load_tile(src_base: int, src_stride: int, dst_base: int, bi: int, bj: int) -> None:
-        for ii in range(T):
-            for jj in range(T):
-                if bi + ii < n and bj + jj < n:
-                    a.touch(src_base + (bi + ii) * src_stride + (bj + jj))
-
-    def store_tile(dst_base: int, dst_stride: int, src_base: int, bi: int, bj: int) -> None:
-        for ii in range(T):
-            for jj in range(T):
-                if bi + ii < n and bj + jj < n:
-                    a.touch(src_base + ii * T + jj)
 
     for bi in range(0, n, T):
         for bj in range(0, n, T):
-            # Load C tile (to accumulate)
-            load_tile(C, n, sC, bi, bj)
+            # Load C tile into sC
+            for ii in range(min(T, n - bi)):
+                for jj in range(min(T, n - bj)):
+                    a.touch(C + (bi + ii) * n + (bj + jj))
             for bk in range(0, n, T):
-                load_tile(A, n, sA, bi, bk)
-                load_tile(B, n, sB, bk, bj)
+                # Load A tile
+                for ii in range(min(T, n - bi)):
+                    for kk in range(min(T, n - bk)):
+                        a.touch(A + (bi + ii) * n + (bk + kk))
+                # Load B tile
+                for kk in range(min(T, n - bk)):
+                    for jj in range(min(T, n - bj)):
+                        a.touch(B + (bk + kk) * n + (bj + jj))
+                # MAC
                 for ii in range(min(T, n - bi)):
                     for jj in range(min(T, n - bj)):
+                        a.touch(sC + ii * T + jj)
                         for kk in range(min(T, n - bk)):
-                            # tmp = sA[ii][kk] * sB[kk][jj]
-                            a.touch(sA + ii * T + kk); a.touch(sB + kk * T + jj)
-                            # sC[ii][jj] = sC[ii][jj] + tmp
-                            a.touch(sC + ii * T + jj); a.touch(tmp)
+                            a.touch(sA + ii * T + kk)
+                            a.touch(sB + kk * T + jj)
             # Flush sC -> C
-            store_tile(C, n, sC, bi, bj)
+            for ii in range(min(T, n - bi)):
+                for jj in range(min(T, n - bj)):
+                    a.touch(sC + ii * T + jj)
     return a.cost
 
 
 def manual_rmm(n: int, T: int = 4) -> int:
-    """Recursive (cache-oblivious) matmul with T-tile scratchpad at leaves."""
+    """Recursive (cache-oblivious) matmul with T-tile scratchpad at leaves.
+    MAC convention: fast_C read once per (i,j) outside k-loop; bulk read of
+    fast_C before MAC; on first write of a C-tile, skip pre-load of pC
+    (the tile is fresh)."""
     a = Allocator()
     sA = a.alloc(T * T); sB = a.alloc(T * T); sC = a.alloc(T * T)
-    tmp = a.alloc(1)
     A = a.alloc(n * n); B = a.alloc(n * n); C = a.alloc(n * n)
+    # is_first is checked against the PREVIOUS compute_tile's C coordinate
+    # only — if the C tile loaded in fast_C still matches, skip the pC
+    # pre-load. Matches strassen_trace's Scratchpad.sync cache semantic.
+    last_C = [None]
 
-    def compute_tile(pA: int, sAstr: int, pB: int, sBstr: int, pC: int, sCstr: int) -> None:
-        # Load A, B, C tiles
+    def compute_tile(rA: int, cA: int, rB: int, cB: int, rC: int, cC: int) -> None:
+        is_first = (last_C[0] != (rC, cC))
+        last_C[0] = (rC, cC)
+        # Load A, B tiles
         for ii in range(T):
             for jj in range(T):
-                a.touch(pA + ii * sAstr + jj)
+                a.touch(A + (rA + ii) * n + cA + jj)
         for ii in range(T):
             for jj in range(T):
-                a.touch(pB + ii * sBstr + jj)
-        for ii in range(T):
-            for jj in range(T):
-                a.touch(pC + ii * sCstr + jj)
-        # MAC into scratchpad sC
-        for ii in range(T):
-            for jj in range(T):
-                for kk in range(T):
-                    a.touch(sA + ii * T + kk); a.touch(sB + kk * T + jj)
-                    a.touch(sC + ii * T + jj); a.touch(tmp)
-        # Flush sC back
+                a.touch(B + (rB + ii) * n + cB + jj)
+        # Bulk read of fast_C (accumulator init)
+        for i in range(T * T):
+            a.touch(sC + i)
+        # MAC: fast_C[i][j] += sum_k fast_A[i][k] * fast_B[k][j]
         for ii in range(T):
             for jj in range(T):
                 a.touch(sC + ii * T + jj)
+                for kk in range(T):
+                    a.touch(sA + ii * T + kk)
+                    a.touch(sB + kk * T + jj)
+        # Flush fast_C -> pC; if not first write, accumulate with existing pC
+        for ii in range(T):
+            for jj in range(T):
+                a.touch(sC + ii * T + jj)
+                if not is_first:
+                    a.touch(C + (rC + ii) * n + cC + jj)
 
     def recurse(rA: int, cA: int, rB: int, cB: int, rC: int, cC: int, sz: int) -> None:
         if sz <= T:
-            compute_tile(A + rA * n + cA, n, B + rB * n + cB, n, C + rC * n + cC, n)
+            compute_tile(rA, cA, rB, cB, rC, cC)
             return
         h = sz // 2
         for dr, dc, erb, ecb, frc, fcc in [
@@ -154,10 +159,11 @@ def manual_rmm(n: int, T: int = 4) -> int:
 
 
 def manual_strassen(n: int, T: int = 4) -> int:
-    """Strassen with scratchpad at base case + push/pop stack for 7 intermediates."""
+    """Standard Strassen with scratchpad at base case + push/pop stack for 7
+    materialized M-intermediates (SA, SB, M[0..6] — this is what fused_strassen
+    avoids). MAC convention matches manual_rmm / strassen_trace.py."""
     a = Allocator()
     sA = a.alloc(T * T); sB = a.alloc(T * T); sC = a.alloc(T * T)
-    tmp = a.alloc(1)
     A = a.alloc(n * n); B = a.alloc(n * n); C = a.alloc(n * n)
 
     def add_mats(p1: int, s1: int, p2: int, s2: int, h: int) -> None:
@@ -177,9 +183,10 @@ def manual_strassen(n: int, T: int = 4) -> int:
                 a.touch(pC + ii * sCstr + jj)
         for ii in range(T):
             for jj in range(T):
+                a.touch(sC + ii * T + jj)
                 for kk in range(T):
-                    a.touch(sA + ii * T + kk); a.touch(sB + kk * T + jj)
-                    a.touch(sC + ii * T + jj); a.touch(tmp)
+                    a.touch(sA + ii * T + kk)
+                    a.touch(sB + kk * T + jj)
         for ii in range(T):
             for jj in range(T):
                 a.touch(sC + ii * T + jj)
@@ -238,9 +245,11 @@ def manual_strassen(n: int, T: int = 4) -> int:
 
 
 def manual_fused_strassen(n: int, T: int = 4) -> int:
-    """Zero-Allocation Fused Strassen (single-level outer Strassen, no
-    intermediate matrices — adds are fused into the L1 tile loads).
-    Ported from experiments/live-vs-all/efficient_strassen_trace.py."""
+    """Zero-Allocation Fused Strassen (ZAFS): single-level outer Strassen,
+    no intermediate matrices — sub-additions are fused into the L1 tile
+    loads and the 7 M-products are flushed straight into their target C
+    quadrants. MAC convention matches strassen_trace.py / Gemini's
+    reference: fast_C is read once per (i,j) outside the k-loop."""
     a = Allocator()
     fast_A = a.alloc(T * T); fast_B = a.alloc(T * T); fast_C = a.alloc(T * T)
     A = a.alloc(n * n); B = a.alloc(n * n); C = a.alloc(n * n)
@@ -256,14 +265,15 @@ def manual_fused_strassen(n: int, T: int = 4) -> int:
             for j in range(T):
                 for _sgn, rb, cb in ops_B:
                     a.touch(B + (rb + k_off + i) * n + cb + c + j)
-        # 3. Read fast_C (existing accumulator)
+        # 3. Bulk read of fast_C (accumulator init)
         for i in range(T * T):
             a.touch(fast_C + i)
-        # 4. Tile MAC: fast_C += fast_A @ fast_B
+        # 4. Tile MAC: fast_C[i][j] += sum_k fast_A[i][k] * fast_B[k][j]
+        #    fast_C read once per (i,j) outside k-loop; 2 reads per MAC.
         for i in range(T):
             for j in range(T):
+                a.touch(fast_C + i * T + j)
                 for k in range(T):
-                    a.touch(fast_C + i * T + j)
                     a.touch(fast_A + i * T + k)
                     a.touch(fast_B + k * T + j)
         # 5. Fan-out fast_C -> multiple C targets with signs

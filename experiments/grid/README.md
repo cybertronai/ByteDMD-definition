@@ -45,6 +45,13 @@ addresses, bulk data lives farther out, and recursion uses `push/pop` so
 intermediates unwind cleanly. Every memory touch is charged
 `ceil(sqrt(addr))`; stores are free (matching `bytedmd_ir.cost`).
 
+**MAC convention** for the matmul family (naive/tiled/rmm/fused_strassen):
+accumulator is read once per (i,j) outside the k-loop, then 2 reads (A, B)
+per k-iter. This matches the `strassen_trace.py` / `efficient_strassen_trace.py`
+reference implementations so the numbers are directly comparable. RMM and
+fused_strassen reproduce those scripts' outputs exactly (95,222 and 140,526
+respectively at n=16, T=4).
+
 ## Run
 
     ./run_grid.py
