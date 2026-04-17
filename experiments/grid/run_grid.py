@@ -40,6 +40,7 @@ from bytedmd_ir import (
 )
 import algorithms as alg
 import manual as man
+from spacedmd import space_dmd
 
 
 # ============================================================================
@@ -184,6 +185,7 @@ ALGOS: List[Tuple[str, Callable, Tuple, Callable[[], int]]] = [
 # Column order for the output table. "manual" is a sentinel — value comes
 # from ALGOS[i][3]() rather than from a trace-based heuristic.
 METRICS: List[Tuple[str, Callable[[Sequence[L2Event]], int] | None]] = [
+    ("space_dmd",       space_dmd),
     ("bytedmd_live",    bytedmd_live),
     ("manual",          None),
     ("bytedmd_classic", bytedmd_classic),
