@@ -2,21 +2,14 @@
 
 This experiment compares a concrete no-free-compaction 2D cost against SpaceDMD and the two abstract ByteDMD heuristics on a small suite of workloads.
 
-Every traced metric cell finished under 2.832 seconds on this run.
+Every traced metric cell finished under 2.980 seconds on this run.
 
 ## Algorithms
 
+Rows are grouped to follow the dev-branch grid ordering: matmul, attention, matvec/traversal, FFT, stencil, convolution, sorting/DP, dense solve, LU, Cholesky, and QR.
+
 | Algorithm | Workload | Implementation |
 | --- | --- | --- |
-| Matvec | 32x32 by 32 | row-wise matrix-vector baseline |
-| Vecmat | 32 by 32x32 | column-oriented access order |
-| Matvec Row | 64x64 by 64 | row-major matrix-vector multiply |
-| Matvec Column | 64 by 64x64 | column-major vector-matrix multiply |
-| Transpose (Naive) | 32x32 | direct row-major transpose copy |
-| Transpose (Blocked) | 32x32, block=8 | blocked transpose copy |
-| Transpose (Recursive) | 32x32, leaf=8 | cache-oblivious recursive transpose |
-| Row Scan | 64x64 | row-major traversal sum |
-| Column Scan | 64x64 | column-major traversal sum |
 | Naive Matmul | 16x16 | standard i-j-k triple loop |
 | Tiled Matmul | 16x16, tile=4 | one explicit blocking level |
 | Recursive Matmul | 16x16 | 8-way cache-oblivious recursion |
@@ -24,44 +17,64 @@ Every traced metric cell finished under 2.832 seconds on this run.
 | Recursive In-Place (Gray) | 16x16 | manual in-place schedule, Gray-code order |
 | Strassen | 16x16 | leaf size 1 to expose temporary traffic |
 | Fused Strassen | 16x16, leaf=8 | zero-allocation virtual sums with direct accumulation into C |
+| Naive Attention (d=2) | N=32, d=2 | materializes the full score matrix |
+| Flash Attention (Bk=8) | N=32, d=2, Bq=8, Bk=8 | double-tiled Q/KV blocks with wider KV tiles |
+| Naive Attention (d=4) | N=32, d=4 | materializes the full score matrix |
+| Flash Attention | N=32, d=4, Bq=8, Bk=4 | double-tiled Q/KV blocks with snake KV order |
+| Matvec | 32x32 by 32 | row-wise matrix-vector baseline |
+| Vecmat | 32 by 32x32 | column-oriented access order |
+| Matvec Row | 64x64 by 64 | row-major matrix-vector multiply |
+| Matvec Column | 64 by 64x64 | column-major vector-matrix multiply |
+| Row Scan | 64x64 | row-major traversal sum |
+| Column Scan | 64x64 | column-major traversal sum |
+| Transpose (Naive) | 32x32 | direct row-major transpose copy |
+| Transpose (Blocked) | 32x32, block=8 | blocked transpose copy |
+| Transpose (Recursive) | 32x32, leaf=8 | cache-oblivious recursive transpose |
+| FFT (Iterative) | N=1024 | iterative radix-2 Cooley-Tukey |
+| FFT (Recursive) | N=1024 | recursive radix-2 Cooley-Tukey |
+| Stencil (Naive) | 32x32, one sweep | row-major Jacobi stencil |
+| Stencil (Recursive) | 32x32, one sweep, leaf=8 | tile-recursive Jacobi stencil |
+| Spatial Conv (2D, 16x16) | 16x16, kernel=5x5 | same-size zero-padded spatial convolution |
+| Spatial Conv (2D, 32x32) | 32x32, kernel=5x5 | same-size zero-padded spatial convolution |
+| Regular Conv | 16x16, kernel=3x3, Cin=4, Cout=4 | direct same-size convolution over 4 input/output channels |
+| FFT Conv (1D) | N=32 | circular 1D convolution via recursive FFT |
+| FFT Conv (2D) | 16x16, kernel=5x5, pad=32x32 | same-size convolution via zero-padded recursive 2D FFT |
+| Mergesort | N=64 | top-down mergesort with tracked comparisons |
+| LCS DP | 32x32 | dynamic programming longest common subsequence |
 | Gaussian Elimination | N=24 | dense solve without pivoting |
 | Gauss-Jordan Inverse | N=16 | dense matrix inverse without pivoting |
 | LU (No Pivot) | N=24 | Doolittle LU without row swaps |
-| LU (Blocked) | N=24, block=4 | tile-oriented LU without pivoting |
+| LU (Blocked) | N=24, block=4 | panel/TRSM/trailing-update LU without pivoting |
 | LU (Recursive) | N=24, leaf=6 | recursive block LU without pivoting |
 | LU (Partial Pivot) | N=24 | partial pivoting with row-copy traffic |
 | Cholesky | N=24 | lower-triangular Cholesky factorization |
 | Cholesky (Blocked) | N=24, block=4 | tile-oriented Cholesky factorization |
 | Cholesky (Recursive) | N=24, leaf=6 | recursive block Cholesky factorization |
 | Householder QR | 48x12 | unblocked Householder QR returning R |
-| Blocked QR | 48x12, block=4 | column-blocked Householder QR returning R |
+| Blocked QR | 48x12, block=4 | panel-blocked Householder QR with delayed trailing updates |
 | TSQR | 48x12, leaf_rows=12 | tall-skinny recursive QR returning the final R |
-| FFT (Iterative) | N=1024 | iterative radix-2 Cooley-Tukey |
-| FFT (Recursive) | N=1024 | recursive radix-2 Cooley-Tukey |
-| 2D Convolution (Spatial) | 16x16, kernel=5x5 | same-size zero-padded spatial convolution |
-| Spatial Conv | 32x32, kernel=5x5 | same-size zero-padded spatial convolution |
-| Regular Conv | 16x16, kernel=3x3, Cin=4, Cout=4 | direct same-size convolution over 4 input/output channels |
-| 2D Convolution (FFT) | 16x16, kernel=5x5, pad=32x32 | same-size convolution via zero-padded recursive 2D FFT |
-| FFT Conv | N=32 | circular 1D convolution via recursive FFT |
-| Stencil (Naive) | 32x32, one sweep | row-major Jacobi stencil |
-| Stencil (Recursive) | 32x32, one sweep, leaf=8 | tile-recursive Jacobi stencil |
-| Regular Attention | N=32, d=4 | materializes the full score matrix |
-| Naive Attention | N=32, d=2 | materializes the full score matrix |
-| Flash Attention | N=32, d=4, Bq=8, Bk=4 | double-tiled Q/KV blocks with snake KV order |
-| Flash Attention (Bk=8) | N=32, d=2, Bq=8, Bk=8 | double-tiled Q/KV blocks with wider KV tiles |
-| Mergesort | N=64 | top-down mergesort with tracked comparisons |
-| LCS DP | 32x32 | dynamic programming longest common subsequence |
 
 ## Measures
 
-- `SpaceDMD`: density-ranked spatial liveness, following the April 17, 2026 gist heuristic for ahead-of-time static pinning.
-- `ByteDMD-live`: aggressive live-only compaction.
-- `Manual-2D`: hand-scheduled fixed-address implementations under the 2D `ceil(sqrt(addr))` cost model.
-- `ByteDMD-classic`: graveyard model with no reclamation.
+- `SpaceDMD`: density-ranked spatial liveness, now with inputs first read from a separate argument stack and only later re-read from the geometric stack.
+- `ByteDMD-live`: aggressive live-only compaction on the geometric stack, with the same separate argument-stack first-touch rule.
+- `Manual-2D`: hand-scheduled fixed-address implementations with separate scratch and argument/output regions under the 2D `ceil(sqrt(addr))` cost model.
+- `ByteDMD-classic`: graveyard model with no reclamation on the geometric stack, again after the first-touch argument-stack read.
 
-The `Manual-2D` column uses explicit fixed-address kernels rather than the tombstone allocator. Traversal-only variants can collapse when they read the same fixed addresses exactly once; scratch-heavy kernels separate much more strongly.
+All four columns now include a terminal readback of the full returned value, so the table prices both computation and the final result extraction.
 
-SpaceDMD globally ranks variables by access density (`access_count / lifespan`) and then charges each read by that variable's rank among the currently live variables.
+SpaceDMD globally ranks geometric-stack variables by access density (`access_count / lifespan`) and then charges each read by that variable's rank among the currently live variables; untouched inputs are priced separately on the argument stack until their first promotion.
+
+## Interpretation Notes
+
+- The trace models now have an explicit first-touch boundary: inputs are priced on an argument stack on first use, then promoted into the geometric stack for later re-use. Manual kernels mirror this with separate scratch and argument/output regions.
+- SpaceDMD is intentionally order-blind once data is in the geometric stack: pure permutations with the same multiset of reads, such as `Matvec` vs `Vecmat` or `Row Scan` vs `Column Scan`, can collapse to identical SpaceDMD costs even when `Manual-2D` separates them strongly.
+- Single-touch kernels such as the transpose trio are a deliberate failure mode for SpaceDMD. When every cell is read once, the metric collapses to the read count (`n^2` here) rather than the physical `ceil(sqrt(addr))` placement cost.
+- The blocked LU and blocked QR rows are panel-update variants, not cosmetic loop chunking. If they still land close to their unblocked counterparts, that should be read as an empirical result rather than a placeholder implementation.
+- `Recursive LU` and `Recursive Cholesky` here are copy-based block decompositions built out of `_slice_copy`, triangular solves, and Schur complements. Their costs therefore include explicit materialization traffic and should not be read as in-place communication-optimal factorizations.
+- These numbers are implementation-specific to this branch. Comparing them directly to other branches that use different schedules, such as right-looking versus left-looking factorizations or different Strassen fusions, can change the measured locality substantially even when the math is the same.
+- SpaceDMD can mis-rank virtual/intermediate-heavy traces such as `Strassen` versus `Fused Strassen`, because it scores density-ranked liveness rather than concrete placement.
+- The ranking table has a split verdict: `ByteDMD-live` has the best rank correlation while `ByteDMD-classic` has the best scaled MAPE. In other words, the heuristic that orders rows best is not the same one that matches magnitudes best.
 
 Attention uses proxy `max`, `exp`, and reciprocal operators with the same read arity as the real kernels, so the table focuses on data movement rather than numerical fidelity.
 
@@ -69,105 +82,105 @@ Attention uses proxy `max`, `exp`, and reciprocal operators with the same read a
 
 | Algorithm | SpaceDMD | ByteDMD-live | Manual-2D | ByteDMD-classic |
 | --- | --- | --- | --- | --- |
-| Matvec | 13,432 | 46,926 | 28,834 | 62,694 |
-| Vecmat | 13,432 | 42,795 | 28,834 | 59,331 |
-| Matvec Row | 72,525 | 331,413 | 208,996 | 450,939 |
-| Matvec Column | 72,525 | 295,841 | 208,996 | 422,866 |
-| Transpose (Naive) | 1,024 | 40,447 | 22,352 | 40,447 |
-| Transpose (Blocked) | 1,024 | 39,806 | 22,352 | 39,806 |
-| Transpose (Recursive) | 1,024 | 39,737 | 22,352 | 39,737 |
-| Row Scan | 12,286 | 270,334 | 180,959 | 325,675 |
-| Column Scan | 12,286 | 231,311 | 180,959 | 294,101 |
-| Naive Matmul | 89,314 | 117,935 | 131,888 | 178,324 |
-| Tiled Matmul | 98,001 | 88,687 | 75,740 | 143,280 |
-| Recursive Matmul | 107,846 | 95,462 | 95,222 | 154,251 |
-| Recursive In-Place (Lex) | 102,392 | 91,212 | 233,184 | 162,049 |
-| Recursive In-Place (Gray) | 100,802 | 86,402 | 233,184 | 155,454 |
-| Strassen | 133,981 | 204,752 | 186,661 | 353,207 |
-| Fused Strassen | 180,690 | 183,684 | 140,526 | 313,340 |
-| Gaussian Elimination | 135,387 | 182,828 | 148,474 | 272,313 |
-| Gauss-Jordan Inverse | 130,771 | 289,170 | 192,294 | 442,482 |
-| LU (No Pivot) | 114,163 | 168,584 | 132,511 | 239,981 |
-| LU (Blocked) | 114,164 | 168,585 | 139,796 | 239,982 |
-| LU (Recursive) | 99,038 | 147,668 | 150,175 | 214,757 |
-| LU (Partial Pivot) | 158,915 | 196,126 | 176,369 | 296,079 |
-| Cholesky | 39,149 | 57,473 | 94,351 | 83,916 |
-| Cholesky (Blocked) | 39,374 | 67,613 | 104,409 | 93,979 |
-| Cholesky (Recursive) | 68,960 | 97,702 | 96,702 | 141,392 |
-| Householder QR | 184,272 | 242,342 | 208,880 | 366,748 |
-| Blocked QR | 184,272 | 242,342 | 208,880 | 366,748 |
-| TSQR | 194,425 | 257,309 | 306,764 | 409,914 |
-| FFT (Iterative) | 234,873 | 400,915 | 426,962 | 582,525 |
-| FFT (Recursive) | 108,940 | 204,043 | 426,962 | 338,459 |
-| 2D Convolution (Spatial) | 81,089 | 109,710 | 160,267 | 157,550 |
-| Spatial Conv | 395,661 | 519,078 | 1,326,692 | 815,690 |
-| Regular Conv | 893,095 | 971,149 | 1,916,445 | 1,514,678 |
-| 2D Convolution (FFT) | 188,853 | 394,161 | 2,847,679 | 642,020 |
-| FFT Conv | 3,085 | 5,184 | 6,915 | 6,766 |
-| Stencil (Naive) | 30,921 | 68,807 | 101,754 | 94,490 |
-| Stencil (Recursive) | 28,204 | 62,206 | 101,754 | 86,431 |
-| Regular Attention | 242,252 | 303,850 | 413,470 | 474,581 |
-| Naive Attention | 132,071 | 185,350 | 203,582 | 277,567 |
-| Flash Attention | 205,036 | 197,629 | 283,297 | 335,704 |
-| Flash Attention (Bk=8) | 86,433 | 95,000 | 116,392 | 150,088 |
-| Mergesort | 1,645 | 3,180 | 4,493 | 3,911 |
-| LCS DP | 28,568 | 32,265 | 85,929 | 32,486 |
+| Naive Matmul | 75,573 | 119,088 | 138,486 | 178,319 |
+| Tiled Matmul | 90,626 | 89,445 | 82,574 | 141,169 |
+| Recursive Matmul | 104,162 | 95,371 | 102,056 | 149,081 |
+| Recursive In-Place (Lex) | 99,017 | 83,216 | 239,777 | 131,240 |
+| Recursive In-Place (Gray) | 87,471 | 78,313 | 239,777 | 124,441 |
+| Strassen | 129,252 | 202,785 | 210,953 | 341,157 |
+| Fused Strassen | 177,235 | 183,970 | 147,360 | 310,614 |
+| Naive Attention (d=2) | 121,175 | 182,223 | 419,566 | 273,037 |
+| Flash Attention (Bk=8) | 79,155 | 94,106 | 117,651 | 143,791 |
+| Naive Attention (d=4) | 227,596 | 298,016 | 804,056 | 462,791 |
+| Flash Attention | 183,674 | 195,469 | 286,628 | 317,851 |
+| Matvec | 29,911 | 36,134 | 29,890 | 39,572 |
+| Vecmat | 23,195 | 29,418 | 29,890 | 32,856 |
+| Matvec Row | 213,297 | 244,553 | 213,156 | 262,597 |
+| Matvec Column | 157,421 | 188,677 | 213,156 | 206,721 |
+| Row Scan | 180,896 | 180,896 | 180,960 | 180,896 |
+| Column Scan | 125,024 | 125,024 | 180,960 | 125,024 |
+| Transpose (Naive) | 32,980 | 58,989 | 62,813 | 58,989 |
+| Transpose (Blocked) | 32,324 | 58,522 | 62,813 | 58,522 |
+| Transpose (Recursive) | 32,268 | 58,464 | 62,813 | 58,464 |
+| FFT (Iterative) | 266,902 | 410,458 | 467,423 | 602,976 |
+| FFT (Recursive) | 136,833 | 213,586 | 467,423 | 311,419 |
+| Stencil (Naive) | 64,584 | 91,862 | 142,215 | 118,313 |
+| Stencil (Recursive) | 53,942 | 83,339 | 142,215 | 108,221 |
+| Spatial Conv (2D, 16x16) | 83,083 | 112,862 | 165,557 | 162,940 |
+| Spatial Conv (2D, 32x32) | 421,216 | 542,936 | 1,367,491 | 849,599 |
+| Regular Conv | 893,512 | 994,160 | 1,958,775 | 1,548,723 |
+| FFT Conv (1D) | 3,148 | 5,071 | 5,924 | 6,263 |
+| FFT Conv (2D) | 193,770 | 395,662 | 2,812,578 | 644,543 |
+| Mergesort | 2,157 | 3,410 | 8,574 | 3,977 |
+| LCS DP | 23,238 | 30,392 | 138,668 | 30,392 |
+| Gaussian Elimination | 144,330 | 174,839 | 149,098 | 264,399 |
+| Gauss-Jordan Inverse | 138,241 | 291,004 | 197,639 | 447,568 |
+| LU (No Pivot) | 176,646 | 183,748 | 152,609 | 285,388 |
+| LU (Blocked) | 168,823 | 205,254 | 152,320 | 292,112 |
+| LU (Recursive) | 143,081 | 154,745 | 170,273 | 242,879 |
+| LU (Partial Pivot) | 211,252 | 211,749 | 196,063 | 333,458 |
+| Cholesky | 58,449 | 60,233 | 103,898 | 87,161 |
+| Cholesky (Blocked) | 59,135 | 65,048 | 113,956 | 99,660 |
+| Cholesky (Recursive) | 81,590 | 97,705 | 106,249 | 149,742 |
+| Householder QR | 191,725 | 235,920 | 210,511 | 372,359 |
+| Blocked QR | 199,250 | 231,744 | 210,847 | 370,913 |
+| TSQR | 200,413 | 251,200 | 308,395 | 393,651 |
 
 ## Heuristic Ranking Against Manual-2D
 
 | Heuristic | Spearman rho | Scaled MAPE |
 | --- | --- | --- |
-| ByteDMD-classic | 0.913 | 82.3% |
-| ByteDMD-live | 0.879 | 94.2% |
-| SpaceDMD | 0.786 | 61.5% |
+| SpaceDMD | 0.824 | 66.8% |
+| ByteDMD-live | 0.844 | 77.3% |
+| ByteDMD-classic | 0.829 | 66.7% |
 
 ## Runtime
 
 | Algorithm | Max traced cell (s) | Total traced time (s) |
 | --- | --- | --- |
-| Matvec | 0.102 | 0.172 |
-| Vecmat | 0.092 | 0.162 |
-| Matvec Row | 1.530 | 2.414 |
-| Matvec Column | 1.443 | 2.378 |
-| Transpose (Naive) | 0.103 | 0.178 |
-| Transpose (Blocked) | 0.102 | 0.176 |
-| Transpose (Recursive) | 0.100 | 0.173 |
-| Row Scan | 1.113 | 1.876 |
-| Column Scan | 0.945 | 1.734 |
-| Naive Matmul | 0.229 | 0.366 |
-| Tiled Matmul | 0.212 | 0.326 |
-| Recursive Matmul | 0.224 | 0.355 |
-| Recursive In-Place (Lex) | 0.265 | 0.389 |
-| Recursive In-Place (Gray) | 0.258 | 0.377 |
-| Strassen | 0.615 | 0.856 |
-| Fused Strassen | 0.533 | 0.762 |
-| Gaussian Elimination | 0.387 | 0.618 |
-| Gauss-Jordan Inverse | 0.616 | 0.943 |
-| LU (No Pivot) | 0.285 | 0.508 |
-| LU (Blocked) | 0.321 | 0.540 |
-| LU (Recursive) | 0.296 | 0.504 |
-| LU (Partial Pivot) | 0.431 | 0.676 |
-| Cholesky | 0.085 | 0.150 |
-| Cholesky (Blocked) | 0.103 | 0.202 |
-| Cholesky (Recursive) | 0.169 | 0.297 |
-| Householder QR | 0.454 | 0.732 |
-| Blocked QR | 0.445 | 0.719 |
-| TSQR | 0.533 | 0.814 |
-| FFT (Iterative) | 1.245 | 1.908 |
-| FFT (Recursive) | 0.875 | 1.290 |
-| 2D Convolution (Spatial) | 0.135 | 0.243 |
-| Spatial Conv | 1.496 | 2.104 |
-| Regular Conv | 2.832 | 3.883 |
-| 2D Convolution (FFT) | 1.951 | 2.981 |
-| FFT Conv | 0.005 | 0.014 |
-| Stencil (Naive) | 0.176 | 0.323 |
-| Stencil (Recursive) | 0.172 | 0.326 |
-| Regular Attention | 0.951 | 1.429 |
-| Naive Attention | 0.570 | 0.904 |
-| Flash Attention | 0.513 | 0.747 |
-| Flash Attention (Bk=8) | 0.162 | 0.276 |
-| Mergesort | 0.003 | 0.008 |
-| LCS DP | 0.078 | 0.113 |
+| Naive Matmul | 0.233 | 0.377 |
+| Tiled Matmul | 0.194 | 0.307 |
+| Recursive Matmul | 0.199 | 0.320 |
+| Recursive In-Place (Lex) | 0.145 | 0.259 |
+| Recursive In-Place (Gray) | 0.139 | 0.249 |
+| Strassen | 0.547 | 0.790 |
+| Fused Strassen | 0.499 | 0.712 |
+| Naive Attention (d=2) | 0.538 | 0.889 |
+| Flash Attention (Bk=8) | 0.172 | 0.306 |
+| Naive Attention (d=4) | 0.911 | 1.417 |
+| Flash Attention | 0.498 | 0.823 |
+| Matvec | 0.032 | 0.092 |
+| Vecmat | 0.031 | 0.077 |
+| Matvec Row | 0.386 | 1.092 |
+| Matvec Column | 0.396 | 0.858 |
+| Row Scan | 0.322 | 0.956 |
+| Column Scan | 0.363 | 0.723 |
+| Transpose (Naive) | 0.079 | 0.185 |
+| Transpose (Blocked) | 0.082 | 0.186 |
+| Transpose (Recursive) | 0.083 | 0.186 |
+| FFT (Iterative) | 1.344 | 2.001 |
+| FFT (Recursive) | 0.596 | 1.012 |
+| Stencil (Naive) | 0.201 | 0.362 |
+| Stencil (Recursive) | 0.193 | 0.404 |
+| Spatial Conv (2D, 16x16) | 0.152 | 0.271 |
+| Spatial Conv (2D, 32x32) | 1.673 | 2.319 |
+| Regular Conv | 2.980 | 4.133 |
+| FFT Conv (1D) | 0.005 | 0.015 |
+| FFT Conv (2D) | 1.999 | 3.100 |
+| Mergesort | 0.004 | 0.010 |
+| LCS DP | 0.074 | 0.110 |
+| Gaussian Elimination | 0.349 | 0.567 |
+| Gauss-Jordan Inverse | 0.609 | 0.951 |
+| LU (No Pivot) | 0.440 | 0.670 |
+| LU (Blocked) | 0.464 | 0.841 |
+| LU (Recursive) | 0.392 | 0.605 |
+| LU (Partial Pivot) | 0.526 | 0.808 |
+| Cholesky | 0.088 | 0.163 |
+| Cholesky (Blocked) | 0.120 | 0.222 |
+| Cholesky (Recursive) | 0.192 | 0.325 |
+| Householder QR | 0.478 | 0.752 |
+| Blocked QR | 0.503 | 0.773 |
+| TSQR | 0.437 | 0.726 |
 
 Run the experiment with:
 

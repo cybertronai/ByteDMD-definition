@@ -25,7 +25,24 @@ def wrap_value(ctx: Context, value: Any):
         return [wrap_value(ctx, item) for item in value]
     if isinstance(value, tuple):
         return tuple(wrap_value(ctx, item) for item in value)
-    return Tracked(ctx, ctx.allocate(), value)
+    return Tracked(ctx, ctx.allocate(is_input=True), value)
+
+
+def read_return_value(value: Any) -> None:
+    if isinstance(value, Tracked):
+        value._ctx.read(value._key)
+        return
+    if isinstance(value, SpaceTracked):
+        value._ctx.read(value._key)
+        return
+    if isinstance(value, list):
+        for item in value:
+            read_return_value(item)
+        return
+    if isinstance(value, tuple):
+        for item in value:
+            read_return_value(item)
+        return
 
 
 class FenwickTree:
@@ -54,16 +71,23 @@ class SpaceDMD:
     def __init__(self):
         self.counter = 0
         self.time = 0
+        self.input_stack: list[int] = []
+        self.input_pos: dict[int, int] = {}
         self.birth: dict[int, int] = {}
         self.last_use: dict[int, int] = {}
         self.accesses: defaultdict[int, int] = defaultdict(int)
         self.reads_at: list[tuple[int, ...]] = []
+        self.argument_reads_at: defaultdict[int, list[int]] = defaultdict(list)
         self.n_reads = 0
 
     def allocate(self, *, is_input: bool = False) -> int:
         self.counter += 1
         key = self.counter
-        born = 0 if is_input else self.time
+        if is_input:
+            self.input_stack.append(key)
+            self.input_pos[key] = len(self.input_stack) - 1
+            return key
+        born = self.time
         self.birth[key] = born
         self.last_use[key] = born
         return key
@@ -71,19 +95,42 @@ class SpaceDMD:
     def read(self, *keys: int) -> int:
         if not keys:
             return 0
+        work_keys: list[int] = []
         for key in keys:
-            self.accesses[key] += 1
-            self.last_use[key] = self.time
-        self.reads_at.append(tuple(keys))
-        self.n_reads += len(keys)
+            input_idx = self.input_pos.get(key)
+            if input_idx is not None:
+                depth = len(self.input_stack) - input_idx
+                self.argument_reads_at[self.time].append(depth)
+                del self.input_stack[input_idx]
+                del self.input_pos[key]
+                for j in range(input_idx, len(self.input_stack)):
+                    self.input_pos[self.input_stack[j]] = j
+            else:
+                if key not in self.birth:
+                    self.birth[key] = self.time
+                    self.last_use[key] = self.time
+                self.accesses[key] += 1
+                self.last_use[key] = self.time
+                work_keys.append(key)
+            self.n_reads += 1
+        if work_keys:
+            self.reads_at.append(tuple(work_keys))
+        else:
+            self.reads_at.append(tuple())
         self.time += 1
         return 0
 
-    def free(self, _key: int) -> None:
-        return
+    def free(self, key: int) -> None:
+        input_idx = self.input_pos.get(key)
+        if input_idx is None:
+            return
+        del self.input_stack[input_idx]
+        del self.input_pos[key]
+        for j in range(input_idx, len(self.input_stack)):
+            self.input_pos[self.input_stack[j]] = j
 
     def compute_costs(self) -> dict[str, object]:
-        if not self.birth:
+        if not self.birth and not self.argument_reads_at:
             return {
                 "trace": [],
                 "cost_discrete": 0,
@@ -111,10 +158,15 @@ class SpaceDMD:
         continuous = 0.0
 
         for t in range(self.time):
+            for depth in self.argument_reads_at[t]:
+                rank_trace.append(depth)
+                discrete += usqrt(depth)
+                continuous += (2.0 / 3.0) * (depth ** 1.5 - (depth - 1) ** 1.5)
+
             for key in births_at[t]:
                 bit.add(rank_map[key], 1)
 
-            for key in self.reads_at[t]:
+            for key in (self.reads_at[t] if t < len(self.reads_at) else ()):
                 active_rank = bit.query(rank_map[key])
                 rank_trace.append(active_rank)
                 discrete += usqrt(active_rank)
@@ -183,13 +235,14 @@ def measure_function(func, args: tuple[Any, ...], *, strategy: str) -> dict[str,
 
     original_allocate = ctx.allocate
 
-    def tracking_allocate():
-        key = original_allocate()
+    def tracking_allocate(*, is_input: bool = False):
+        key = original_allocate(is_input=is_input)
         peak_stack[0] = max(peak_stack[0], len(ctx.stack))
         return key
 
     ctx.allocate = tracking_allocate  # type: ignore[assignment]
     result = func(*wrapped_args)
+    read_return_value(result)
 
     del result
     del wrapped_args
@@ -212,6 +265,7 @@ def measure_space_dmd(func, args: tuple[Any, ...]) -> dict[str, object]:
     ctx = SpaceDMD()
     wrapped_args = tuple(wrap_value_space(ctx, arg) for arg in args)
     result = func(*wrapped_args)
+    read_return_value(result)
 
     del result
     del wrapped_args

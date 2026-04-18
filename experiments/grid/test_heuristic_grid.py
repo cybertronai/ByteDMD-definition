@@ -40,7 +40,7 @@ from experiments.grid.algorithms import (
     spatial_conv2d,
     tsqr,
 )
-from experiments.grid.manual_2d import measure_manual_2d
+from experiments.grid.manual_2d import ManualTracer, measure_manual_2d
 from experiments.grid.measure import SpaceDMD, measure_function, measure_space_dmd
 from experiments.grid.run_experiment import CLASSIC, LIVE, SPACE, TARGET, collect_results
 
@@ -198,6 +198,24 @@ def test_qr_variants_preserve_gram_matrix():
         _assert_matrix_close(gram_r, gram, tol=1e-5)
 
 
+def test_blocked_lu_is_not_trace_equivalent_to_unblocked_lu():
+    args = (make_linear_system_matrix(24, offset=300),)
+    live_unblocked = measure_function(lu_no_pivot, args, strategy="aggressive")["cost_discrete"]
+    live_blocked = measure_function(lambda A: blocked_lu(A, block=4), args, strategy="aggressive")["cost_discrete"]
+
+    assert live_unblocked != live_blocked
+    assert measure_manual_2d("lu-no-pivot-24")["cost_discrete"] != measure_manual_2d("blocked-lu-24")["cost_discrete"]
+
+
+def test_blocked_qr_is_not_trace_equivalent_to_unblocked_qr():
+    args = (make_matrix(48, 12, offset=500),)
+    live_unblocked = measure_function(householder_qr, args, strategy="aggressive")["cost_discrete"]
+    live_blocked = measure_function(lambda A: blocked_qr(A, block=4), args, strategy="aggressive")["cost_discrete"]
+
+    assert live_unblocked != live_blocked
+    assert measure_manual_2d("householder-qr-48x12")["cost_discrete"] != measure_manual_2d("blocked-qr-48x12")["cost_discrete"]
+
+
 def test_regular_conv_shape_on_small_input():
     image = make_volume(4, 4, 2)
     kernel = make_filter(3, 3, 2, 3, offset=9000)
@@ -216,6 +234,38 @@ def test_measure_function_orders_simple_matvec():
 
     assert classic["cost_discrete"] >= manual["cost_discrete"] >= live["cost_discrete"]
     assert classic["n_reads"] == manual["n_reads"] == live["n_reads"]
+
+
+def test_argument_stack_promotes_inputs_on_first_read():
+    def reuse_first_entry(values):
+        return values[0] + values[0]
+
+    measurement = measure_function(reuse_first_entry, (make_vector(2),), strategy="aggressive")
+    assert measurement["trace"][:2] == [2, 1]
+
+    spatial = measure_space_dmd(reuse_first_entry, (make_vector(2),))
+    assert spatial["trace"][:2] == [2, 1]
+
+
+def test_return_value_readback_is_priced():
+    measurement = measure_function(lambda x: [x + 1, x + 2], (1,), strategy="aggressive")
+    spatial = measure_space_dmd(lambda x: [x + 1, x + 2], (1,))
+
+    assert measurement["n_reads"] == 4
+    assert spatial["n_reads"] == 4
+
+
+def test_manual_tracer_uses_separate_data_region_and_reads_outputs():
+    tracer = ManualTracer()
+    scratch = tracer.alloc_vector(2)
+    inputs = tracer.alloc_input_vector(2)
+    out = tracer.alloc_output_vector(2)
+    tracer.read(scratch.addr(0))
+    tracer.read(inputs.addr(0))
+    result = tracer.result()
+
+    assert result["trace"][:2] == [1, 3]
+    assert result["trace"][-2:] == [5, 6]
 
 
 def test_space_dmd_matches_small_gist_style_sweep():
@@ -260,6 +310,16 @@ def test_collect_results_has_expected_shape_and_budget():
     assert results["overall_max_cell_seconds"] < 10.0
     assert results["metric_columns"] == [SPACE, LIVE, TARGET, CLASSIC]
     assert all(SPACE in row and TARGET in row and CLASSIC in row and LIVE in row for row in rows)
+    assert [row["key"] for row in rows[:7]] == [
+        "naive-matmul-16",
+        "tiled-matmul-16",
+        "rmm-16",
+        "rmm-lex-16",
+        "rmm-gray-16",
+        "strassen-16",
+        "fused-strassen-16",
+    ]
+    assert [entry["metric"] for entry in results["ranking"]] == [SPACE, LIVE, CLASSIC]
 
 
 def test_manual_2d_has_coverage_for_every_algorithm():

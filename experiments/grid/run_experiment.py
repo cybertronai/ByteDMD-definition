@@ -28,6 +28,52 @@ LIVE = "ByteDMD-live"
 
 METRIC_COLUMNS = [SPACE, LIVE, TARGET, CLASSIC]
 TRACED_COLUMNS = [SPACE, LIVE, TARGET, CLASSIC]
+ROW_ORDER = [
+    "naive-matmul-16",
+    "tiled-matmul-16",
+    "rmm-16",
+    "rmm-lex-16",
+    "rmm-gray-16",
+    "strassen-16",
+    "fused-strassen-16",
+    "naive-attention-32x2",
+    "flash-attention-32x2-b8",
+    "regular-attention-32x4",
+    "flash-attention-32x4",
+    "matvec-32",
+    "vecmat-32",
+    "matvec-row-64",
+    "matvec-col-64",
+    "scan-row-64",
+    "scan-column-64",
+    "transpose-naive-32",
+    "transpose-blocked-32",
+    "transpose-recursive-32",
+    "fft-iterative-1024",
+    "fft-recursive-1024",
+    "jacobi-naive-32",
+    "jacobi-recursive-32",
+    "conv2d-spatial-16x16-k5",
+    "spatial-conv-32x32-k5",
+    "regular-conv-16x16-k3-c4",
+    "fft-conv-32",
+    "conv2d-fft-16x16-k5",
+    "mergesort-64",
+    "lcs-dp-32x32",
+    "gaussian-elimination-24",
+    "gauss-jordan-inverse-16",
+    "lu-no-pivot-24",
+    "blocked-lu-24",
+    "recursive-lu-24",
+    "lu-partial-pivot-24",
+    "cholesky-24",
+    "blocked-cholesky-24",
+    "recursive-cholesky-24",
+    "householder-qr-48x12",
+    "blocked-qr-48x12",
+    "tsqr-48x12",
+]
+ROW_INDEX = {key: index for index, key in enumerate(ROW_ORDER)}
 
 
 def _average_ranks(values: list[float]) -> list[float]:
@@ -67,7 +113,7 @@ def _fit_scale(values: list[float], target: list[float]) -> float:
 def compute_ranking(rows: list[dict[str, object]]) -> list[dict[str, object]]:
     target = [float(row[TARGET]) for row in rows]
     ranking = []
-    for metric in [SPACE, CLASSIC, LIVE]:
+    for metric in [SPACE, LIVE, CLASSIC]:
         values = [float(row[metric]) for row in rows]
         scale = _fit_scale(values, target)
         mape = sum(abs(scale * value - goal) / goal for value, goal in zip(values, target)) / len(target)
@@ -80,7 +126,6 @@ def compute_ranking(rows: list[dict[str, object]]) -> list[dict[str, object]]:
                 "scaled_mape": mape,
             }
         )
-    ranking.sort(key=lambda row: (-float(row["spearman_rho"]), float(row["scaled_mape"]), str(row["metric"])))
     return ranking
 
 
@@ -140,6 +185,7 @@ def collect_results() -> dict[str, object]:
         }
         rows.append(row)
 
+    rows.sort(key=lambda row: (ROW_INDEX.get(str(row["key"]), len(ROW_INDEX)), str(row["algorithm"])))
     ranking = compute_ranking(rows)
     return {
         "algorithms": rows,
@@ -172,6 +218,8 @@ def render_report(results: dict[str, object]) -> str:
     algorithms = list(results["algorithms"])
     ranking = list(results["ranking"])
     overall_max_cell = results["overall_max_cell_seconds"]
+    rho_winner = max(ranking, key=lambda row: float(row["spearman_rho"]))
+    mape_winner = min(ranking, key=lambda row: float(row["scaled_mape"]))
 
     algorithm_rows = [
         {
@@ -211,18 +259,31 @@ def render_report(results: dict[str, object]) -> str:
         "",
         "## Algorithms",
         "",
+        "Rows are grouped to follow the dev-branch grid ordering: matmul, attention, matvec/traversal, FFT, stencil, convolution, sorting/DP, dense solve, LU, Cholesky, and QR.",
+        "",
         _markdown_table(algorithm_rows, ["Algorithm", "Workload", "Implementation"]),
         "",
         "## Measures",
         "",
-        f"- `{SPACE}`: density-ranked spatial liveness, following the April 17, 2026 gist heuristic for ahead-of-time static pinning.",
-        f"- `{LIVE}`: aggressive live-only compaction.",
-        f"- `{TARGET}`: hand-scheduled fixed-address implementations under the 2D `ceil(sqrt(addr))` cost model.",
-        f"- `{CLASSIC}`: graveyard model with no reclamation.",
+        f"- `{SPACE}`: density-ranked spatial liveness, now with inputs first read from a separate argument stack and only later re-read from the geometric stack.",
+        f"- `{LIVE}`: aggressive live-only compaction on the geometric stack, with the same separate argument-stack first-touch rule.",
+        f"- `{TARGET}`: hand-scheduled fixed-address implementations with separate scratch and argument/output regions under the 2D `ceil(sqrt(addr))` cost model.",
+        f"- `{CLASSIC}`: graveyard model with no reclamation on the geometric stack, again after the first-touch argument-stack read.",
         "",
-        "The `Manual-2D` column uses explicit fixed-address kernels rather than the tombstone allocator. Traversal-only variants can collapse when they read the same fixed addresses exactly once; scratch-heavy kernels separate much more strongly.",
+        "All four columns now include a terminal readback of the full returned value, so the table prices both computation and the final result extraction.",
         "",
-        "SpaceDMD globally ranks variables by access density (`access_count / lifespan`) and then charges each read by that variable's rank among the currently live variables.",
+        "SpaceDMD globally ranks geometric-stack variables by access density (`access_count / lifespan`) and then charges each read by that variable's rank among the currently live variables; untouched inputs are priced separately on the argument stack until their first promotion.",
+        "",
+        "## Interpretation Notes",
+        "",
+        "- The trace models now have an explicit first-touch boundary: inputs are priced on an argument stack on first use, then promoted into the geometric stack for later re-use. Manual kernels mirror this with separate scratch and argument/output regions.",
+        "- SpaceDMD is intentionally order-blind once data is in the geometric stack: pure permutations with the same multiset of reads, such as `Matvec` vs `Vecmat` or `Row Scan` vs `Column Scan`, can collapse to identical SpaceDMD costs even when `Manual-2D` separates them strongly.",
+        "- Single-touch kernels such as the transpose trio are a deliberate failure mode for SpaceDMD. When every cell is read once, the metric collapses to the read count (`n^2` here) rather than the physical `ceil(sqrt(addr))` placement cost.",
+        "- The blocked LU and blocked QR rows are panel-update variants, not cosmetic loop chunking. If they still land close to their unblocked counterparts, that should be read as an empirical result rather than a placeholder implementation.",
+        "- `Recursive LU` and `Recursive Cholesky` here are copy-based block decompositions built out of `_slice_copy`, triangular solves, and Schur complements. Their costs therefore include explicit materialization traffic and should not be read as in-place communication-optimal factorizations.",
+        "- These numbers are implementation-specific to this branch. Comparing them directly to other branches that use different schedules, such as right-looking versus left-looking factorizations or different Strassen fusions, can change the measured locality substantially even when the math is the same.",
+        "- SpaceDMD can mis-rank virtual/intermediate-heavy traces such as `Strassen` versus `Fused Strassen`, because it scores density-ranked liveness rather than concrete placement.",
+        f"- The ranking table has a split verdict: `{rho_winner['metric']}` has the best rank correlation while `{mape_winner['metric']}` has the best scaled MAPE. In other words, the heuristic that orders rows best is not the same one that matches magnitudes best.",
         "",
         "Attention uses proxy `max`, `exp`, and reciprocal operators with the same read arity as the real kernels, so the table focuses on data movement rather than numerical fidelity.",
         "",

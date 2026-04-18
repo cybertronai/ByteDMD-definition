@@ -804,19 +804,43 @@ def blocked_lu(A, *, block: int = 4):
     """Tile-oriented LU without pivoting."""
 
     n = len(A)
-    U = _matrix_copy(A)
+    work = _matrix_copy(A)
     L = _matrix_identity(n)
+    U = [[0.0] * n for _ in range(n)]
 
-    for k0 in range(0, n - 1, block):
+    for k0 in range(0, n, block):
         k1 = min(k0 + block, n)
-        for k in range(k0, k1):
-            pivot_inv = _reciprocal_actual(U[k][k])
-            for i in range(k + 1, n):
-                factor = U[i][k] * pivot_inv
-                L[i][k] = factor
-                for j0 in range(k, n, block):
-                    for j in range(j0, min(j0 + block, n)):
-                        U[i][j] = U[i][j] - factor * U[k][j]
+        panel_size = k1 - k0
+        A11 = _slice_copy(work, k0, k1, k0, k1)
+        L11, U11 = lu_no_pivot(A11)
+
+        for i in range(panel_size):
+            for j in range(panel_size):
+                if i > j:
+                    L[k0 + i][k0 + j] = L11[i][j]
+                else:
+                    U[k0 + i][k0 + j] = U11[i][j]
+
+        if k1 == n:
+            continue
+
+        A12 = _slice_copy(work, k0, k1, k1, n)
+        A21 = _slice_copy(work, k1, n, k0, k1)
+        U12 = _forward_solve_unit_lower(L11, A12)
+        L21 = _solve_right_upper(A21, U11)
+
+        for i in range(panel_size):
+            for j in range(n - k1):
+                U[k0 + i][k1 + j] = U12[i][j]
+        for i in range(n - k1):
+            for j in range(panel_size):
+                L[k1 + i][k0 + j] = L21[i][j]
+
+        trailing = _slice_copy(work, k1, n, k1, n)
+        schur = _matrix_subtract(trailing, _matrix_multiply(L21, U12))
+        for i in range(n - k1):
+            for j in range(n - k1):
+                work[k1 + i][k1 + j] = schur[i][j]
     return L, U
 
 
@@ -960,46 +984,50 @@ def recursive_cholesky(A, *, leaf: int = 6):
     return _join_quadrants(L11, zero_top_right, L21, L22)
 
 
-def _householder_qr_core(A, *, block: int | None) -> list[list[object]]:
+def _householder_reflector(work, k: int):
+    rows = len(work)
+
+    norm_sq = None
+    for i in range(k, rows):
+        term = work[i][k] * work[i][k]
+        norm_sq = term if norm_sq is None else norm_sq + term
+
+    norm = _sqrt_actual(norm_sq)
+    _record_read(work[k][k])
+    sign = 1.0 if _raw_value(work[k][k]) >= 0 else -1.0
+    alpha = _tracked_constant_like(norm, sign * _raw_value(norm))
+
+    v = [_copy_proxy(work[i][k]) for i in range(k, rows)]
+    v[0] = v[0] + alpha
+
+    vtv = None
+    for value in v:
+        term = value * value
+        vtv = term if vtv is None else vtv + term
+    beta = _tracked_constant_like(vtv, 2.0) * _reciprocal_actual(vtv)
+    return v, beta
+
+
+def _apply_householder(work, k: int, v, beta, j_start: int, j_stop: int) -> None:
+    for j in range(j_start, j_stop):
+        dot = None
+        for i in range(len(v)):
+            term = v[i] * work[k + i][j]
+            dot = term if dot is None else dot + term
+        tau = beta * dot
+        for i in range(len(v)):
+            work[k + i][j] = work[k + i][j] - v[i] * tau
+
+
+def _householder_qr_core(A) -> list[list[object]]:
     work = _matrix_copy(A)
     rows = len(work)
     cols = len(work[0])
     active = min(rows, cols)
 
     for k in range(active):
-        norm_sq = None
-        for i in range(k, rows):
-            term = work[i][k] * work[i][k]
-            norm_sq = term if norm_sq is None else norm_sq + term
-
-        norm = _sqrt_actual(norm_sq)
-        _record_read(work[k][k])
-        sign = 1.0 if _raw_value(work[k][k]) >= 0 else -1.0
-        alpha = _tracked_constant_like(norm, sign * _raw_value(norm))
-
-        v = [_copy_proxy(work[i][k]) for i in range(k, rows)]
-        v[0] = v[0] + alpha
-
-        vtv = None
-        for value in v:
-            term = value * value
-            vtv = term if vtv is None else vtv + term
-        beta = _tracked_constant_like(vtv, 2.0) * _reciprocal_actual(vtv)
-
-        if block is None:
-            column_blocks = [(k, cols)]
-        else:
-            column_blocks = [(j0, min(j0 + block, cols)) for j0 in range(k, cols, block)]
-
-        for j0, j1 in column_blocks:
-            for j in range(j0, j1):
-                dot = None
-                for i in range(len(v)):
-                    term = v[i] * work[k + i][j]
-                    dot = term if dot is None else dot + term
-                tau = beta * dot
-                for i in range(len(v)):
-                    work[k + i][j] = work[k + i][j] - v[i] * tau
+        v, beta = _householder_reflector(work, k)
+        _apply_householder(work, k, v, beta, k, cols)
 
     return [row[:cols] for row in work[:active]]
 
@@ -1007,13 +1035,32 @@ def _householder_qr_core(A, *, block: int | None) -> list[list[object]]:
 def householder_qr(A):
     """Unblocked Householder QR returning the R factor."""
 
-    return _householder_qr_core(A, block=None)
+    return _householder_qr_core(A)
 
 
 def blocked_qr(A, *, block: int = 4):
-    """Column-blocked Householder QR returning the R factor."""
+    """Panel-blocked Householder QR with delayed trailing updates."""
 
-    return _householder_qr_core(A, block=block)
+    work = _matrix_copy(A)
+    rows = len(work)
+    cols = len(work[0])
+    active = min(rows, cols)
+
+    for k0 in range(0, active, block):
+        k1 = min(k0 + block, active)
+        reflectors = []
+
+        for k in range(k0, k1):
+            v, beta = _householder_reflector(work, k)
+            _apply_householder(work, k, v, beta, k, k1)
+            reflectors.append((k, v, beta))
+
+        for j0 in range(k1, cols, block):
+            j1 = min(j0 + block, cols)
+            for k, v, beta in reflectors:
+                _apply_householder(work, k, v, beta, j0, j1)
+
+    return [row[:cols] for row in work[:active]]
 
 
 def tsqr(A, *, leaf_rows: int = 12):
@@ -1483,7 +1530,7 @@ def build_algorithm_specs() -> list[AlgorithmSpec]:
             key="blocked-lu-24",
             label="LU (Blocked)",
             workload="N=24, block=4",
-            notes="tile-oriented LU without pivoting",
+            notes="panel/TRSM/trailing-update LU without pivoting",
             func=lambda A: blocked_lu(A, block=4),
             args_factory=lambda: (make_linear_system_matrix(24, offset=300),),
             flops=lu_flops(24),
@@ -1546,7 +1593,7 @@ def build_algorithm_specs() -> list[AlgorithmSpec]:
             key="blocked-qr-48x12",
             label="Blocked QR",
             workload="48x12, block=4",
-            notes="column-blocked Householder QR returning R",
+            notes="panel-blocked Householder QR with delayed trailing updates",
             func=lambda A: blocked_qr(A, block=4),
             args_factory=lambda: (make_matrix(48, 12, offset=500),),
             flops=householder_qr_flops(48, 12),
@@ -1580,7 +1627,7 @@ def build_algorithm_specs() -> list[AlgorithmSpec]:
         ),
         AlgorithmSpec(
             key="conv2d-spatial-16x16-k5",
-            label="2D Convolution (Spatial)",
+            label="Spatial Conv (2D, 16x16)",
             workload="16x16, kernel=5x5",
             notes="same-size zero-padded spatial convolution",
             func=spatial_conv2d,
@@ -1589,7 +1636,7 @@ def build_algorithm_specs() -> list[AlgorithmSpec]:
         ),
         AlgorithmSpec(
             key="spatial-conv-32x32-k5",
-            label="Spatial Conv",
+            label="Spatial Conv (2D, 32x32)",
             workload="32x32, kernel=5x5",
             notes="same-size zero-padded spatial convolution",
             func=spatial_conv2d,
@@ -1607,7 +1654,7 @@ def build_algorithm_specs() -> list[AlgorithmSpec]:
         ),
         AlgorithmSpec(
             key="conv2d-fft-16x16-k5",
-            label="2D Convolution (FFT)",
+            label="FFT Conv (2D)",
             workload="16x16, kernel=5x5, pad=32x32",
             notes="same-size convolution via zero-padded recursive 2D FFT",
             func=fft_conv2d,
@@ -1616,7 +1663,7 @@ def build_algorithm_specs() -> list[AlgorithmSpec]:
         ),
         AlgorithmSpec(
             key="fft-conv-32",
-            label="FFT Conv",
+            label="FFT Conv (1D)",
             workload="N=32",
             notes="circular 1D convolution via recursive FFT",
             func=fft_conv1d,
@@ -1643,7 +1690,7 @@ def build_algorithm_specs() -> list[AlgorithmSpec]:
         ),
         AlgorithmSpec(
             key="regular-attention-32x4",
-            label="Regular Attention",
+            label="Naive Attention (d=4)",
             workload="N=32, d=4",
             notes="materializes the full score matrix",
             func=regular_attention,
@@ -1656,7 +1703,7 @@ def build_algorithm_specs() -> list[AlgorithmSpec]:
         ),
         AlgorithmSpec(
             key="naive-attention-32x2",
-            label="Naive Attention",
+            label="Naive Attention (d=2)",
             workload="N=32, d=2",
             notes="materializes the full score matrix",
             func=regular_attention,

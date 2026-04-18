@@ -1,798 +1,798 @@
 {
   "algorithms": [
     {
-      "key": "matvec-32",
-      "algorithm": "Matvec",
-      "workload": "32x32 by 32",
-      "notes": "row-wise matrix-vector baseline",
-      "SpaceDMD": 13432,
-      "ByteDMD-live": 46926,
-      "Manual-2D": 28834,
-      "ByteDMD-classic": 62694,
-      "cell_seconds": {
-        "SpaceDMD": 0.0111,
-        "ByteDMD-live": 0.0572,
-        "Manual-2D": 0.0009,
-        "ByteDMD-classic": 0.1024
-      },
-      "max_cell_seconds": 0.1024,
-      "total_traced_seconds": 0.1716
-    },
-    {
-      "key": "vecmat-32",
-      "algorithm": "Vecmat",
-      "workload": "32 by 32x32",
-      "notes": "column-oriented access order",
-      "SpaceDMD": 13432,
-      "ByteDMD-live": 42795,
-      "Manual-2D": 28834,
-      "ByteDMD-classic": 59331,
-      "cell_seconds": {
-        "SpaceDMD": 0.0111,
-        "ByteDMD-live": 0.0571,
-        "Manual-2D": 0.0008,
-        "ByteDMD-classic": 0.0925
-      },
-      "max_cell_seconds": 0.0925,
-      "total_traced_seconds": 0.1616
-    },
-    {
-      "key": "matvec-row-64",
-      "algorithm": "Matvec Row",
-      "workload": "64x64 by 64",
-      "notes": "row-major matrix-vector multiply",
-      "SpaceDMD": 72525,
-      "ByteDMD-live": 331413,
-      "Manual-2D": 208996,
-      "ByteDMD-classic": 450939,
-      "cell_seconds": {
-        "SpaceDMD": 0.0436,
-        "ByteDMD-live": 0.8367,
-        "Manual-2D": 0.0033,
-        "ByteDMD-classic": 1.5304
-      },
-      "max_cell_seconds": 1.5304,
-      "total_traced_seconds": 2.414
-    },
-    {
-      "key": "matvec-col-64",
-      "algorithm": "Matvec Column",
-      "workload": "64 by 64x64",
-      "notes": "column-major vector-matrix multiply",
-      "SpaceDMD": 72525,
-      "ByteDMD-live": 295841,
-      "Manual-2D": 208996,
-      "ByteDMD-classic": 422866,
-      "cell_seconds": {
-        "SpaceDMD": 0.0463,
-        "ByteDMD-live": 0.8854,
-        "Manual-2D": 0.0033,
-        "ByteDMD-classic": 1.4429
-      },
-      "max_cell_seconds": 1.4429,
-      "total_traced_seconds": 2.3778
-    },
-    {
-      "key": "transpose-naive-32",
-      "algorithm": "Transpose (Naive)",
-      "workload": "32x32",
-      "notes": "direct row-major transpose copy",
-      "SpaceDMD": 1024,
-      "ByteDMD-live": 40447,
-      "Manual-2D": 22352,
-      "ByteDMD-classic": 40447,
-      "cell_seconds": {
-        "SpaceDMD": 0.0059,
-        "ByteDMD-live": 0.1027,
-        "Manual-2D": 0.0003,
-        "ByteDMD-classic": 0.0695
-      },
-      "max_cell_seconds": 0.1027,
-      "total_traced_seconds": 0.1784
-    },
-    {
-      "key": "transpose-blocked-32",
-      "algorithm": "Transpose (Blocked)",
-      "workload": "32x32, block=8",
-      "notes": "blocked transpose copy",
-      "SpaceDMD": 1024,
-      "ByteDMD-live": 39806,
-      "Manual-2D": 22352,
-      "ByteDMD-classic": 39806,
-      "cell_seconds": {
-        "SpaceDMD": 0.0055,
-        "ByteDMD-live": 0.1021,
-        "Manual-2D": 0.0003,
-        "ByteDMD-classic": 0.0681
-      },
-      "max_cell_seconds": 0.1021,
-      "total_traced_seconds": 0.176
-    },
-    {
-      "key": "transpose-recursive-32",
-      "algorithm": "Transpose (Recursive)",
-      "workload": "32x32, leaf=8",
-      "notes": "cache-oblivious recursive transpose",
-      "SpaceDMD": 1024,
-      "ByteDMD-live": 39737,
-      "Manual-2D": 22352,
-      "ByteDMD-classic": 39737,
-      "cell_seconds": {
-        "SpaceDMD": 0.0058,
-        "ByteDMD-live": 0.1004,
-        "Manual-2D": 0.0003,
-        "ByteDMD-classic": 0.0666
-      },
-      "max_cell_seconds": 0.1004,
-      "total_traced_seconds": 0.1731
-    },
-    {
-      "key": "scan-row-64",
-      "algorithm": "Row Scan",
-      "workload": "64x64",
-      "notes": "row-major traversal sum",
-      "SpaceDMD": 12286,
-      "ByteDMD-live": 270334,
-      "Manual-2D": 180959,
-      "ByteDMD-classic": 325675,
-      "cell_seconds": {
-        "SpaceDMD": 0.0254,
-        "ByteDMD-live": 0.7363,
-        "Manual-2D": 0.0021,
-        "ByteDMD-classic": 1.1125
-      },
-      "max_cell_seconds": 1.1125,
-      "total_traced_seconds": 1.8763
-    },
-    {
-      "key": "scan-column-64",
-      "algorithm": "Column Scan",
-      "workload": "64x64",
-      "notes": "column-major traversal sum",
-      "SpaceDMD": 12286,
-      "ByteDMD-live": 231311,
-      "Manual-2D": 180959,
-      "ByteDMD-classic": 294101,
-      "cell_seconds": {
-        "SpaceDMD": 0.0279,
-        "ByteDMD-live": 0.7591,
-        "Manual-2D": 0.0022,
-        "ByteDMD-classic": 0.9454
-      },
-      "max_cell_seconds": 0.9454,
-      "total_traced_seconds": 1.7345
-    },
-    {
       "key": "naive-matmul-16",
       "algorithm": "Naive Matmul",
       "workload": "16x16",
       "notes": "standard i-j-k triple loop",
-      "SpaceDMD": 89314,
-      "ByteDMD-live": 117935,
-      "Manual-2D": 131888,
-      "ByteDMD-classic": 178324,
+      "SpaceDMD": 75573,
+      "ByteDMD-live": 119088,
+      "Manual-2D": 138486,
+      "ByteDMD-classic": 178319,
       "cell_seconds": {
-        "SpaceDMD": 0.038,
-        "ByteDMD-live": 0.0958,
-        "Manual-2D": 0.0033,
-        "ByteDMD-classic": 0.2289
+        "SpaceDMD": 0.0442,
+        "ByteDMD-live": 0.092,
+        "Manual-2D": 0.0079,
+        "ByteDMD-classic": 0.2332
       },
-      "max_cell_seconds": 0.2289,
-      "total_traced_seconds": 0.366
+      "max_cell_seconds": 0.2332,
+      "total_traced_seconds": 0.3772
     },
     {
       "key": "tiled-matmul-16",
       "algorithm": "Tiled Matmul",
       "workload": "16x16, tile=4",
       "notes": "one explicit blocking level",
-      "SpaceDMD": 98001,
-      "ByteDMD-live": 88687,
-      "Manual-2D": 75740,
-      "ByteDMD-classic": 143280,
+      "SpaceDMD": 90626,
+      "ByteDMD-live": 89445,
+      "Manual-2D": 82574,
+      "ByteDMD-classic": 141169,
       "cell_seconds": {
-        "SpaceDMD": 0.0409,
-        "ByteDMD-live": 0.07,
-        "Manual-2D": 0.0032,
-        "ByteDMD-classic": 0.2118
+        "SpaceDMD": 0.045,
+        "ByteDMD-live": 0.0607,
+        "Manual-2D": 0.0071,
+        "ByteDMD-classic": 0.1942
       },
-      "max_cell_seconds": 0.2118,
-      "total_traced_seconds": 0.3259
+      "max_cell_seconds": 0.1942,
+      "total_traced_seconds": 0.307
     },
     {
       "key": "rmm-16",
       "algorithm": "Recursive Matmul",
       "workload": "16x16",
       "notes": "8-way cache-oblivious recursion",
-      "SpaceDMD": 107846,
-      "ByteDMD-live": 95462,
-      "Manual-2D": 95222,
-      "ByteDMD-classic": 154251,
+      "SpaceDMD": 104162,
+      "ByteDMD-live": 95371,
+      "Manual-2D": 102056,
+      "ByteDMD-classic": 149081,
       "cell_seconds": {
-        "SpaceDMD": 0.0454,
-        "ByteDMD-live": 0.0803,
-        "Manual-2D": 0.0052,
-        "ByteDMD-classic": 0.2237
+        "SpaceDMD": 0.0474,
+        "ByteDMD-live": 0.0687,
+        "Manual-2D": 0.0049,
+        "ByteDMD-classic": 0.1987
       },
-      "max_cell_seconds": 0.2237,
-      "total_traced_seconds": 0.3546
+      "max_cell_seconds": 0.1987,
+      "total_traced_seconds": 0.3197
     },
     {
       "key": "rmm-lex-16",
       "algorithm": "Recursive In-Place (Lex)",
       "workload": "16x16",
       "notes": "manual in-place schedule, lexicographic order",
-      "SpaceDMD": 102392,
-      "ByteDMD-live": 91212,
-      "Manual-2D": 233184,
-      "ByteDMD-classic": 162049,
+      "SpaceDMD": 99017,
+      "ByteDMD-live": 83216,
+      "Manual-2D": 239777,
+      "ByteDMD-classic": 131240,
       "cell_seconds": {
-        "SpaceDMD": 0.0427,
-        "ByteDMD-live": 0.0779,
-        "Manual-2D": 0.0043,
-        "ByteDMD-classic": 0.2645
+        "SpaceDMD": 0.0485,
+        "ByteDMD-live": 0.0581,
+        "Manual-2D": 0.0081,
+        "ByteDMD-classic": 0.1447
       },
-      "max_cell_seconds": 0.2645,
-      "total_traced_seconds": 0.3893
+      "max_cell_seconds": 0.1447,
+      "total_traced_seconds": 0.2594
     },
     {
       "key": "rmm-gray-16",
       "algorithm": "Recursive In-Place (Gray)",
       "workload": "16x16",
       "notes": "manual in-place schedule, Gray-code order",
-      "SpaceDMD": 100802,
-      "ByteDMD-live": 86402,
-      "Manual-2D": 233184,
-      "ByteDMD-classic": 155454,
+      "SpaceDMD": 87471,
+      "ByteDMD-live": 78313,
+      "Manual-2D": 239777,
+      "ByteDMD-classic": 124441,
       "cell_seconds": {
-        "SpaceDMD": 0.0466,
-        "ByteDMD-live": 0.0686,
-        "Manual-2D": 0.0042,
-        "ByteDMD-classic": 0.2577
+        "SpaceDMD": 0.0478,
+        "ByteDMD-live": 0.055,
+        "Manual-2D": 0.0081,
+        "ByteDMD-classic": 0.1386
       },
-      "max_cell_seconds": 0.2577,
-      "total_traced_seconds": 0.3771
+      "max_cell_seconds": 0.1386,
+      "total_traced_seconds": 0.2495
     },
     {
       "key": "strassen-16",
       "algorithm": "Strassen",
       "workload": "16x16",
       "notes": "leaf size 1 to expose temporary traffic",
-      "SpaceDMD": 133981,
-      "ByteDMD-live": 204752,
-      "Manual-2D": 186661,
-      "ByteDMD-classic": 353207,
+      "SpaceDMD": 129252,
+      "ByteDMD-live": 202785,
+      "Manual-2D": 210953,
+      "ByteDMD-classic": 341157,
       "cell_seconds": {
-        "SpaceDMD": 0.0729,
-        "ByteDMD-live": 0.1586,
-        "Manual-2D": 0.0099,
-        "ByteDMD-classic": 0.615
+        "SpaceDMD": 0.0814,
+        "ByteDMD-live": 0.151,
+        "Manual-2D": 0.0101,
+        "ByteDMD-classic": 0.5471
       },
-      "max_cell_seconds": 0.615,
-      "total_traced_seconds": 0.8564
+      "max_cell_seconds": 0.5471,
+      "total_traced_seconds": 0.7896
     },
     {
       "key": "fused-strassen-16",
       "algorithm": "Fused Strassen",
       "workload": "16x16, leaf=8",
       "notes": "zero-allocation virtual sums with direct accumulation into C",
-      "SpaceDMD": 180690,
-      "ByteDMD-live": 183684,
-      "Manual-2D": 140526,
-      "ByteDMD-classic": 313340,
+      "SpaceDMD": 177235,
+      "ByteDMD-live": 183970,
+      "Manual-2D": 147360,
+      "ByteDMD-classic": 310614,
       "cell_seconds": {
-        "SpaceDMD": 0.0714,
-        "ByteDMD-live": 0.1519,
-        "Manual-2D": 0.0059,
-        "ByteDMD-classic": 0.5331
-      },
-      "max_cell_seconds": 0.5331,
-      "total_traced_seconds": 0.7623
-    },
-    {
-      "key": "gaussian-elimination-24",
-      "algorithm": "Gaussian Elimination",
-      "workload": "N=24",
-      "notes": "dense solve without pivoting",
-      "SpaceDMD": 135387,
-      "ByteDMD-live": 182828,
-      "Manual-2D": 148474,
-      "ByteDMD-classic": 272313,
-      "cell_seconds": {
-        "SpaceDMD": 0.054,
-        "ByteDMD-live": 0.1723,
-        "Manual-2D": 0.0049,
-        "ByteDMD-classic": 0.3866
-      },
-      "max_cell_seconds": 0.3866,
-      "total_traced_seconds": 0.6178
-    },
-    {
-      "key": "gauss-jordan-inverse-16",
-      "algorithm": "Gauss-Jordan Inverse",
-      "workload": "N=16",
-      "notes": "dense matrix inverse without pivoting",
-      "SpaceDMD": 130771,
-      "ByteDMD-live": 289170,
-      "Manual-2D": 192294,
-      "ByteDMD-classic": 442482,
-      "cell_seconds": {
-        "SpaceDMD": 0.0734,
-        "ByteDMD-live": 0.248,
-        "Manual-2D": 0.0063,
-        "ByteDMD-classic": 0.6156
-      },
-      "max_cell_seconds": 0.6156,
-      "total_traced_seconds": 0.9433
-    },
-    {
-      "key": "lu-no-pivot-24",
-      "algorithm": "LU (No Pivot)",
-      "workload": "N=24",
-      "notes": "Doolittle LU without row swaps",
-      "SpaceDMD": 114163,
-      "ByteDMD-live": 168584,
-      "Manual-2D": 132511,
-      "ByteDMD-classic": 239981,
-      "cell_seconds": {
-        "SpaceDMD": 0.0445,
-        "ByteDMD-live": 0.1739,
-        "Manual-2D": 0.0039,
-        "ByteDMD-classic": 0.2855
-      },
-      "max_cell_seconds": 0.2855,
-      "total_traced_seconds": 0.5078
-    },
-    {
-      "key": "blocked-lu-24",
-      "algorithm": "LU (Blocked)",
-      "workload": "N=24, block=4",
-      "notes": "tile-oriented LU without pivoting",
-      "SpaceDMD": 114164,
-      "ByteDMD-live": 168585,
-      "Manual-2D": 139796,
-      "ByteDMD-classic": 239982,
-      "cell_seconds": {
-        "SpaceDMD": 0.0514,
-        "ByteDMD-live": 0.1625,
-        "Manual-2D": 0.005,
-        "ByteDMD-classic": 0.3209
-      },
-      "max_cell_seconds": 0.3209,
-      "total_traced_seconds": 0.5398
-    },
-    {
-      "key": "recursive-lu-24",
-      "algorithm": "LU (Recursive)",
-      "workload": "N=24, leaf=6",
-      "notes": "recursive block LU without pivoting",
-      "SpaceDMD": 99038,
-      "ByteDMD-live": 147668,
-      "Manual-2D": 150175,
-      "ByteDMD-classic": 214757,
-      "cell_seconds": {
-        "SpaceDMD": 0.047,
-        "ByteDMD-live": 0.1581,
-        "Manual-2D": 0.0027,
-        "ByteDMD-classic": 0.2961
-      },
-      "max_cell_seconds": 0.2961,
-      "total_traced_seconds": 0.5039
-    },
-    {
-      "key": "lu-partial-pivot-24",
-      "algorithm": "LU (Partial Pivot)",
-      "workload": "N=24",
-      "notes": "partial pivoting with row-copy traffic",
-      "SpaceDMD": 158915,
-      "ByteDMD-live": 196126,
-      "Manual-2D": 176369,
-      "ByteDMD-classic": 296079,
-      "cell_seconds": {
-        "SpaceDMD": 0.0533,
-        "ByteDMD-live": 0.1871,
-        "Manual-2D": 0.0048,
-        "ByteDMD-classic": 0.4307
-      },
-      "max_cell_seconds": 0.4307,
-      "total_traced_seconds": 0.6758
-    },
-    {
-      "key": "cholesky-24",
-      "algorithm": "Cholesky",
-      "workload": "N=24",
-      "notes": "lower-triangular Cholesky factorization",
-      "SpaceDMD": 39149,
-      "ByteDMD-live": 57473,
-      "Manual-2D": 94351,
-      "ByteDMD-classic": 83916,
-      "cell_seconds": {
-        "SpaceDMD": 0.0249,
-        "ByteDMD-live": 0.0391,
-        "Manual-2D": 0.0015,
-        "ByteDMD-classic": 0.085
-      },
-      "max_cell_seconds": 0.085,
-      "total_traced_seconds": 0.1505
-    },
-    {
-      "key": "blocked-cholesky-24",
-      "algorithm": "Cholesky (Blocked)",
-      "workload": "N=24, block=4",
-      "notes": "tile-oriented Cholesky factorization",
-      "SpaceDMD": 39374,
-      "ByteDMD-live": 67613,
-      "Manual-2D": 104409,
-      "ByteDMD-classic": 93979,
-      "cell_seconds": {
-        "SpaceDMD": 0.0271,
-        "ByteDMD-live": 0.0702,
-        "Manual-2D": 0.0016,
-        "ByteDMD-classic": 0.1026
-      },
-      "max_cell_seconds": 0.1026,
-      "total_traced_seconds": 0.2016
-    },
-    {
-      "key": "recursive-cholesky-24",
-      "algorithm": "Cholesky (Recursive)",
-      "workload": "N=24, leaf=6",
-      "notes": "recursive block Cholesky factorization",
-      "SpaceDMD": 68960,
-      "ByteDMD-live": 97702,
-      "Manual-2D": 96702,
-      "ByteDMD-classic": 141392,
-      "cell_seconds": {
-        "SpaceDMD": 0.0374,
-        "ByteDMD-live": 0.0891,
-        "Manual-2D": 0.0016,
-        "ByteDMD-classic": 0.169
-      },
-      "max_cell_seconds": 0.169,
-      "total_traced_seconds": 0.2971
-    },
-    {
-      "key": "householder-qr-48x12",
-      "algorithm": "Householder QR",
-      "workload": "48x12",
-      "notes": "unblocked Householder QR returning R",
-      "SpaceDMD": 184272,
-      "ByteDMD-live": 242342,
-      "Manual-2D": 208880,
-      "ByteDMD-classic": 366748,
-      "cell_seconds": {
-        "SpaceDMD": 0.0766,
-        "ByteDMD-live": 0.1963,
-        "Manual-2D": 0.0051,
-        "ByteDMD-classic": 0.4536
-      },
-      "max_cell_seconds": 0.4536,
-      "total_traced_seconds": 0.7317
-    },
-    {
-      "key": "blocked-qr-48x12",
-      "algorithm": "Blocked QR",
-      "workload": "48x12, block=4",
-      "notes": "column-blocked Householder QR returning R",
-      "SpaceDMD": 184272,
-      "ByteDMD-live": 242342,
-      "Manual-2D": 208880,
-      "ByteDMD-classic": 366748,
-      "cell_seconds": {
-        "SpaceDMD": 0.0793,
-        "ByteDMD-live": 0.1895,
-        "Manual-2D": 0.0051,
-        "ByteDMD-classic": 0.4452
-      },
-      "max_cell_seconds": 0.4452,
-      "total_traced_seconds": 0.7191
-    },
-    {
-      "key": "tsqr-48x12",
-      "algorithm": "TSQR",
-      "workload": "48x12, leaf_rows=12",
-      "notes": "tall-skinny recursive QR returning the final R",
-      "SpaceDMD": 194425,
-      "ByteDMD-live": 257309,
-      "Manual-2D": 306764,
-      "ByteDMD-classic": 409914,
-      "cell_seconds": {
-        "SpaceDMD": 0.1011,
-        "ByteDMD-live": 0.1732,
-        "Manual-2D": 0.0068,
-        "ByteDMD-classic": 0.5327
-      },
-      "max_cell_seconds": 0.5327,
-      "total_traced_seconds": 0.8138
-    },
-    {
-      "key": "fft-iterative-1024",
-      "algorithm": "FFT (Iterative)",
-      "workload": "N=1024",
-      "notes": "iterative radix-2 Cooley-Tukey",
-      "SpaceDMD": 234873,
-      "ByteDMD-live": 400915,
-      "Manual-2D": 426962,
-      "ByteDMD-classic": 582525,
-      "cell_seconds": {
-        "SpaceDMD": 0.0718,
-        "ByteDMD-live": 0.5872,
-        "Manual-2D": 0.0039,
-        "ByteDMD-classic": 1.2448
-      },
-      "max_cell_seconds": 1.2448,
-      "total_traced_seconds": 1.9077
-    },
-    {
-      "key": "fft-recursive-1024",
-      "algorithm": "FFT (Recursive)",
-      "workload": "N=1024",
-      "notes": "recursive radix-2 Cooley-Tukey",
-      "SpaceDMD": 108940,
-      "ByteDMD-live": 204043,
-      "Manual-2D": 426962,
-      "ByteDMD-classic": 338459,
-      "cell_seconds": {
-        "SpaceDMD": 0.0718,
-        "ByteDMD-live": 0.3389,
-        "Manual-2D": 0.0047,
-        "ByteDMD-classic": 0.8748
-      },
-      "max_cell_seconds": 0.8748,
-      "total_traced_seconds": 1.2902
-    },
-    {
-      "key": "conv2d-spatial-16x16-k5",
-      "algorithm": "2D Convolution (Spatial)",
-      "workload": "16x16, kernel=5x5",
-      "notes": "same-size zero-padded spatial convolution",
-      "SpaceDMD": 81089,
-      "ByteDMD-live": 109710,
-      "Manual-2D": 160267,
-      "ByteDMD-classic": 157550,
-      "cell_seconds": {
-        "SpaceDMD": 0.0461,
-        "ByteDMD-live": 0.0568,
-        "Manual-2D": 0.0046,
-        "ByteDMD-classic": 0.135
-      },
-      "max_cell_seconds": 0.135,
-      "total_traced_seconds": 0.2426
-    },
-    {
-      "key": "spatial-conv-32x32-k5",
-      "algorithm": "Spatial Conv",
-      "workload": "32x32, kernel=5x5",
-      "notes": "same-size zero-padded spatial convolution",
-      "SpaceDMD": 395661,
-      "ByteDMD-live": 519078,
-      "Manual-2D": 1326692,
-      "ByteDMD-classic": 815690,
-      "cell_seconds": {
-        "SpaceDMD": 0.2234,
-        "ByteDMD-live": 0.3648,
-        "Manual-2D": 0.0199,
-        "ByteDMD-classic": 1.4957
-      },
-      "max_cell_seconds": 1.4957,
-      "total_traced_seconds": 2.1038
-    },
-    {
-      "key": "regular-conv-16x16-k3-c4",
-      "algorithm": "Regular Conv",
-      "workload": "16x16, kernel=3x3, Cin=4, Cout=4",
-      "notes": "direct same-size convolution over 4 input/output channels",
-      "SpaceDMD": 893095,
-      "ByteDMD-live": 971149,
-      "Manual-2D": 1916445,
-      "ByteDMD-classic": 1514678,
-      "cell_seconds": {
-        "SpaceDMD": 0.3365,
-        "ByteDMD-live": 0.6858,
-        "Manual-2D": 0.029,
-        "ByteDMD-classic": 2.8318
-      },
-      "max_cell_seconds": 2.8318,
-      "total_traced_seconds": 3.8831
-    },
-    {
-      "key": "conv2d-fft-16x16-k5",
-      "algorithm": "2D Convolution (FFT)",
-      "workload": "16x16, kernel=5x5, pad=32x32",
-      "notes": "same-size convolution via zero-padded recursive 2D FFT",
-      "SpaceDMD": 188853,
-      "ByteDMD-live": 394161,
-      "Manual-2D": 2847679,
-      "ByteDMD-classic": 642020,
-      "cell_seconds": {
-        "SpaceDMD": 0.1845,
-        "ByteDMD-live": 0.825,
-        "Manual-2D": 0.0205,
-        "ByteDMD-classic": 1.9514
-      },
-      "max_cell_seconds": 1.9514,
-      "total_traced_seconds": 2.9814
-    },
-    {
-      "key": "fft-conv-32",
-      "algorithm": "FFT Conv",
-      "workload": "N=32",
-      "notes": "circular 1D convolution via recursive FFT",
-      "SpaceDMD": 3085,
-      "ByteDMD-live": 5184,
-      "Manual-2D": 6915,
-      "ByteDMD-classic": 6766,
-      "cell_seconds": {
-        "SpaceDMD": 0.0048,
-        "ByteDMD-live": 0.0035,
-        "Manual-2D": 0.0005,
-        "ByteDMD-classic": 0.005
-      },
-      "max_cell_seconds": 0.005,
-      "total_traced_seconds": 0.0138
-    },
-    {
-      "key": "jacobi-naive-32",
-      "algorithm": "Stencil (Naive)",
-      "workload": "32x32, one sweep",
-      "notes": "row-major Jacobi stencil",
-      "SpaceDMD": 30921,
-      "ByteDMD-live": 68807,
-      "Manual-2D": 101754,
-      "ByteDMD-classic": 94490,
-      "cell_seconds": {
-        "SpaceDMD": 0.0212,
-        "ByteDMD-live": 0.1245,
-        "Manual-2D": 0.0014,
-        "ByteDMD-classic": 0.1758
-      },
-      "max_cell_seconds": 0.1758,
-      "total_traced_seconds": 0.323
-    },
-    {
-      "key": "jacobi-recursive-32",
-      "algorithm": "Stencil (Recursive)",
-      "workload": "32x32, one sweep, leaf=8",
-      "notes": "tile-recursive Jacobi stencil",
-      "SpaceDMD": 28204,
-      "ByteDMD-live": 62206,
-      "Manual-2D": 101754,
-      "ByteDMD-classic": 86431,
-      "cell_seconds": {
-        "SpaceDMD": 0.022,
-        "ByteDMD-live": 0.1298,
-        "Manual-2D": 0.0014,
-        "ByteDMD-classic": 0.1725
-      },
-      "max_cell_seconds": 0.1725,
-      "total_traced_seconds": 0.3257
-    },
-    {
-      "key": "regular-attention-32x4",
-      "algorithm": "Regular Attention",
-      "workload": "N=32, d=4",
-      "notes": "materializes the full score matrix",
-      "SpaceDMD": 242252,
-      "ByteDMD-live": 303850,
-      "Manual-2D": 413470,
-      "ByteDMD-classic": 474581,
-      "cell_seconds": {
-        "SpaceDMD": 0.0912,
-        "ByteDMD-live": 0.3814,
+        "SpaceDMD": 0.0736,
+        "ByteDMD-live": 0.1337,
         "Manual-2D": 0.0056,
-        "ByteDMD-classic": 0.9507
+        "ByteDMD-classic": 0.4993
       },
-      "max_cell_seconds": 0.9507,
-      "total_traced_seconds": 1.4288
+      "max_cell_seconds": 0.4993,
+      "total_traced_seconds": 0.7122
     },
     {
       "key": "naive-attention-32x2",
-      "algorithm": "Naive Attention",
+      "algorithm": "Naive Attention (d=2)",
       "workload": "N=32, d=2",
       "notes": "materializes the full score matrix",
-      "SpaceDMD": 132071,
-      "ByteDMD-live": 185350,
-      "Manual-2D": 203582,
-      "ByteDMD-classic": 277567,
+      "SpaceDMD": 121175,
+      "ByteDMD-live": 182223,
+      "Manual-2D": 419566,
+      "ByteDMD-classic": 273037,
       "cell_seconds": {
-        "SpaceDMD": 0.0543,
-        "ByteDMD-live": 0.2759,
-        "Manual-2D": 0.0034,
-        "ByteDMD-classic": 0.5704
+        "SpaceDMD": 0.0591,
+        "ByteDMD-live": 0.2837,
+        "Manual-2D": 0.0076,
+        "ByteDMD-classic": 0.5383
       },
-      "max_cell_seconds": 0.5704,
-      "total_traced_seconds": 0.904
-    },
-    {
-      "key": "flash-attention-32x4",
-      "algorithm": "Flash Attention",
-      "workload": "N=32, d=4, Bq=8, Bk=4",
-      "notes": "double-tiled Q/KV blocks with snake KV order",
-      "SpaceDMD": 205036,
-      "ByteDMD-live": 197629,
-      "Manual-2D": 283297,
-      "ByteDMD-classic": 335704,
-      "cell_seconds": {
-        "SpaceDMD": 0.103,
-        "ByteDMD-live": 0.1251,
-        "Manual-2D": 0.0059,
-        "ByteDMD-classic": 0.5133
-      },
-      "max_cell_seconds": 0.5133,
-      "total_traced_seconds": 0.7473
+      "max_cell_seconds": 0.5383,
+      "total_traced_seconds": 0.8887
     },
     {
       "key": "flash-attention-32x2-b8",
       "algorithm": "Flash Attention (Bk=8)",
       "workload": "N=32, d=2, Bq=8, Bk=8",
       "notes": "double-tiled Q/KV blocks with wider KV tiles",
-      "SpaceDMD": 86433,
-      "ByteDMD-live": 95000,
-      "Manual-2D": 116392,
-      "ByteDMD-classic": 150088,
+      "SpaceDMD": 79155,
+      "ByteDMD-live": 94106,
+      "Manual-2D": 117651,
+      "ByteDMD-classic": 143791,
       "cell_seconds": {
-        "SpaceDMD": 0.0541,
-        "ByteDMD-live": 0.0564,
-        "Manual-2D": 0.0031,
-        "ByteDMD-classic": 0.1624
+        "SpaceDMD": 0.0656,
+        "ByteDMD-live": 0.0601,
+        "Manual-2D": 0.0084,
+        "ByteDMD-classic": 0.172
       },
-      "max_cell_seconds": 0.1624,
-      "total_traced_seconds": 0.276
+      "max_cell_seconds": 0.172,
+      "total_traced_seconds": 0.306
+    },
+    {
+      "key": "regular-attention-32x4",
+      "algorithm": "Naive Attention (d=4)",
+      "workload": "N=32, d=4",
+      "notes": "materializes the full score matrix",
+      "SpaceDMD": 227596,
+      "ByteDMD-live": 298016,
+      "Manual-2D": 804056,
+      "ByteDMD-classic": 462791,
+      "cell_seconds": {
+        "SpaceDMD": 0.1091,
+        "ByteDMD-live": 0.3807,
+        "Manual-2D": 0.0164,
+        "ByteDMD-classic": 0.9111
+      },
+      "max_cell_seconds": 0.9111,
+      "total_traced_seconds": 1.4174
+    },
+    {
+      "key": "flash-attention-32x4",
+      "algorithm": "Flash Attention",
+      "workload": "N=32, d=4, Bq=8, Bk=4",
+      "notes": "double-tiled Q/KV blocks with snake KV order",
+      "SpaceDMD": 183674,
+      "ByteDMD-live": 195469,
+      "Manual-2D": 286628,
+      "ByteDMD-classic": 317851,
+      "cell_seconds": {
+        "SpaceDMD": 0.1231,
+        "ByteDMD-live": 0.1853,
+        "Manual-2D": 0.0168,
+        "ByteDMD-classic": 0.498
+      },
+      "max_cell_seconds": 0.498,
+      "total_traced_seconds": 0.8232
+    },
+    {
+      "key": "matvec-32",
+      "algorithm": "Matvec",
+      "workload": "32x32 by 32",
+      "notes": "row-wise matrix-vector baseline",
+      "SpaceDMD": 29911,
+      "ByteDMD-live": 36134,
+      "Manual-2D": 29890,
+      "ByteDMD-classic": 39572,
+      "cell_seconds": {
+        "SpaceDMD": 0.0297,
+        "ByteDMD-live": 0.0283,
+        "Manual-2D": 0.0019,
+        "ByteDMD-classic": 0.0317
+      },
+      "max_cell_seconds": 0.0317,
+      "total_traced_seconds": 0.0916
+    },
+    {
+      "key": "vecmat-32",
+      "algorithm": "Vecmat",
+      "workload": "32 by 32x32",
+      "notes": "column-oriented access order",
+      "SpaceDMD": 23195,
+      "ByteDMD-live": 29418,
+      "Manual-2D": 29890,
+      "ByteDMD-classic": 32856,
+      "cell_seconds": {
+        "SpaceDMD": 0.0202,
+        "ByteDMD-live": 0.031,
+        "Manual-2D": 0.0019,
+        "ByteDMD-classic": 0.0236
+      },
+      "max_cell_seconds": 0.031,
+      "total_traced_seconds": 0.0768
+    },
+    {
+      "key": "matvec-row-64",
+      "algorithm": "Matvec Row",
+      "workload": "64x64 by 64",
+      "notes": "row-major matrix-vector multiply",
+      "SpaceDMD": 213297,
+      "ByteDMD-live": 244553,
+      "Manual-2D": 213156,
+      "ByteDMD-classic": 262597,
+      "cell_seconds": {
+        "SpaceDMD": 0.345,
+        "ByteDMD-live": 0.3519,
+        "Manual-2D": 0.0087,
+        "ByteDMD-classic": 0.386
+      },
+      "max_cell_seconds": 0.386,
+      "total_traced_seconds": 1.0916
+    },
+    {
+      "key": "matvec-col-64",
+      "algorithm": "Matvec Column",
+      "workload": "64 by 64x64",
+      "notes": "column-major vector-matrix multiply",
+      "SpaceDMD": 157421,
+      "ByteDMD-live": 188677,
+      "Manual-2D": 213156,
+      "ByteDMD-classic": 206721,
+      "cell_seconds": {
+        "SpaceDMD": 0.2069,
+        "ByteDMD-live": 0.3958,
+        "Manual-2D": 0.0074,
+        "ByteDMD-classic": 0.248
+      },
+      "max_cell_seconds": 0.3958,
+      "total_traced_seconds": 0.858
+    },
+    {
+      "key": "scan-row-64",
+      "algorithm": "Row Scan",
+      "workload": "64x64",
+      "notes": "row-major traversal sum",
+      "SpaceDMD": 180896,
+      "ByteDMD-live": 180896,
+      "Manual-2D": 180960,
+      "ByteDMD-classic": 180896,
+      "cell_seconds": {
+        "SpaceDMD": 0.3216,
+        "ByteDMD-live": 0.3131,
+        "Manual-2D": 0.005,
+        "ByteDMD-classic": 0.3162
+      },
+      "max_cell_seconds": 0.3216,
+      "total_traced_seconds": 0.9559
+    },
+    {
+      "key": "scan-column-64",
+      "algorithm": "Column Scan",
+      "workload": "64x64",
+      "notes": "column-major traversal sum",
+      "SpaceDMD": 125024,
+      "ByteDMD-live": 125024,
+      "Manual-2D": 180960,
+      "ByteDMD-classic": 125024,
+      "cell_seconds": {
+        "SpaceDMD": 0.1808,
+        "ByteDMD-live": 0.3627,
+        "Manual-2D": 0.0049,
+        "ByteDMD-classic": 0.1745
+      },
+      "max_cell_seconds": 0.3627,
+      "total_traced_seconds": 0.723
+    },
+    {
+      "key": "transpose-naive-32",
+      "algorithm": "Transpose (Naive)",
+      "workload": "32x32",
+      "notes": "direct row-major transpose copy",
+      "SpaceDMD": 32980,
+      "ByteDMD-live": 58989,
+      "Manual-2D": 62813,
+      "ByteDMD-classic": 58989,
+      "cell_seconds": {
+        "SpaceDMD": 0.0252,
+        "ByteDMD-live": 0.0794,
+        "Manual-2D": 0.0012,
+        "ByteDMD-classic": 0.079
+      },
+      "max_cell_seconds": 0.0794,
+      "total_traced_seconds": 0.1849
+    },
+    {
+      "key": "transpose-blocked-32",
+      "algorithm": "Transpose (Blocked)",
+      "workload": "32x32, block=8",
+      "notes": "blocked transpose copy",
+      "SpaceDMD": 32324,
+      "ByteDMD-live": 58522,
+      "Manual-2D": 62813,
+      "ByteDMD-classic": 58522,
+      "cell_seconds": {
+        "SpaceDMD": 0.0233,
+        "ByteDMD-live": 0.082,
+        "Manual-2D": 0.0012,
+        "ByteDMD-classic": 0.0797
+      },
+      "max_cell_seconds": 0.082,
+      "total_traced_seconds": 0.1862
+    },
+    {
+      "key": "transpose-recursive-32",
+      "algorithm": "Transpose (Recursive)",
+      "workload": "32x32, leaf=8",
+      "notes": "cache-oblivious recursive transpose",
+      "SpaceDMD": 32268,
+      "ByteDMD-live": 58464,
+      "Manual-2D": 62813,
+      "ByteDMD-classic": 58464,
+      "cell_seconds": {
+        "SpaceDMD": 0.0222,
+        "ByteDMD-live": 0.0825,
+        "Manual-2D": 0.0012,
+        "ByteDMD-classic": 0.0804
+      },
+      "max_cell_seconds": 0.0825,
+      "total_traced_seconds": 0.1864
+    },
+    {
+      "key": "fft-iterative-1024",
+      "algorithm": "FFT (Iterative)",
+      "workload": "N=1024",
+      "notes": "iterative radix-2 Cooley-Tukey",
+      "SpaceDMD": 266902,
+      "ByteDMD-live": 410458,
+      "Manual-2D": 467423,
+      "ByteDMD-classic": 602976,
+      "cell_seconds": {
+        "SpaceDMD": 0.0866,
+        "ByteDMD-live": 0.5625,
+        "Manual-2D": 0.0081,
+        "ByteDMD-classic": 1.344
+      },
+      "max_cell_seconds": 1.344,
+      "total_traced_seconds": 2.0012
+    },
+    {
+      "key": "fft-recursive-1024",
+      "algorithm": "FFT (Recursive)",
+      "workload": "N=1024",
+      "notes": "recursive radix-2 Cooley-Tukey",
+      "SpaceDMD": 136833,
+      "ByteDMD-live": 213586,
+      "Manual-2D": 467423,
+      "ByteDMD-classic": 311419,
+      "cell_seconds": {
+        "SpaceDMD": 0.0854,
+        "ByteDMD-live": 0.3213,
+        "Manual-2D": 0.0092,
+        "ByteDMD-classic": 0.5961
+      },
+      "max_cell_seconds": 0.5961,
+      "total_traced_seconds": 1.012
+    },
+    {
+      "key": "jacobi-naive-32",
+      "algorithm": "Stencil (Naive)",
+      "workload": "32x32, one sweep",
+      "notes": "row-major Jacobi stencil",
+      "SpaceDMD": 64584,
+      "ByteDMD-live": 91862,
+      "Manual-2D": 142215,
+      "ByteDMD-classic": 118313,
+      "cell_seconds": {
+        "SpaceDMD": 0.0447,
+        "ByteDMD-live": 0.1125,
+        "Manual-2D": 0.0037,
+        "ByteDMD-classic": 0.2014
+      },
+      "max_cell_seconds": 0.2014,
+      "total_traced_seconds": 0.3623
+    },
+    {
+      "key": "jacobi-recursive-32",
+      "algorithm": "Stencil (Recursive)",
+      "workload": "32x32, one sweep, leaf=8",
+      "notes": "tile-recursive Jacobi stencil",
+      "SpaceDMD": 53942,
+      "ByteDMD-live": 83339,
+      "Manual-2D": 142215,
+      "ByteDMD-classic": 108221,
+      "cell_seconds": {
+        "SpaceDMD": 0.0409,
+        "ByteDMD-live": 0.1671,
+        "Manual-2D": 0.0034,
+        "ByteDMD-classic": 0.1929
+      },
+      "max_cell_seconds": 0.1929,
+      "total_traced_seconds": 0.4042
+    },
+    {
+      "key": "conv2d-spatial-16x16-k5",
+      "algorithm": "Spatial Conv (2D, 16x16)",
+      "workload": "16x16, kernel=5x5",
+      "notes": "same-size zero-padded spatial convolution",
+      "SpaceDMD": 83083,
+      "ByteDMD-live": 112862,
+      "Manual-2D": 165557,
+      "ByteDMD-classic": 162940,
+      "cell_seconds": {
+        "SpaceDMD": 0.0526,
+        "ByteDMD-live": 0.0562,
+        "Manual-2D": 0.0102,
+        "ByteDMD-classic": 0.1516
+      },
+      "max_cell_seconds": 0.1516,
+      "total_traced_seconds": 0.2706
+    },
+    {
+      "key": "spatial-conv-32x32-k5",
+      "algorithm": "Spatial Conv (2D, 32x32)",
+      "workload": "32x32, kernel=5x5",
+      "notes": "same-size zero-padded spatial convolution",
+      "SpaceDMD": 421216,
+      "ByteDMD-live": 542936,
+      "Manual-2D": 1367491,
+      "ByteDMD-classic": 849599,
+      "cell_seconds": {
+        "SpaceDMD": 0.2573,
+        "ByteDMD-live": 0.3408,
+        "Manual-2D": 0.0479,
+        "ByteDMD-classic": 1.6732
+      },
+      "max_cell_seconds": 1.6732,
+      "total_traced_seconds": 2.3193
+    },
+    {
+      "key": "regular-conv-16x16-k3-c4",
+      "algorithm": "Regular Conv",
+      "workload": "16x16, kernel=3x3, Cin=4, Cout=4",
+      "notes": "direct same-size convolution over 4 input/output channels",
+      "SpaceDMD": 893512,
+      "ByteDMD-live": 994160,
+      "Manual-2D": 1958775,
+      "ByteDMD-classic": 1548723,
+      "cell_seconds": {
+        "SpaceDMD": 0.3607,
+        "ByteDMD-live": 0.7156,
+        "Manual-2D": 0.0769,
+        "ByteDMD-classic": 2.9797
+      },
+      "max_cell_seconds": 2.9797,
+      "total_traced_seconds": 4.1328
+    },
+    {
+      "key": "fft-conv-32",
+      "algorithm": "FFT Conv (1D)",
+      "workload": "N=32",
+      "notes": "circular 1D convolution via recursive FFT",
+      "SpaceDMD": 3148,
+      "ByteDMD-live": 5071,
+      "Manual-2D": 5924,
+      "ByteDMD-classic": 6263,
+      "cell_seconds": {
+        "SpaceDMD": 0.0054,
+        "ByteDMD-live": 0.0039,
+        "Manual-2D": 0.0008,
+        "ByteDMD-classic": 0.005
+      },
+      "max_cell_seconds": 0.0054,
+      "total_traced_seconds": 0.015
+    },
+    {
+      "key": "conv2d-fft-16x16-k5",
+      "algorithm": "FFT Conv (2D)",
+      "workload": "16x16, kernel=5x5, pad=32x32",
+      "notes": "same-size convolution via zero-padded recursive 2D FFT",
+      "SpaceDMD": 193770,
+      "ByteDMD-live": 395662,
+      "Manual-2D": 2812578,
+      "ByteDMD-classic": 644543,
+      "cell_seconds": {
+        "SpaceDMD": 0.1887,
+        "ByteDMD-live": 0.8733,
+        "Manual-2D": 0.039,
+        "ByteDMD-classic": 1.9994
+      },
+      "max_cell_seconds": 1.9994,
+      "total_traced_seconds": 3.1003
     },
     {
       "key": "mergesort-64",
       "algorithm": "Mergesort",
       "workload": "N=64",
       "notes": "top-down mergesort with tracked comparisons",
-      "SpaceDMD": 1645,
-      "ByteDMD-live": 3180,
-      "Manual-2D": 4493,
-      "ByteDMD-classic": 3911,
+      "SpaceDMD": 2157,
+      "ByteDMD-live": 3410,
+      "Manual-2D": 8574,
+      "ByteDMD-classic": 3977,
       "cell_seconds": {
-        "SpaceDMD": 0.0028,
-        "ByteDMD-live": 0.0022,
-        "Manual-2D": 0.0003,
-        "ByteDMD-classic": 0.003
+        "SpaceDMD": 0.0038,
+        "ByteDMD-live": 0.0025,
+        "Manual-2D": 0.0006,
+        "ByteDMD-classic": 0.0032
       },
-      "max_cell_seconds": 0.003,
-      "total_traced_seconds": 0.0083
+      "max_cell_seconds": 0.0038,
+      "total_traced_seconds": 0.0101
     },
     {
       "key": "lcs-dp-32x32",
       "algorithm": "LCS DP",
       "workload": "32x32",
       "notes": "dynamic programming longest common subsequence",
-      "SpaceDMD": 28568,
-      "ByteDMD-live": 32265,
-      "Manual-2D": 85929,
-      "ByteDMD-classic": 32486,
+      "SpaceDMD": 23238,
+      "ByteDMD-live": 30392,
+      "Manual-2D": 138668,
+      "ByteDMD-classic": 30392,
       "cell_seconds": {
-        "SpaceDMD": 0.0117,
-        "ByteDMD-live": 0.0777,
-        "Manual-2D": 0.0014,
-        "ByteDMD-classic": 0.0221
+        "SpaceDMD": 0.0144,
+        "ByteDMD-live": 0.0736,
+        "Manual-2D": 0.003,
+        "ByteDMD-classic": 0.0188
       },
-      "max_cell_seconds": 0.0777,
-      "total_traced_seconds": 0.1129
+      "max_cell_seconds": 0.0736,
+      "total_traced_seconds": 0.1098
+    },
+    {
+      "key": "gaussian-elimination-24",
+      "algorithm": "Gaussian Elimination",
+      "workload": "N=24",
+      "notes": "dense solve without pivoting",
+      "SpaceDMD": 144330,
+      "ByteDMD-live": 174839,
+      "Manual-2D": 149098,
+      "ByteDMD-classic": 264399,
+      "cell_seconds": {
+        "SpaceDMD": 0.0566,
+        "ByteDMD-live": 0.152,
+        "Manual-2D": 0.0094,
+        "ByteDMD-classic": 0.3491
+      },
+      "max_cell_seconds": 0.3491,
+      "total_traced_seconds": 0.567
+    },
+    {
+      "key": "gauss-jordan-inverse-16",
+      "algorithm": "Gauss-Jordan Inverse",
+      "workload": "N=16",
+      "notes": "dense matrix inverse without pivoting",
+      "SpaceDMD": 138241,
+      "ByteDMD-live": 291004,
+      "Manual-2D": 197639,
+      "ByteDMD-classic": 447568,
+      "cell_seconds": {
+        "SpaceDMD": 0.0794,
+        "ByteDMD-live": 0.2474,
+        "Manual-2D": 0.0157,
+        "ByteDMD-classic": 0.6088
+      },
+      "max_cell_seconds": 0.6088,
+      "total_traced_seconds": 0.9514
+    },
+    {
+      "key": "lu-no-pivot-24",
+      "algorithm": "LU (No Pivot)",
+      "workload": "N=24",
+      "notes": "Doolittle LU without row swaps",
+      "SpaceDMD": 176646,
+      "ByteDMD-live": 183748,
+      "Manual-2D": 152609,
+      "ByteDMD-classic": 285388,
+      "cell_seconds": {
+        "SpaceDMD": 0.0572,
+        "ByteDMD-live": 0.1632,
+        "Manual-2D": 0.0097,
+        "ByteDMD-classic": 0.4403
+      },
+      "max_cell_seconds": 0.4403,
+      "total_traced_seconds": 0.6704
+    },
+    {
+      "key": "blocked-lu-24",
+      "algorithm": "LU (Blocked)",
+      "workload": "N=24, block=4",
+      "notes": "panel/TRSM/trailing-update LU without pivoting",
+      "SpaceDMD": 168823,
+      "ByteDMD-live": 205254,
+      "Manual-2D": 152320,
+      "ByteDMD-classic": 292112,
+      "cell_seconds": {
+        "SpaceDMD": 0.0601,
+        "ByteDMD-live": 0.3095,
+        "Manual-2D": 0.0074,
+        "ByteDMD-classic": 0.4636
+      },
+      "max_cell_seconds": 0.4636,
+      "total_traced_seconds": 0.8407
+    },
+    {
+      "key": "recursive-lu-24",
+      "algorithm": "LU (Recursive)",
+      "workload": "N=24, leaf=6",
+      "notes": "recursive block LU without pivoting",
+      "SpaceDMD": 143081,
+      "ByteDMD-live": 154745,
+      "Manual-2D": 170273,
+      "ByteDMD-classic": 242879,
+      "cell_seconds": {
+        "SpaceDMD": 0.0541,
+        "ByteDMD-live": 0.1523,
+        "Manual-2D": 0.0067,
+        "ByteDMD-classic": 0.3916
+      },
+      "max_cell_seconds": 0.3916,
+      "total_traced_seconds": 0.6047
+    },
+    {
+      "key": "lu-partial-pivot-24",
+      "algorithm": "LU (Partial Pivot)",
+      "workload": "N=24",
+      "notes": "partial pivoting with row-copy traffic",
+      "SpaceDMD": 211252,
+      "ByteDMD-live": 211749,
+      "Manual-2D": 196063,
+      "ByteDMD-classic": 333458,
+      "cell_seconds": {
+        "SpaceDMD": 0.0615,
+        "ByteDMD-live": 0.2104,
+        "Manual-2D": 0.0102,
+        "ByteDMD-classic": 0.5257
+      },
+      "max_cell_seconds": 0.5257,
+      "total_traced_seconds": 0.8078
+    },
+    {
+      "key": "cholesky-24",
+      "algorithm": "Cholesky",
+      "workload": "N=24",
+      "notes": "lower-triangular Cholesky factorization",
+      "SpaceDMD": 58449,
+      "ByteDMD-live": 60233,
+      "Manual-2D": 103898,
+      "ByteDMD-classic": 87161,
+      "cell_seconds": {
+        "SpaceDMD": 0.0291,
+        "ByteDMD-live": 0.0406,
+        "Manual-2D": 0.0047,
+        "ByteDMD-classic": 0.0882
+      },
+      "max_cell_seconds": 0.0882,
+      "total_traced_seconds": 0.1626
+    },
+    {
+      "key": "blocked-cholesky-24",
+      "algorithm": "Cholesky (Blocked)",
+      "workload": "N=24, block=4",
+      "notes": "tile-oriented Cholesky factorization",
+      "SpaceDMD": 59135,
+      "ByteDMD-live": 65048,
+      "Manual-2D": 113956,
+      "ByteDMD-classic": 99660,
+      "cell_seconds": {
+        "SpaceDMD": 0.0367,
+        "ByteDMD-live": 0.0615,
+        "Manual-2D": 0.004,
+        "ByteDMD-classic": 0.1196
+      },
+      "max_cell_seconds": 0.1196,
+      "total_traced_seconds": 0.2218
+    },
+    {
+      "key": "recursive-cholesky-24",
+      "algorithm": "Cholesky (Recursive)",
+      "workload": "N=24, leaf=6",
+      "notes": "recursive block Cholesky factorization",
+      "SpaceDMD": 81590,
+      "ByteDMD-live": 97705,
+      "Manual-2D": 106249,
+      "ByteDMD-classic": 149742,
+      "cell_seconds": {
+        "SpaceDMD": 0.0436,
+        "ByteDMD-live": 0.0844,
+        "Manual-2D": 0.0047,
+        "ByteDMD-classic": 0.1917
+      },
+      "max_cell_seconds": 0.1917,
+      "total_traced_seconds": 0.3245
+    },
+    {
+      "key": "householder-qr-48x12",
+      "algorithm": "Householder QR",
+      "workload": "48x12",
+      "notes": "unblocked Householder QR returning R",
+      "SpaceDMD": 191725,
+      "ByteDMD-live": 235920,
+      "Manual-2D": 210511,
+      "ByteDMD-classic": 372359,
+      "cell_seconds": {
+        "SpaceDMD": 0.0882,
+        "ByteDMD-live": 0.1732,
+        "Manual-2D": 0.0122,
+        "ByteDMD-classic": 0.4781
+      },
+      "max_cell_seconds": 0.4781,
+      "total_traced_seconds": 0.7517
+    },
+    {
+      "key": "blocked-qr-48x12",
+      "algorithm": "Blocked QR",
+      "workload": "48x12, block=4",
+      "notes": "panel-blocked Householder QR with delayed trailing updates",
+      "SpaceDMD": 199250,
+      "ByteDMD-live": 231744,
+      "Manual-2D": 210847,
+      "ByteDMD-classic": 370913,
+      "cell_seconds": {
+        "SpaceDMD": 0.0868,
+        "ByteDMD-live": 0.1707,
+        "Manual-2D": 0.0123,
+        "ByteDMD-classic": 0.5033
+      },
+      "max_cell_seconds": 0.5033,
+      "total_traced_seconds": 0.7732
+    },
+    {
+      "key": "tsqr-48x12",
+      "algorithm": "TSQR",
+      "workload": "48x12, leaf_rows=12",
+      "notes": "tall-skinny recursive QR returning the final R",
+      "SpaceDMD": 200413,
+      "ByteDMD-live": 251200,
+      "Manual-2D": 308395,
+      "ByteDMD-classic": 393651,
+      "cell_seconds": {
+        "SpaceDMD": 0.1153,
+        "ByteDMD-live": 0.1582,
+        "Manual-2D": 0.0154,
+        "ByteDMD-classic": 0.4374
+      },
+      "max_cell_seconds": 0.4374,
+      "total_traced_seconds": 0.7263
     }
   ],
   "ranking": [
     {
-      "metric": "ByteDMD-classic",
-      "spearman_rho": 0.9132800167975497,
-      "scale_fit": 1.2413034094508055,
-      "scaled_mape": 0.8226500025910437
+      "metric": "SpaceDMD",
+      "spearman_rho": 0.8243070306136642,
+      "scale_fit": 2.30332739739367,
+      "scaled_mape": 0.6679695404069252
     },
     {
       "metric": "ByteDMD-live",
-      "spearman_rho": 0.8794380442975247,
-      "scale_fit": 1.861467535893129,
-      "scaled_mape": 0.941856239580068
+      "spearman_rho": 0.8435683054974252,
+      "scale_fit": 2.0327947533594624,
+      "scaled_mape": 0.7726326775626986
     },
     {
-      "metric": "SpaceDMD",
-      "spearman_rho": 0.7863538529482857,
-      "scale_fit": 2.3595400664382202,
-      "scaled_mape": 0.6146262730193857
+      "metric": "ByteDMD-classic",
+      "spearman_rho": 0.8288390952921962,
+      "scale_fit": 1.3480628882999297,
+      "scaled_mape": 0.6674686728852665
     }
   ],
   "metric_columns": [
@@ -807,5 +807,5 @@
     "Manual-2D",
     "ByteDMD-classic"
   ],
-  "overall_max_cell_seconds": 2.8318
+  "overall_max_cell_seconds": 2.9797
 }

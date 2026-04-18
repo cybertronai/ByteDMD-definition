@@ -19,6 +19,11 @@ Strategy 3: Aggressive (Instant compaction)
     UP toward MRU. Models an idealized compacting GC where dead bytes get
     instantly returned to faster cache.
 
+All three strategies now treat function inputs specially: untouched
+arguments live on a separate argument stack, their first read is priced
+there, and only then are they promoted into the managed geometric stack.
+Measurements also include a final full read of the returned value.
+
 The cost model is element-level (bytes_per_element=1). Two cost variants
 are computed for every trace:
   - DISCRETE: cost = sum(ceil(sqrt(depth))). The original bytedmd.py form.
@@ -90,6 +95,8 @@ class Context:
         self.strategy = strategy
         self.stack = []        # entries: positive int (alive key) or -1 (dead)
         self.pos = {}          # key -> current index in self.stack
+        self.input_stack = []  # untouched input arguments live here until first read
+        self.input_pos = {}    # key -> current index in self.input_stack
         self.trace = []
         self.counter = 0
 
@@ -97,9 +104,16 @@ class Context:
         """Recompute pos dict after a stack mutation that shifts indices."""
         self.pos = {k: i for i, k in enumerate(self.stack) if k != -1}
 
-    def allocate(self):
+    def _refresh_input_pos(self):
+        self.input_pos = {k: i for i, k in enumerate(self.input_stack)}
+
+    def allocate(self, *, is_input=False):
         self.counter += 1
         key = self.counter
+        if is_input:
+            self.input_stack.append(key)
+            self.input_pos[key] = len(self.input_stack) - 1
+            return key
         if self.strategy == 'tombstone':
             # Scan from top down for the most recent tombstone.
             for i in range(len(self.stack) - 1, -1, -1):
@@ -112,6 +126,17 @@ class Context:
         return key
 
     def read(self, key):
+        input_idx = self.input_pos.get(key)
+        if input_idx is not None:
+            depth = len(self.input_stack) - input_idx
+            self.trace.append(depth)
+            del self.input_stack[input_idx]
+            del self.input_pos[key]
+            for j in range(input_idx, len(self.input_stack)):
+                self.input_pos[self.input_stack[j]] = j
+            self.stack.append(key)
+            self.pos[key] = len(self.stack) - 1
+            return depth
         idx = self.pos[key]
         depth = len(self.stack) - idx
         self.trace.append(depth)
@@ -129,6 +154,13 @@ class Context:
         return depth
 
     def free(self, key):
+        input_idx = self.input_pos.get(key)
+        if input_idx is not None:
+            del self.input_stack[input_idx]
+            del self.input_pos[key]
+            for j in range(input_idx, len(self.input_stack)):
+                self.input_pos[self.input_stack[j]] = j
+            return
         if self.strategy == 'unmanaged':
             return
         idx = self.pos.get(key)
@@ -183,7 +215,21 @@ class Tracked:
 
 def wrap_matrix(ctx, mat):
     """Convert a list-of-lists matrix into Tracked objects."""
-    return [[Tracked(ctx, ctx.allocate(), v) for v in row] for row in mat]
+    return [[Tracked(ctx, ctx.allocate(is_input=True), v) for v in row] for row in mat]
+
+
+def _read_return_value(value):
+    if isinstance(value, Tracked):
+        value._ctx.read(value._key)
+        return
+    if isinstance(value, list):
+        for item in value:
+            _read_return_value(item)
+        return
+    if isinstance(value, tuple):
+        for item in value:
+            _read_return_value(item)
+        return
 
 
 def measure(matmul_fn, A, B, strategy, inplace=False):
@@ -205,17 +251,19 @@ def measure(matmul_fn, A, B, strategy, inplace=False):
 
     peak = [len(ctx.stack)]
     orig_alloc = ctx.allocate
-    def tracking_alloc():
-        k = orig_alloc()
+    def tracking_alloc(*, is_input=False):
+        k = orig_alloc(is_input=is_input)
         peak[0] = max(peak[0], len(ctx.stack))
         return k
     ctx.allocate = tracking_alloc
 
     if inplace:
         matmul_fn(A_w, B_w, C_w)
+        _read_return_value(C_w)
         del C_w
     else:
         result = matmul_fn(A_w, B_w)
+        _read_return_value(result)
         del result
     del A_w
     del B_w

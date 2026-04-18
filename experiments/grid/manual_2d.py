@@ -1,4 +1,11 @@
-"""Hand-scheduled fixed-address implementations for heuristic-grid kernels."""
+"""Hand-scheduled fixed-address implementations for heuristic-grid kernels.
+
+The manual model uses two address regions:
+- a low-address scratch / working-memory region
+- a separate argument/output region that is resolved after scratch size is known
+
+Every manual kernel also pays for reading back its returned value at the end.
+"""
 
 from __future__ import annotations
 
@@ -13,79 +20,134 @@ from experiments.memory_management.tracer import trace_to_cost_continuous, trace
 
 
 @dataclass(frozen=True)
+class AddressRef:
+    region: str
+    offset: int
+
+
+@dataclass(frozen=True)
 class VectorView:
+    region: str
     base: int
     length: int
     stride: int = 1
 
-    def addr(self, index: int) -> int:
-        return self.base + index * self.stride
+    def addr(self, index: int) -> AddressRef:
+        return AddressRef(self.region, self.base + index * self.stride)
 
     def even(self) -> "VectorView":
-        return VectorView(self.base, self.length // 2, self.stride * 2)
+        return VectorView(self.region, self.base, self.length // 2, self.stride * 2)
 
     def odd(self) -> "VectorView":
-        return VectorView(self.base + self.stride, self.length // 2, self.stride * 2)
+        return VectorView(self.region, self.base + self.stride, self.length // 2, self.stride * 2)
 
     def first_half(self) -> "VectorView":
-        return VectorView(self.base, self.length // 2, self.stride)
+        return VectorView(self.region, self.base, self.length // 2, self.stride)
 
     def second_half(self) -> "VectorView":
-        return VectorView(self.base + (self.length // 2) * self.stride, self.length // 2, self.stride)
+        return VectorView(self.region, self.base + (self.length // 2) * self.stride, self.length // 2, self.stride)
 
 
 @dataclass(frozen=True)
 class MatrixView:
+    region: str
     base: int
     rows: int
     cols: int
     stride: int
 
-    def addr(self, row: int, col: int) -> int:
-        return self.base + row * self.stride + col
+    def addr(self, row: int, col: int) -> AddressRef:
+        return AddressRef(self.region, self.base + row * self.stride + col)
 
     def row(self, row: int) -> VectorView:
-        return VectorView(self.base + row * self.stride, self.cols, 1)
+        return VectorView(self.region, self.base + row * self.stride, self.cols, 1)
 
     def col(self, col: int) -> VectorView:
-        return VectorView(self.base + col, self.rows, self.stride)
+        return VectorView(self.region, self.base + col, self.rows, self.stride)
 
     def block(self, row: int, col: int, rows: int, cols: int) -> "MatrixView":
-        return MatrixView(self.base + row * self.stride + col, rows, cols, self.stride)
+        return MatrixView(self.region, self.base + row * self.stride + col, rows, cols, self.stride)
 
 
 class ManualTracer:
     """Simple fixed-address read trace."""
 
     def __init__(self) -> None:
-        self.next_addr = 1
-        self.trace: list[int] = []
+        self.next_stack_addr = 1
+        self.next_data_addr = 1
+        self.trace: list[AddressRef | int] = []
+        self.outputs: list[VectorView | MatrixView] = []
 
-    def alloc_vector(self, length: int) -> VectorView:
-        view = VectorView(self.next_addr, length)
-        self.next_addr += length
+    def alloc_vector(self, length: int, *, region: str = "stack") -> VectorView:
+        if region == "stack":
+            view = VectorView(region, self.next_stack_addr, length)
+            self.next_stack_addr += length
+            return view
+        view = VectorView(region, self.next_data_addr, length)
+        self.next_data_addr += length
         return view
 
-    def alloc_matrix(self, rows: int, cols: int, *, stride: int | None = None) -> MatrixView:
+    def alloc_matrix(self, rows: int, cols: int, *, stride: int | None = None, region: str = "stack") -> MatrixView:
         layout_stride = cols if stride is None else stride
-        view = MatrixView(self.next_addr, rows, cols, layout_stride)
-        self.next_addr += rows * layout_stride
+        if region == "stack":
+            view = MatrixView(region, self.next_stack_addr, rows, cols, layout_stride)
+            self.next_stack_addr += rows * layout_stride
+            return view
+        view = MatrixView(region, self.next_data_addr, rows, cols, layout_stride)
+        self.next_data_addr += rows * layout_stride
         return view
 
-    def read(self, addr: int) -> None:
+    def alloc_input_vector(self, length: int) -> VectorView:
+        return self.alloc_vector(length, region="data")
+
+    def alloc_input_matrix(self, rows: int, cols: int, *, stride: int | None = None) -> MatrixView:
+        return self.alloc_matrix(rows, cols, stride=stride, region="data")
+
+    def alloc_output_vector(self, length: int) -> VectorView:
+        view = self.alloc_vector(length, region="data")
+        self.outputs.append(view)
+        return view
+
+    def alloc_output_matrix(self, rows: int, cols: int, *, stride: int | None = None) -> MatrixView:
+        view = self.alloc_matrix(rows, cols, stride=stride, region="data")
+        self.outputs.append(view)
+        return view
+
+    def mark_output(self, *views: VectorView | MatrixView) -> None:
+        self.outputs.extend(views)
+
+    def read(self, addr: AddressRef | int) -> None:
         self.trace.append(addr)
 
     def read_vector(self, view: VectorView) -> None:
         for index in range(view.length):
             self.read(view.addr(index))
 
+    def read_matrix(self, view: MatrixView) -> None:
+        for row in range(view.rows):
+            for col in range(view.cols):
+                self.read(view.addr(row, col))
+
+    def _resolve_addr(self, addr: AddressRef | int) -> int:
+        if isinstance(addr, int):
+            return addr
+        if addr.region == "stack":
+            return addr.offset
+        return self.next_stack_addr + addr.offset - 1
+
     def result(self) -> dict[str, object]:
+        for view in self.outputs:
+            if isinstance(view, MatrixView):
+                self.read_matrix(view)
+            else:
+                self.read_vector(view)
+        resolved_trace = [self._resolve_addr(addr) for addr in self.trace]
         return {
-            "trace": list(self.trace),
-            "cost_discrete": trace_to_cost_discrete(self.trace),
-            "cost_continuous": trace_to_cost_continuous(self.trace),
-            "n_reads": len(self.trace),
-            "max_address": max(self.trace, default=0),
+            "trace": resolved_trace,
+            "cost_discrete": trace_to_cost_discrete(resolved_trace),
+            "cost_continuous": trace_to_cost_continuous(resolved_trace),
+            "n_reads": len(resolved_trace),
+            "max_address": max(resolved_trace, default=0),
         }
 
 
@@ -102,9 +164,9 @@ def _make_matrix_block_views(matrix: MatrixView) -> tuple[MatrixView, MatrixView
 def manual_matvec(n: int = 32) -> dict[str, object]:
     tracer = ManualTracer()
     acc = tracer.alloc_vector(1)
-    x = tracer.alloc_vector(n)
-    A = tracer.alloc_matrix(n, n)
-    tracer.alloc_vector(n)  # y
+    x = tracer.alloc_input_vector(n)
+    A = tracer.alloc_input_matrix(n, n)
+    tracer.alloc_output_vector(n)  # y
 
     for i in range(n):
         tracer.read(A.addr(i, 0))
@@ -119,9 +181,9 @@ def manual_matvec(n: int = 32) -> dict[str, object]:
 def manual_vecmat(n: int = 32) -> dict[str, object]:
     tracer = ManualTracer()
     acc = tracer.alloc_vector(1)
-    x = tracer.alloc_vector(n)
-    A = tracer.alloc_matrix(n, n)
-    tracer.alloc_vector(n)  # y
+    x = tracer.alloc_input_vector(n)
+    A = tracer.alloc_input_matrix(n, n)
+    tracer.alloc_output_vector(n)  # y
 
     for j in range(n):
         tracer.read(x.addr(0))
@@ -135,8 +197,8 @@ def manual_vecmat(n: int = 32) -> dict[str, object]:
 
 def manual_transpose(rows: int = 32, cols: int = 32, *, block: int | None = None, recursive: bool = False) -> dict[str, object]:
     tracer = ManualTracer()
-    A = tracer.alloc_matrix(rows, cols)
-    tracer.alloc_matrix(cols, rows)
+    A = tracer.alloc_input_matrix(rows, cols)
+    tracer.alloc_output_matrix(cols, rows)
 
     def visit(r0: int, r1: int, c0: int, c1: int) -> None:
         if recursive and (r1 - r0) > 8 and (c1 - c0) > 8:
@@ -167,7 +229,8 @@ def manual_transpose(rows: int = 32, cols: int = 32, *, block: int | None = None
 def manual_scan(rows: int = 64, cols: int = 64, *, by_column: bool) -> dict[str, object]:
     tracer = ManualTracer()
     acc = tracer.alloc_vector(1)
-    A = tracer.alloc_matrix(rows, cols)
+    A = tracer.alloc_input_matrix(rows, cols)
+    tracer.mark_output(acc)
 
     tracer.read(A.addr(0, 0))
     if by_column:
@@ -188,9 +251,9 @@ def manual_scan(rows: int = 64, cols: int = 64, *, by_column: bool) -> dict[str,
 def manual_naive_matmul(n: int = 16) -> dict[str, object]:
     tracer = ManualTracer()
     acc = tracer.alloc_vector(1)
-    A = tracer.alloc_matrix(n, n)
-    B = tracer.alloc_matrix(n, n)
-    tracer.alloc_matrix(n, n)
+    A = tracer.alloc_input_matrix(n, n)
+    B = tracer.alloc_input_matrix(n, n)
+    tracer.alloc_output_matrix(n, n)
 
     for i in range(n):
         for j in range(n):
@@ -208,9 +271,9 @@ def manual_tiled_matmul(n: int = 16, tile: int = 4) -> dict[str, object]:
     fast_A = tracer.alloc_matrix(tile, tile)
     fast_B = tracer.alloc_matrix(tile, tile)
     fast_C = tracer.alloc_matrix(tile, tile)
-    A = tracer.alloc_matrix(n, n)
-    B = tracer.alloc_matrix(n, n)
-    tracer.alloc_matrix(n, n)
+    A = tracer.alloc_input_matrix(n, n)
+    B = tracer.alloc_input_matrix(n, n)
+    tracer.alloc_output_matrix(n, n)
 
     for i0 in range(0, n, tile):
         for j0 in range(0, n, tile):
@@ -244,9 +307,9 @@ def manual_recursive_matmul() -> dict[str, object]:
 
 def _manual_inplace_rmm(order: list[tuple[int, int, int]], n: int = 16) -> dict[str, object]:
     tracer = ManualTracer()
-    A = tracer.alloc_matrix(n, n)
-    B = tracer.alloc_matrix(n, n)
-    C = tracer.alloc_matrix(n, n)
+    A = tracer.alloc_input_matrix(n, n)
+    B = tracer.alloc_input_matrix(n, n)
+    C = tracer.alloc_output_matrix(n, n)
 
     def rec(ai: int, aj: int, bi: int, bj: int, ci: int, cj: int, size: int) -> None:
         if size == 1:
@@ -305,7 +368,13 @@ def _load_optimal_memory_module(module_name: str):
 def manual_strassen() -> dict[str, object]:
     module = _load_optimal_memory_module("optimal_strassen")
     ext_reads, wm_reads, _wm_writes = module.generate_strassen_traces(16)
-    trace = list(ext_reads) + list(wm_reads)
+    n = 16
+    wm_max = max(wm_reads, default=0)
+    remapped_ext_reads = [wm_max + addr for addr in ext_reads]
+    depth = n.bit_length() - 1
+    c_base = 1 + sum(3 * (n // (2**d)) ** 2 for d in range(1, depth + 1))
+    c_reads = [c_base + i * n + j for i in range(n) for j in range(n)]
+    trace = remapped_ext_reads + list(wm_reads) + c_reads
     return {
         "trace": trace,
         "cost_discrete": trace_to_cost_discrete(trace),
@@ -336,8 +405,8 @@ def _bit_reverse(index: int, bits: int) -> int:
 
 def manual_iterative_fft(n: int = 1024) -> dict[str, object]:
     tracer = ManualTracer()
-    x = tracer.alloc_vector(n)
-    out = tracer.alloc_vector(n)
+    x = tracer.alloc_input_vector(n)
+    out = tracer.alloc_output_vector(n)
 
     bits = n.bit_length() - 1
     for i in range(n):
@@ -371,8 +440,8 @@ def _manual_recursive_fft(tracer: ManualTracer, src: VectorView, dst: VectorView
 
 def manual_recursive_fft(n: int = 1024) -> dict[str, object]:
     tracer = ManualTracer()
-    src = tracer.alloc_vector(n)
-    dst = tracer.alloc_vector(n)
+    src = tracer.alloc_input_vector(n)
+    dst = tracer.alloc_output_vector(n)
     _manual_recursive_fft(tracer, src, dst)
     return tracer.result()
 
@@ -380,9 +449,9 @@ def manual_recursive_fft(n: int = 1024) -> dict[str, object]:
 def manual_spatial_conv2d(rows: int = 16, cols: int = 16, k_rows: int = 5, k_cols: int = 5) -> dict[str, object]:
     tracer = ManualTracer()
     acc = tracer.alloc_vector(1)
-    image = tracer.alloc_matrix(rows, cols)
-    kernel = tracer.alloc_matrix(k_rows, k_cols)
-    tracer.alloc_matrix(rows, cols)
+    image = tracer.alloc_input_matrix(rows, cols)
+    kernel = tracer.alloc_input_matrix(k_rows, k_cols)
+    tracer.alloc_output_matrix(rows, cols)
     center_r = k_rows // 2
     center_c = k_cols // 2
 
@@ -414,8 +483,8 @@ def _manual_fft2d(tracer: ManualTracer, src: MatrixView, row_tmp: MatrixView, ds
 
 def manual_fft_conv2d(rows: int = 16, cols: int = 16, k_rows: int = 5, k_cols: int = 5) -> dict[str, object]:
     tracer = ManualTracer()
-    image = tracer.alloc_matrix(rows, cols)
-    kernel = tracer.alloc_matrix(k_rows, k_cols)
+    image = tracer.alloc_input_matrix(rows, cols)
+    kernel = tracer.alloc_input_matrix(k_rows, k_cols)
     pad_rows = 32
     pad_cols = 32
     padded_image = tracer.alloc_matrix(pad_rows, pad_cols)
@@ -427,7 +496,7 @@ def manual_fft_conv2d(rows: int = 16, cols: int = 16, k_rows: int = 5, k_cols: i
     spectrum = tracer.alloc_matrix(pad_rows, pad_cols)
     inverse_row_tmp = tracer.alloc_matrix(pad_rows, pad_cols)
     recovered = tracer.alloc_matrix(pad_rows, pad_cols)
-    tracer.alloc_matrix(rows, cols)
+    tracer.alloc_output_matrix(rows, cols)
 
     for i in range(rows):
         for j in range(cols):
@@ -457,9 +526,9 @@ def manual_fft_conv2d(rows: int = 16, cols: int = 16, k_rows: int = 5, k_cols: i
 def manual_regular_conv(rows: int = 16, cols: int = 16, k_rows: int = 3, k_cols: int = 3, in_channels: int = 4, out_channels: int = 4) -> dict[str, object]:
     tracer = ManualTracer()
     acc = tracer.alloc_vector(1)
-    image = tracer.alloc_matrix(rows * cols, in_channels)
-    kernel = tracer.alloc_matrix(k_rows * k_cols * in_channels, out_channels)
-    tracer.alloc_matrix(rows * cols, out_channels)
+    image = tracer.alloc_input_matrix(rows * cols, in_channels)
+    kernel = tracer.alloc_input_matrix(k_rows * k_cols * in_channels, out_channels)
+    tracer.alloc_output_matrix(rows * cols, out_channels)
     center_r = k_rows // 2
     center_c = k_cols // 2
 
@@ -488,12 +557,12 @@ def manual_regular_conv(rows: int = 16, cols: int = 16, k_rows: int = 3, k_cols:
 
 def manual_fft_conv1d(n: int = 32) -> dict[str, object]:
     tracer = ManualTracer()
-    signal = tracer.alloc_vector(n)
-    kernel = tracer.alloc_vector(n)
+    signal = tracer.alloc_input_vector(n)
+    kernel = tracer.alloc_input_vector(n)
     signal_freq = tracer.alloc_vector(n)
     kernel_freq = tracer.alloc_vector(n)
     spectrum = tracer.alloc_vector(n)
-    out = tracer.alloc_vector(n)
+    out = tracer.alloc_output_vector(n)
 
     _manual_recursive_fft(tracer, signal, signal_freq)
     _manual_recursive_fft(tracer, kernel, kernel_freq)
@@ -506,8 +575,9 @@ def manual_fft_conv1d(n: int = 32) -> dict[str, object]:
 
 def manual_mergesort(n: int = 64) -> dict[str, object]:
     tracer = ManualTracer()
-    src = tracer.alloc_vector(n)
+    src = tracer.alloc_input_vector(n)
     temp = tracer.alloc_vector(n)
+    tracer.mark_output(src)
 
     def rec(view: VectorView, scratch: VectorView) -> None:
         if view.length <= 1:
@@ -542,9 +612,10 @@ def manual_mergesort(n: int = 64) -> dict[str, object]:
 
 def manual_lcs_dp(m: int = 32, n: int = 32) -> dict[str, object]:
     tracer = ManualTracer()
-    seq_a = tracer.alloc_vector(m)
-    seq_b = tracer.alloc_vector(n)
+    seq_a = tracer.alloc_input_vector(m)
+    seq_b = tracer.alloc_input_vector(n)
     dp = tracer.alloc_matrix(m + 1, n + 1)
+    tracer.mark_output(VectorView(dp.region, dp.base + m * dp.stride + n, 1))
 
     for i in range(m):
         for j in range(n):
@@ -563,9 +634,9 @@ def manual_gaussian_elimination(n: int = 24) -> dict[str, object]:
     acc = tracer.alloc_vector(1)
     pivot_row = tracer.alloc_vector(n)
     rhs_pivot = tracer.alloc_vector(1)
-    A = tracer.alloc_matrix(n, n)
-    b = tracer.alloc_vector(n)
-    x = tracer.alloc_vector(n)
+    A = tracer.alloc_input_matrix(n, n)
+    b = tracer.alloc_input_vector(n)
+    x = tracer.alloc_output_vector(n)
 
     for k in range(n - 1):
         tracer.read(A.addr(k, k))
@@ -602,8 +673,8 @@ def manual_gauss_jordan_inverse(n: int = 16) -> dict[str, object]:
     factor = tracer.alloc_vector(1)
     pivot_a_row = tracer.alloc_vector(n)
     pivot_inv_row = tracer.alloc_vector(n)
-    A = tracer.alloc_matrix(n, n)
-    inv = tracer.alloc_matrix(n, n)
+    A = tracer.alloc_input_matrix(n, n)
+    inv = tracer.alloc_output_matrix(n, n)
 
     for k in range(n):
         tracer.read(A.addr(k, k))
@@ -697,7 +768,8 @@ def manual_lu_no_pivot(n: int = 24) -> dict[str, object]:
     pivot_inv = tracer.alloc_vector(1)
     factor = tracer.alloc_vector(1)
     row_scratch = tracer.alloc_vector(n)
-    A = tracer.alloc_matrix(n, n)
+    A = tracer.alloc_input_matrix(n, n)
+    tracer.mark_output(A, A)
 
     _trace_lu_kernel(tracer, A, pivot_inv, factor, row_scratch, block=None)
     return tracer.result()
@@ -708,9 +780,58 @@ def manual_blocked_lu(n: int = 24, block: int = 4) -> dict[str, object]:
     pivot_inv = tracer.alloc_vector(1)
     factor = tracer.alloc_vector(1)
     row_scratch = tracer.alloc_vector(block)
-    A = tracer.alloc_matrix(n, n)
+    panel = tracer.alloc_matrix(block, block)
+    upper_rhs = tracer.alloc_matrix(block, n)
+    lower_rhs = tracer.alloc_matrix(n, block)
+    A = tracer.alloc_input_matrix(n, n)
+    tracer.mark_output(A, A)
 
-    _trace_lu_kernel(tracer, A, pivot_inv, factor, row_scratch, block=block)
+    for k0 in range(0, n, block):
+        k1 = min(k0 + block, n)
+        b = k1 - k0
+        active_panel = panel.block(0, 0, b, b)
+
+        for i in range(b):
+            for j in range(b):
+                tracer.read(A.addr(k0 + i, k0 + j))
+        _trace_lu_kernel(tracer, active_panel, pivot_inv, factor, row_scratch, block=None)
+
+        if k1 == n:
+            continue
+
+        trailing = n - k1
+        active_upper = upper_rhs.block(0, 0, b, trailing)
+        active_lower = lower_rhs.block(0, 0, trailing, b)
+
+        for i in range(b):
+            for j in range(trailing):
+                tracer.read(A.addr(k0 + i, k1 + j))
+        for i in range(trailing):
+            for j in range(b):
+                tracer.read(A.addr(k1 + i, k0 + j))
+
+        for i in range(b):
+            for j in range(trailing):
+                tracer.read(active_upper.addr(i, j))
+                for k in range(i):
+                    tracer.read(active_panel.addr(i, k))
+                    tracer.read(active_upper.addr(k, j))
+
+        for i in range(trailing):
+            for j in range(b):
+                tracer.read(active_lower.addr(i, j))
+                for k in range(j):
+                    tracer.read(active_lower.addr(i, k))
+                    tracer.read(active_panel.addr(k, j))
+                tracer.read(pivot_inv.addr(0))
+
+        for i in range(trailing):
+            for j in range(trailing):
+                tracer.read(A.addr(k1 + i, k1 + j))
+                for k in range(b):
+                    tracer.read(active_lower.addr(i, k))
+                    tracer.read(active_upper.addr(k, j))
+
     return tracer.result()
 
 
@@ -719,7 +840,8 @@ def manual_recursive_lu(n: int = 24, leaf: int = 6) -> dict[str, object]:
     pivot_inv = tracer.alloc_vector(1)
     factor = tracer.alloc_vector(1)
     row_scratch = tracer.alloc_vector(n)
-    A = tracer.alloc_matrix(n, n)
+    A = tracer.alloc_input_matrix(n, n)
+    tracer.mark_output(A, A)
 
     _trace_recursive_lu(tracer, A, pivot_inv, factor, row_scratch, leaf=leaf)
     return tracer.result()
@@ -729,7 +851,9 @@ def manual_lu_partial_pivot(n: int = 24) -> dict[str, object]:
     tracer = ManualTracer()
     pivot_inv = tracer.alloc_vector(1)
     factor = tracer.alloc_vector(1)
-    A = tracer.alloc_matrix(n, n)
+    A = tracer.alloc_input_matrix(n, n)
+    tracer.alloc_output_vector(n)  # permutation
+    tracer.mark_output(A, A)
     values = make_pivot_matrix(n)
 
     for k in range(n - 1):
@@ -842,7 +966,8 @@ def manual_cholesky(n: int = 24) -> dict[str, object]:
     tracer = ManualTracer()
     diag = tracer.alloc_vector(1)
     dot = tracer.alloc_vector(1)
-    A = tracer.alloc_matrix(n, n)
+    A = tracer.alloc_input_matrix(n, n)
+    tracer.mark_output(A)
 
     _trace_cholesky_kernel(tracer, A, diag, dot, block=None)
     return tracer.result()
@@ -852,7 +977,8 @@ def manual_blocked_cholesky(n: int = 24, block: int = 4) -> dict[str, object]:
     tracer = ManualTracer()
     diag = tracer.alloc_vector(1)
     dot = tracer.alloc_vector(1)
-    A = tracer.alloc_matrix(n, n)
+    A = tracer.alloc_input_matrix(n, n)
+    tracer.mark_output(A)
 
     _trace_cholesky_kernel(tracer, A, diag, dot, block=block)
     return tracer.result()
@@ -862,7 +988,8 @@ def manual_recursive_cholesky(n: int = 24, leaf: int = 6) -> dict[str, object]:
     tracer = ManualTracer()
     diag = tracer.alloc_vector(1)
     dot = tracer.alloc_vector(1)
-    A = tracer.alloc_matrix(n, n)
+    A = tracer.alloc_input_matrix(n, n)
+    tracer.mark_output(A)
 
     _trace_recursive_cholesky(tracer, A, diag, dot, leaf=leaf)
     return tracer.result()
@@ -899,7 +1026,8 @@ def manual_householder_qr(rows: int = 48, cols: int = 12) -> dict[str, object]:
     tracer = ManualTracer()
     v = tracer.alloc_vector(rows)
     tau = tracer.alloc_vector(1)
-    A = tracer.alloc_matrix(rows, cols)
+    A = tracer.alloc_input_matrix(rows, cols)
+    tracer.mark_output(A.block(0, 0, cols, cols))
 
     _trace_householder_qr_region(tracer, A, v, tau, block=None)
     return tracer.result()
@@ -909,9 +1037,41 @@ def manual_blocked_qr(rows: int = 48, cols: int = 12, block: int = 4) -> dict[st
     tracer = ManualTracer()
     v = tracer.alloc_vector(rows)
     tau = tracer.alloc_vector(1)
-    A = tracer.alloc_matrix(rows, cols)
+    A = tracer.alloc_input_matrix(rows, cols)
+    tracer.mark_output(A.block(0, 0, cols, cols))
+    active = min(rows, cols)
 
-    _trace_householder_qr_region(tracer, A, v, tau, block=block)
+    for k0 in range(0, active, block):
+        k1 = min(k0 + block, active)
+
+        for k in range(k0, k1):
+            for i in range(k, rows):
+                tracer.read(A.addr(i, k))
+            for i in range(k, rows):
+                tracer.read(A.addr(i, k))
+
+            for j in range(k, k1):
+                for i in range(k, rows):
+                    tracer.read(v.addr(i - k))
+                    tracer.read(A.addr(i, j))
+                for i in range(k, rows):
+                    tracer.read(tau.addr(0))
+                    tracer.read(v.addr(i - k))
+                    tracer.read(A.addr(i, j))
+
+        for j0 in range(k1, cols, block):
+            j1 = min(j0 + block, cols)
+            for k in range(k0, k1):
+                for j in range(j0, j1):
+                    for i in range(k, rows):
+                        tracer.read(v.addr(i - k))
+                        tracer.read(A.addr(i, j))
+                    tracer.read(tau.addr(0))
+                    for i in range(k, rows):
+                        tracer.read(tau.addr(0))
+                        tracer.read(v.addr(i - k))
+                        tracer.read(A.addr(i, j))
+
     return tracer.result()
 
 
@@ -919,8 +1079,9 @@ def manual_tsqr(rows: int = 48, cols: int = 12, leaf_rows: int = 12) -> dict[str
     tracer = ManualTracer()
     v = tracer.alloc_vector(rows)
     tau = tracer.alloc_vector(1)
-    A = tracer.alloc_matrix(rows, cols)
+    A = tracer.alloc_input_matrix(rows, cols)
     stacked_r = tracer.alloc_matrix(2 * cols, cols)
+    tracer.mark_output(stacked_r.block(0, 0, cols, cols))
 
     def rec(view: MatrixView) -> None:
         if view.rows <= leaf_rows or view.rows <= 2 * view.cols:
@@ -939,8 +1100,8 @@ def manual_tsqr(rows: int = 48, cols: int = 12, leaf_rows: int = 12) -> dict[str
 
 def manual_jacobi(rows: int = 32, cols: int = 32, *, recursive: bool) -> dict[str, object]:
     tracer = ManualTracer()
-    A = tracer.alloc_matrix(rows, cols)
-    tracer.alloc_matrix(rows, cols)
+    A = tracer.alloc_input_matrix(rows, cols)
+    tracer.alloc_output_matrix(rows, cols)
 
     def sweep(r0: int, r1: int, c0: int, c1: int) -> None:
         if recursive and (r1 - r0) > 8 and (c1 - c0) > 8:
@@ -972,12 +1133,12 @@ def manual_regular_attention(n: int = 32, d: int = 4) -> dict[str, object]:
     tracer = ManualTracer()
     row_max = tracer.alloc_vector(1)
     row_sum = tracer.alloc_vector(1)
-    Q = tracer.alloc_matrix(n, d)
-    K = tracer.alloc_matrix(n, d)
-    V = tracer.alloc_matrix(n, d)
+    Q = tracer.alloc_input_matrix(n, d)
+    K = tracer.alloc_input_matrix(n, d)
+    V = tracer.alloc_input_matrix(n, d)
     scores = tracer.alloc_matrix(n, n)
     probs = tracer.alloc_matrix(n, n)
-    tracer.alloc_matrix(n, d)
+    tracer.alloc_output_matrix(n, d)
 
     for i in range(n):
         for j in range(n):
@@ -1011,10 +1172,10 @@ def manual_flash_attention(n: int = 32, d: int = 4, bq: int = 8, bk: int = 4) ->
     max_state = tracer.alloc_vector(n)
     sum_state = tracer.alloc_vector(n)
     out_state = tracer.alloc_matrix(n, d)
-    Q = tracer.alloc_matrix(n, d)
-    K = tracer.alloc_matrix(n, d)
-    V = tracer.alloc_matrix(n, d)
-    tracer.alloc_matrix(n, d)
+    Q = tracer.alloc_input_matrix(n, d)
+    K = tracer.alloc_input_matrix(n, d)
+    V = tracer.alloc_input_matrix(n, d)
+    tracer.alloc_output_matrix(n, d)
 
     num_q_blocks = (n + bq - 1) // bq
     num_kv_blocks = (n + bk - 1) // bk

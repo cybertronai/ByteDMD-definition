@@ -131,6 +131,9 @@ def run_rmm(n: int, tile: int = 4) -> tuple[list[int], dict[str, tuple[int, int]
             recurse(r_a + dr_a, c_a + dc_a, r_b + dr_b, c_b + dc_b, r_c + dr_c, c_c + dc_c, half)
 
     recurse(0, 0, 0, 0, 0, 0, n)
+    for i in range(n):
+        for j in range(n):
+            alloc.read(p_c + i * n + j)
     regions = {
         "scratch": (1, 3 * tile * tile),
         "main_A": (p_a, p_a + n * n - 1),
@@ -225,6 +228,10 @@ def run_fused_strassen(n: int, tile: int = 4) -> tuple[list[int], dict[str, tupl
             scratch.compute_fused_tile(p_a, p_b, p_c, n, ops_a, ops_b, ops_c, r, c, k_off=0)
             accum_ops_c = [(sign, rb, cb, False) for sign, rb, cb, _ in ops_c]
             scratch.compute_fused_tile(p_a, p_b, p_c, n, ops_a, ops_b, accum_ops_c, r, c, k_off=tile)
+
+    for i in range(n):
+        for j in range(n):
+            alloc.read(p_c + i * n + j)
 
     regions = {
         "scratch": (1, 3 * tile * tile),
