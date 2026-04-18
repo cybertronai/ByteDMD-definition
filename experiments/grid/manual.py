@@ -1392,3 +1392,360 @@ def manual_lcs_dp(m: int, n: int) -> int:
             a.write(D + i * stride + j)
     a.read_output()
     return a.cost
+
+
+# ============================================================================
+# Time-skewed stencils
+# ============================================================================
+
+def manual_stencil_time_naive(n: int, T: int = 4) -> int:
+    """T sweeps of 5-point Jacobi. Input A on arg stack; cur/nxt ping-
+    pong on scratch. Each sweep reads cur (bulk) and writes nxt (bulk)."""
+    a = _alloc()
+    A = a.alloc_arg(n * n)
+    cur = a.alloc(n * n); nxt = a.alloc(n * n)
+    a.set_output_range(cur, cur + n * n)
+    for i in range(n * n):
+        a.touch_arg(A + i); a.write(cur + i)
+    for t in range(T):
+        for i in range(1, n - 1):
+            for j in range(1, n - 1):
+                a.touch(cur + i * n + j)
+                a.touch(cur + (i - 1) * n + j)
+                a.touch(cur + (i + 1) * n + j)
+                a.touch(cur + i * n + j - 1)
+                a.touch(cur + i * n + j + 1)
+                a.write(nxt + i * n + j)
+        cur, nxt = nxt, cur
+        a.set_output_range(cur, cur + n * n)
+    a.read_output()
+    return a.cost
+
+
+def manual_stencil_time_diamond(n: int, T: int = 4, block: int = 4) -> int:
+    """Diamond-tiled Jacobi. Per (bi, bj) block with halo T, carry a
+    block-local buffer through T steps before flushing back. Reads of
+    the halo region span O((block + 2T)²) cells per block, all kept in
+    a hot scratchpad during the T steps."""
+    a = _alloc()
+    A = a.alloc_arg(n * n)
+    cur = a.alloc(n * n); out = a.alloc(n * n)
+    bufsz = (block + 2 * T) * (block + 2 * T)
+    buf_cur = a.alloc(bufsz); buf_nxt = a.alloc(bufsz)
+    a.set_output_range(out, out + n * n)
+    for i in range(n * n):
+        a.touch_arg(A + i); a.write(cur + i)
+    for bi in range(0, n, block):
+        for bj in range(0, n, block):
+            rr = max(0, bi - T); cc = max(0, bj - T)
+            rows = min(n, bi + block + T) - rr
+            cols = min(n, bj + block + T) - cc
+            # Load block halo from cur into buf_cur.
+            for ii in range(rows):
+                for jj in range(cols):
+                    a.touch(cur + (rr + ii) * n + (cc + jj))
+                    a.write(buf_cur + ii * (block + 2 * T) + jj)
+            for t in range(T):
+                for ii in range(1, rows - 1):
+                    for jj in range(1, cols - 1):
+                        if (0 < rr + ii < n - 1) and (0 < cc + jj < n - 1):
+                            stride = block + 2 * T
+                            a.touch(buf_cur + ii * stride + jj)
+                            a.touch(buf_cur + (ii - 1) * stride + jj)
+                            a.touch(buf_cur + (ii + 1) * stride + jj)
+                            a.touch(buf_cur + ii * stride + jj - 1)
+                            a.touch(buf_cur + ii * stride + jj + 1)
+                            a.write(buf_nxt + ii * stride + jj)
+                buf_cur, buf_nxt = buf_nxt, buf_cur
+            # Flush the interior back to out.
+            for i in range(bi, min(bi + block, n)):
+                for j in range(bj, min(bj + block, n)):
+                    li = i - rr; lj = j - cc
+                    a.touch(buf_cur + li * (block + 2 * T) + lj)
+                    a.write(out + i * n + j)
+    a.read_output()
+    return a.cost
+
+
+# ============================================================================
+# Floyd-Warshall
+# ============================================================================
+
+def manual_floyd_warshall_naive(V: int) -> int:
+    """Standard 3-loop APSP. Input D₀ preloaded from arg stack to the
+    scratch D (we update in place)."""
+    a = _alloc()
+    M = a.alloc_arg(V * V)
+    D = a.alloc(V * V)
+    a.set_output_range(D, D + V * V)
+    for i in range(V * V):
+        a.touch_arg(M + i); a.write(D + i)
+    for k in range(V):
+        for i in range(V):
+            for j in range(V):
+                a.touch(D + i * V + j)
+                a.touch(D + i * V + k)
+                a.touch(D + k * V + j)
+                a.write(D + i * V + j)
+    a.read_output()
+    return a.cost
+
+
+def manual_floyd_warshall_recursive(V: int) -> int:
+    """Kleene's cache-oblivious APSP: 8 recursive quadrant calls. Reads
+    stay inside the current submatrix when sz is small, giving a
+    rmm-like cache profile."""
+    a = _alloc()
+    M = a.alloc_arg(V * V)
+    D = a.alloc(V * V)
+    a.set_output_range(D, D + V * V)
+    for i in range(V * V):
+        a.touch_arg(M + i); a.write(D + i)
+
+    def leaf(r0: int, c0: int, sz: int) -> None:
+        for k in range(r0, r0 + sz):
+            for i in range(r0, r0 + sz):
+                for j in range(c0, c0 + sz):
+                    a.touch(D + i * V + j)
+                    a.touch(D + i * V + k)
+                    a.touch(D + k * V + j)
+                    a.write(D + i * V + j)
+
+    def rec(r0: int, c0: int, sz: int) -> None:
+        if sz <= 2:
+            leaf(r0, c0, sz); return
+        h = sz // 2
+        for dr, dc in [(0, 0), (0, h), (h, 0), (h, h),
+                       (h, h), (h, 0), (0, h), (0, 0)]:
+            rec(r0 + dr, c0 + dc, h)
+
+    rec(0, 0, V)
+    a.read_output()
+    return a.cost
+
+
+# ============================================================================
+# LayerNorm
+# ============================================================================
+
+def manual_layernorm_unfused(N: int) -> int:
+    """Three-pass LayerNorm. x on arg; s/v/mean/inv_std scalars and y
+    output on scratch. Each of the 3 passes reads the full x vector."""
+    a = _alloc()
+    x = a.alloc_arg(N)
+    s = a.alloc(1); v = a.alloc(1); mean = a.alloc(1); inv_std = a.alloc(1)
+    tmp = a.alloc(1)
+    y = a.alloc(N)
+    a.set_output_range(y, y + N)
+    # Pass 1: mean
+    a.touch_arg(x + 0); a.write(s)
+    for i in range(1, N):
+        a.touch_arg(x + i); a.touch(s); a.write(s)
+    a.touch(s); a.write(mean)
+    # Pass 2: variance
+    a.touch_arg(x + 0); a.touch(mean); a.touch(tmp); a.write(v)
+    for i in range(1, N):
+        a.touch_arg(x + i); a.touch(mean)
+        a.touch(tmp); a.touch(v); a.write(v)
+    a.touch(v); a.write(inv_std)
+    # Pass 3: y[i] = (x[i] - mean) * inv_std
+    for i in range(N):
+        a.touch_arg(x + i); a.touch(mean); a.touch(inv_std)
+        a.write(y + i)
+    a.read_output()
+    return a.cost
+
+
+def manual_layernorm_fused(N: int) -> int:
+    """Welford's online mean+variance in a single pass, then a second
+    pass to normalize. x on arg; running scalars mu, m2 at addr 1-2 so
+    they're cache-top across all N updates."""
+    a = _alloc()
+    x = a.alloc_arg(N)
+    mu = a.alloc(1); m2 = a.alloc(1); inv_std = a.alloc(1)
+    delta = a.alloc(1); delta2 = a.alloc(1)
+    y = a.alloc(N)
+    a.set_output_range(y, y + N)
+    # Init from x[0]
+    a.touch_arg(x + 0); a.write(mu)
+    a.touch_arg(x + 0); a.write(m2)
+    # Welford sweep
+    for i in range(1, N):
+        a.touch_arg(x + i); a.touch(mu); a.write(delta)
+        a.touch(mu); a.touch(delta); a.write(mu)
+        a.touch_arg(x + i); a.touch(mu); a.write(delta2)
+        a.touch(m2); a.touch(delta); a.touch(delta2); a.write(m2)
+    a.touch(m2); a.write(inv_std)
+    # Normalize sweep
+    for i in range(N):
+        a.touch_arg(x + i); a.touch(mu); a.touch(inv_std)
+        a.write(y + i)
+    a.read_output()
+    return a.cost
+
+
+# ============================================================================
+# Matrix Powers Kernel
+# ============================================================================
+
+def manual_matrix_powers_naive(n: int, s: int = 4) -> int:
+    """Run matvec s times naively. A, x on arg; cur/nxt vectors ping-pong
+    on scratch. A is re-read in full for each of the s steps."""
+    a = _alloc()
+    A = a.alloc_arg(n * n); x0 = a.alloc_arg(n)
+    cur = a.alloc(n); nxt = a.alloc(n); acc = a.alloc(1); tmp = a.alloc(1)
+    a.set_output_range(cur, cur + n)
+    for i in range(n):
+        a.touch_arg(x0 + i); a.write(cur + i)
+    for step in range(s):
+        for i in range(n):
+            a.touch_arg(A + i * n + 0); a.touch(cur + 0); a.write(acc)
+            for j in range(1, n):
+                a.touch_arg(A + i * n + j); a.touch(cur + j)
+                a.touch(acc); a.touch(tmp); a.write(acc)
+            a.touch(acc); a.write(nxt + i)
+        # swap cur <- nxt for next step
+        for i in range(n):
+            a.touch(nxt + i); a.write(cur + i)
+        a.set_output_range(cur, cur + n)
+    a.read_output()
+    return a.cost
+
+
+def manual_matrix_powers_ca(n: int, s: int = 4, block: int = 4) -> int:
+    """Communication-avoiding s-step: for each row-block of A, compute
+    its contribution to all output-vector positions across steps locally
+    before moving on. A is read once per (block, step) instead of once
+    per step. The CA win under two-stack is bounded because A already
+    lives on the arg stack — but the heuristics should still pick up
+    the reduced re-read count."""
+    a = _alloc()
+    A = a.alloc_arg(n * n); x0 = a.alloc_arg(n)
+    cur = a.alloc(n); nxt = a.alloc(n); acc = a.alloc(1); tmp = a.alloc(1)
+    a.set_output_range(cur, cur + n)
+    for i in range(n):
+        a.touch_arg(x0 + i); a.write(cur + i)
+    for step in range(s):
+        for bi in range(0, n, block):
+            for i in range(bi, min(bi + block, n)):
+                a.touch_arg(A + i * n + 0); a.touch(cur + 0); a.write(acc)
+                for j in range(1, n):
+                    a.touch_arg(A + i * n + j); a.touch(cur + j)
+                    a.touch(acc); a.touch(tmp); a.write(acc)
+                a.touch(acc); a.write(nxt + i)
+        for i in range(n):
+            a.touch(nxt + i); a.write(cur + i)
+        a.set_output_range(cur, cur + n)
+    a.read_output()
+    return a.cost
+
+
+# ============================================================================
+# Left-looking Cholesky
+# ============================================================================
+
+def manual_cholesky_left_looking(n: int) -> int:
+    """Left-looking Cholesky: for column k, pull data from all previously-
+    factored columns 0..k-1 (far-flung reads into L[i][k]), then finalize
+    column k locally (concentrated writes). Input A preloaded to scratch."""
+    a = _alloc()
+    A_in = a.alloc_arg(n * n)
+    L = a.alloc(n * n)
+    a.set_output_range(L, L + n * n)
+    for i in range(n * n):
+        a.touch_arg(A_in + i); a.write(L + i)
+    for k in range(n):
+        for i in range(k, n):
+            for j in range(k):
+                a.touch(L + i * n + k)
+                a.touch(L + i * n + j)
+                a.touch(L + k * n + j)
+                a.write(L + i * n + k)
+        a.touch(L + k * n + k); a.write(L + k * n + k)
+        for i in range(k + 1, n):
+            a.touch(L + i * n + k); a.touch(L + k * n + k)
+            a.write(L + i * n + k)
+    a.read_output()
+    return a.cost
+
+
+# ============================================================================
+# Sparse matvec (CSR)
+# ============================================================================
+
+def _manual_spmv(n: int, row_ptr, col_ind) -> int:
+    """Shared manual driver for CSR spmv: vals and x on arg stack,
+    y output and accumulator on scratch. row_ptr/col_ind are compile-
+    time integers — they don't incur memory cost (i.e., they're fused
+    into the instruction stream)."""
+    a = _alloc()
+    vals = a.alloc_arg(len(col_ind)); x = a.alloc_arg(n)
+    acc = a.alloc(1); tmp = a.alloc(1)
+    y = a.alloc(n)
+    a.set_output_range(y, y + n)
+    for i in range(n):
+        start = row_ptr[i]; end = row_ptr[i + 1]
+        if start == end:
+            a.touch_arg(x + 0); a.write(y + i)
+            continue
+        a.touch_arg(vals + start); a.touch_arg(x + col_ind[start])
+        a.write(acc)
+        for k in range(start + 1, end):
+            a.touch_arg(vals + k); a.touch_arg(x + col_ind[k])
+            a.touch(acc); a.touch(tmp); a.write(acc)
+        a.touch(acc); a.write(y + i)
+    a.read_output()
+    return a.cost
+
+
+def manual_spmv_csr_banded(n: int, bandwidth: int = 3) -> int:
+    row_ptr, col_ind = [0], []
+    total = 0
+    for i in range(n):
+        for j in range(max(0, i - bandwidth), min(n, i + bandwidth + 1)):
+            col_ind.append(j); total += 1
+        row_ptr.append(total)
+    return _manual_spmv(n, row_ptr, col_ind)
+
+
+def manual_spmv_csr_random(n: int, nnz_per_row: int = 7,
+                           seed: int = 0xC0FFEE) -> int:
+    import random
+    rng = random.Random(seed)
+    row_ptr, col_ind = [0], []
+    total = 0
+    for i in range(n):
+        cols = sorted(rng.sample(range(n), min(nnz_per_row, n)))
+        for j in cols:
+            col_ind.append(j); total += 1
+        row_ptr.append(total)
+    return _manual_spmv(n, row_ptr, col_ind)
+
+
+# ============================================================================
+# Bitonic sort (data-oblivious network)
+# ============================================================================
+
+def manual_bitonic_sort(N: int) -> int:
+    """Sorting network: input arr preloaded from arg stack to scratch.
+    For each (k, j), every pair (i, i^j) with l=i^j > i is read together
+    and written back — same butterfly pattern as iterative FFT."""
+    a = _alloc()
+    arr_in = a.alloc_arg(N)
+    arr = a.alloc(N)
+    a.set_output_range(arr, arr + N)
+    for i in range(N):
+        a.touch_arg(arr_in + i); a.write(arr + i)
+    k = 2
+    while k <= N:
+        j = k // 2
+        while j > 0:
+            for i in range(N):
+                l = i ^ j
+                if l > i:
+                    a.touch(arr + i); a.touch(arr + l)
+                    a.write(arr + i); a.write(arr + l)
+            j //= 2
+        k *= 2
+    a.read_output()
+    return a.cost

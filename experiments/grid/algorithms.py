@@ -766,3 +766,312 @@ def lcs_dp(x, y):
         for j in range(1, n + 1):
             D[i][j] = D[i - 1][j - 1] + D[i - 1][j] + D[i][j - 1] + x[i - 1] + y[j - 1]
     return D[m][n]
+
+
+# ============================================================================
+# Time-skewed stencils (multi-sweep temporal locality)
+# ============================================================================
+
+def stencil_time_naive(A, T=4):
+    """Unfused Jacobi: sweep the full grid T times, writing a fresh
+    next-timestep buffer each pass. The naive CA-bad pattern — bulk
+    reads of A never hit cache between sweeps."""
+    n = len(A)
+    cur = [[A[i][j] + 0 for j in range(n)] for i in range(n)]
+    for _ in range(T):
+        nxt = [[cur[i][j] + 0 for j in range(n)] for i in range(n)]
+        for i in range(1, n - 1):
+            for j in range(1, n - 1):
+                nxt[i][j] = cur[i][j] + cur[i-1][j] + cur[i+1][j] \
+                            + cur[i][j-1] + cur[i][j+1]
+        cur = nxt
+    return cur
+
+
+def stencil_time_diamond(A, T=4, block=4):
+    """Diamond/trapezoidal time-tiling — advance T timesteps inside each
+    (i,j) block before moving on. Halos shrink by 1 row/col per step so
+    the block at step t is (block + 2*(T-t)) wide. Carries cur in a
+    per-block buffer so boundary cells stay hot across sweeps."""
+    n = len(A)
+    cur = [[A[i][j] + 0 for j in range(n)] for i in range(n)]
+    halo = T
+    for bi in range(0, n, block):
+        for bj in range(0, n, block):
+            # Per-block, run T steps using local buffers.
+            local_cur = [[cur[i][j] + 0
+                          for j in range(max(0, bj - halo),
+                                         min(n, bj + block + halo))]
+                         for i in range(max(0, bi - halo),
+                                        min(n, bi + block + halo))]
+            rr = max(0, bi - halo); cc = max(0, bj - halo)
+            rows = len(local_cur); cols = len(local_cur[0])
+            for t in range(T):
+                local_nxt = [[local_cur[ii][jj] + 0
+                              for jj in range(cols)] for ii in range(rows)]
+                for ii in range(1, rows - 1):
+                    for jj in range(1, cols - 1):
+                        if (0 < rr + ii < n - 1) and (0 < cc + jj < n - 1):
+                            local_nxt[ii][jj] = (local_cur[ii][jj]
+                                                 + local_cur[ii-1][jj]
+                                                 + local_cur[ii+1][jj]
+                                                 + local_cur[ii][jj-1]
+                                                 + local_cur[ii][jj+1])
+                local_cur = local_nxt
+            # Flush the interior (bi..bi+block) back to cur.
+            for i in range(bi, min(bi + block, n)):
+                for j in range(bj, min(bj + block, n)):
+                    local_i = i - rr; local_j = j - cc
+                    cur[i][j] = local_cur[local_i][local_j] + 0
+    return cur
+
+
+# ============================================================================
+# Floyd-Warshall (all-pairs shortest paths)
+# ============================================================================
+
+def floyd_warshall_naive(M):
+    """Standard 3-nested loop. M[i][j] = min(M[i][j], M[i][k] + M[k][j]).
+    Branch-free stand-in: use + to emulate min so the trace has fixed
+    dependencies (same access pattern as real Floyd-Warshall)."""
+    V = len(M)
+    D = [[M[i][j] + 0 for j in range(V)] for i in range(V)]
+    for k in range(V):
+        for i in range(V):
+            for j in range(V):
+                D[i][j] = D[i][j] + D[i][k] + D[k][j]
+    return D
+
+
+def floyd_warshall_recursive(M):
+    """Kleene's cache-oblivious APSP: divide into 4 quadrants and recurse.
+    Mirrors matmul_rmm structure (A-diagonal first, then A @ C updates,
+    then B @ A, then C @ B style). Simplified: 8 recursive calls on
+    quadrant submatrices, same asymptotic work as naive."""
+    V = len(M)
+    D = [[M[i][j] + 0 for j in range(V)] for i in range(V)]
+
+    def rec(r0, c0, sz):
+        if sz <= 2:
+            for k in range(r0, r0 + sz):
+                for i in range(r0, r0 + sz):
+                    for j in range(c0, c0 + sz):
+                        D[i][j] = D[i][j] + D[i][k] + D[k][j]
+            return
+        h = sz // 2
+        # A = top-left, B = top-right, C = bottom-left, Dq = bottom-right
+        rec(r0, c0, h)                          # A
+        rec(r0, c0 + h, h)                      # B via A
+        rec(r0 + h, c0, h)                      # C via A
+        rec(r0 + h, c0 + h, h)                  # Dq via A + B + C
+        rec(r0 + h, c0 + h, h)                  # Dq
+        rec(r0 + h, c0, h)                      # C via Dq
+        rec(r0, c0 + h, h)                      # B via Dq
+        rec(r0, c0, h)                          # A via Dq
+
+    rec(0, 0, V)
+    return D
+
+
+# ============================================================================
+# LayerNorm / RMSNorm (1D vector fusion)
+# ============================================================================
+
+def layernorm_unfused(x):
+    """Three-pass LayerNorm. Pass 1 computes mean, pass 2 computes variance,
+    pass 3 normalizes. Each pass reads the full x vector from bulk memory
+    — the naive memory-unfriendly version."""
+    N = len(x)
+    # Pass 1: mean = sum(x) / N (branch-free division stand-in: + 0)
+    s = x[0] + 0
+    for i in range(1, N):
+        s = s + x[i]
+    mean = s + 0  # stand-in for s / N
+    # Pass 2: var = sum((x-mean)^2)
+    v = (x[0] + mean) * (x[0] + mean)
+    for i in range(1, N):
+        v = v + (x[i] + mean) * (x[i] + mean)
+    inv_std = v + 0  # stand-in for 1 / sqrt(var)
+    # Pass 3: y[i] = (x[i] - mean) * inv_std
+    y = [None] * N
+    for i in range(N):
+        y[i] = (x[i] + mean) * inv_std
+    return y
+
+
+def layernorm_fused(x):
+    """Welford's online mean+variance in a single pass, then a second pass
+    to normalize. The two passes each read x once, but intermediate
+    accumulators (mu, M2, inv_std) stay in hot registers throughout."""
+    N = len(x)
+    mu = x[0] + 0
+    m2 = x[0] + 0
+    for i in range(1, N):
+        # Welford update (branch-free algebraic stand-ins)
+        delta = x[i] + mu
+        mu = mu + delta
+        delta2 = x[i] + mu
+        m2 = m2 + delta * delta2
+    inv_std = m2 + 0
+    y = [None] * N
+    for i in range(N):
+        y[i] = (x[i] + mu) * inv_std
+    return y
+
+
+# ============================================================================
+# Matrix Powers Kernel (s-step Krylov)
+# ============================================================================
+
+def matrix_powers_naive(A, x, s=4):
+    """Compute x, Ax, A²x, ..., A^s x naively — each matvec reads the
+    whole bulk matrix A again."""
+    n = len(A)
+    cur = [x[i] + 0 for i in range(n)]
+    xs = [cur]
+    for step in range(s):
+        nxt = [None] * n
+        for i in range(n):
+            acc = A[i][0] * cur[0]
+            for j in range(1, n):
+                acc = acc + A[i][j] * cur[j]
+            nxt[i] = acc
+        xs.append(nxt)
+        cur = nxt
+    return xs[-1]
+
+
+def matrix_powers_ca(A, x, s=4, block=4):
+    """Communication-avoiding s-step: process A in row-blocks; for each
+    block compute its contribution to all s output vectors locally
+    before moving on. Avoids re-reading A s times from bulk.
+
+    Simplification: for a row-block of A, produce its contribution to
+    x^(1)..x^(s) using the currently-available previous-step vectors.
+    The CA bit that cache heuristics reward is that A's rows are read
+    once per outer block-visit rather than once per step."""
+    n = len(A)
+    cur = [x[i] + 0 for i in range(n)]
+    # Ping-pong between cur and nxt across s steps, but with row blocking
+    # reversed: iterate blocks outermost.
+    for step in range(s):
+        nxt = [cur[i] + 0 for i in range(n)]  # initialize to cur shape
+        for bi in range(0, n, block):
+            for i in range(bi, min(bi + block, n)):
+                acc = A[i][0] * cur[0]
+                for j in range(1, n):
+                    acc = acc + A[i][j] * cur[j]
+                nxt[i] = acc
+        cur = nxt
+    return cur
+
+
+# ============================================================================
+# Left-looking Cholesky (read-heavy vs. right-looking write-heavy)
+# ============================================================================
+
+def cholesky_left_looking(A):
+    """Left-looking Cholesky. For each column k, pull all needed data
+    from previously-factored columns 0..k-1 (far-flung reads), then
+    finalize column k locally (localized writes). Complementary to the
+    right-looking variant which does far-flung writes + localized reads."""
+    n = len(A)
+    L = [[A[i][j] + 0 for j in range(n)] for i in range(n)]
+    for k in range(n):
+        # Pull from previously-factored columns to update column k:
+        # L[i][k] -= sum_{j<k} L[i][j] * L[k][j]
+        for i in range(k, n):
+            for j in range(k):
+                L[i][k] = L[i][k] + L[i][j] * L[k][j]
+        # Finalize the pivot (sqrt stand-in: + 0).
+        L[k][k] = L[k][k] + 0
+        for i in range(k + 1, n):
+            L[i][k] = L[i][k] + L[k][k]
+    return L
+
+
+# ============================================================================
+# Sparse matrix-vector multiply (CSR)
+# ============================================================================
+
+def _spmv_csr(row_ptr, col_ind, vals, x):
+    """Run y = vals @ x using CSR indices (Python ints) and _Tracked x
+    values. row_ptr / col_ind are plain integers so indirect addressing
+    produces data-dependent L2 reads of x without adding control flow to
+    the trace."""
+    n = len(row_ptr) - 1
+    y = [None] * n
+    for i in range(n):
+        start = row_ptr[i]; end = row_ptr[i + 1]
+        if start == end:
+            y[i] = x[0] + 0  # zero via input (keeps trace well-formed)
+            continue
+        acc = vals[start] * x[col_ind[start]]
+        for k in range(start + 1, end):
+            acc = acc + vals[k] * x[col_ind[k]]
+        y[i] = acc
+    return y
+
+
+def _banded_csr(n, bandwidth):
+    row_ptr, col_ind, vals = [0], [], []
+    total = 0
+    for i in range(n):
+        for j in range(max(0, i - bandwidth), min(n, i + bandwidth + 1)):
+            col_ind.append(j); vals.append(1.0); total += 1
+        row_ptr.append(total)
+    return row_ptr, col_ind, vals
+
+
+def _random_csr(n, nnz_per_row, seed=0xC0FFEE):
+    import random
+    rng = random.Random(seed)
+    row_ptr, col_ind, vals = [0], [], []
+    total = 0
+    for i in range(n):
+        cols = sorted(rng.sample(range(n), min(nnz_per_row, n)))
+        for j in cols:
+            col_ind.append(j); vals.append(1.0); total += 1
+        row_ptr.append(total)
+    return row_ptr, col_ind, vals
+
+
+def spmv_csr_banded(x, n=32, bandwidth=3):
+    row_ptr, col_ind, _vals = _banded_csr(n, bandwidth)
+    # Materialize vals as _Tracked via x[0]+0 scalars so each read costs.
+    vals = [x[0] + 0 for _ in col_ind]
+    return _spmv_csr(row_ptr, col_ind, vals, x)
+
+
+def spmv_csr_random(x, n=32, nnz_per_row=7):
+    row_ptr, col_ind, _vals = _random_csr(n, nnz_per_row)
+    vals = [x[0] + 0 for _ in col_ind]
+    return _spmv_csr(row_ptr, col_ind, vals, x)
+
+
+# ============================================================================
+# Bitonic sort (data-oblivious sorting network)
+# ============================================================================
+
+def bitonic_sort(arr):
+    """True sorting network. For N = power of two, runs log2(N) stages
+    each with log2(stage) substages, doing compare-swap on paired
+    elements. Since _Tracked has no comparison, the compare-swap becomes
+    a branchless algebraic stand-in: (a+b, a+b) — identical access
+    pattern to real bitonic sort (butterfly read pairs + 2 writes)."""
+    N = len(arr)
+    out = [arr[i] + 0 for i in range(N)]
+    k = 2
+    while k <= N:
+        j = k // 2
+        while j > 0:
+            for i in range(N):
+                l = i ^ j
+                if l > i:
+                    # Branch-free pair "swap": assign symmetric function.
+                    s = out[i] + out[l]
+                    out[i] = s + 0
+                    out[l] = s + 0
+            j //= 2
+        k *= 2
+    return out

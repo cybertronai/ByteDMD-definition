@@ -1,6 +1,6 @@
 # grid — heuristics × algorithms
 
-Cache-energy estimates across 19 algorithms with contrasting locality
+Cache-energy estimates across 45 algorithms with contrasting locality
 profiles. For each algorithm we compute three costs under the same 2D
 Manhattan-distance cache model: a trace-based **lower-envelope** heuristic
 (`bytedmd_live`), a hand-placed bump-pointer schedule (`manual` — the gold
@@ -57,38 +57,53 @@ DAGs are identical, so `bytedmd_live` / `bytedmd_classic` match — only
 
 ## Summary table
 
-| algorithm                                                             | space_dmd | bytedmd_live | manual      | bytedmd_classic |
+| algorithm                                                            | space_dmd | bytedmd_live | manual      | bytedmd_classic |
 |-----------------------------------------------------------------------|----------:|-------------:|------------:|----------------:|
-| [naive_matmul(n=16)](#naive_matmul)                                   |    89,410 |      107,675 |     128,304 |         178,716 |
-| [tiled_matmul(n=16)](#tiled_matmul)                                   |    98,206 |       74,560 |      86,030 |         143,280 |
-| [tiled_matmul_explicit(n=16,T=4)](#tiled_matmul_explicit)             |    71,731 |       97,486 |      86,030 |         203,220 |
-| [rmm(n=16)](#rmm)                                                     |   108,075 |       80,716 |      95,222 |         154,251 |
-| [naive_strassen(n=16)](#naive_strassen)                               |   131,673 |      173,919 |     282,382 |         353,901 |
-| [fused_strassen(n=16)](#fused_strassen)                               |   131,673 |      173,919 |     140,526 |         353,901 |
-| [naive_attn(N=32,d=2)](#naive_attn)                                   |   136,933 |      145,972 |     242,843 |         286,197 |
-| [flash_attn(N=32,d=2,Bk=8)](#flash_attn)                              |    83,163 |       97,856 |     137,184 |         167,803 |
-| [matvec_row(n=64)](#matvec_row)                                       |    72,775 |      229,199 |     238,853 |         450,939 |
-| [matvec_col(n=64)](#matvec_col)                                       |    88,673 |      177,873 |     212,776 |         433,535 |
-| [matvec_blocked(n=64,B=4)](#matvec_blocked)                           |    64,864 |      212,861 |     219,732 |         451,847 |
-| [fft_iterative(N=256)](#fft_iterative)                                |    29,324 |       44,212 |      25,528 |          68,311 |
-| [fft_recursive(N=256)](#fft_recursive)                                |    22,876 |       30,012 |     103,290 |          63,195 |
-| [stencil_naive(32x32)](#stencil_naive)                                |    30,271 |       44,468 |      99,276 |          92,817 |
-| [stencil_recursive(32x32,leaf=8)](#stencil_recursive)                 |    26,810 |       37,737 |      99,276 |          85,079 |
-| [spatial_conv(32x32,K=5)](#spatial_conv)                              |   330,072 |      373,936 |     527,312 |         678,749 |
-| [regular_conv(16x16,K=3,Cin=4,Cout=4)](#regular_conv)                 |   749,043 |      762,860 |     963,512 |       1,289,844 |
-| [fft_conv(N=256)](#fft_conv)                                          |   102,834 |      148,320 |     138,238 |         243,230 |
-| [quicksort(N=64)](#quicksort)                                         |     2,056 |        2,382 |       3,974 |           3,661 |
-| [heapsort(N=64)](#heapsort)                                           |     3,266 |        4,548 |       4,779 |           7,164 |
-| [mergesort(N=64)](#mergesort)                                         |     1,849 |        2,691 |       8,416 |           4,344 |
-| [lcs_dp(32x32)](#lcs_dp)                                              |    27,506 |       30,253 |      85,929 |          47,066 |
-| [lu_no_pivot(n=32)](#lu_no_pivot)                                     |   333,962 |      386,558 |     706,548 |         636,149 |
-| [blocked_lu(n=32,NB=8)](#blocked_lu)                                  |   250,160 |      257,195 |     821,347 |         482,405 |
-| [recursive_lu(n=32)](#recursive_lu)                                   |   335,996 |      278,434 |     705,856 |         531,521 |
-| [lu_partial_pivot(n=32)](#lu_partial_pivot)                           |   338,796 |      400,190 |     748,712 |         659,733 |
-| [cholesky(n=32)](#cholesky)                                           |   101,604 |      154,263 |     449,296 |         251,196 |
-| [householder_qr(32x32)](#householder_qr)                              |   682,524 |      580,208 |   1,101,368 |       1,034,689 |
-| [blocked_qr(32x32,NB=8)](#blocked_qr)                                 |   559,273 |      580,929 |   1,130,424 |       1,032,323 |
-| [tsqr(64x16,br=8)](#tsqr)                                             |   324,512 |      247,874 |     684,862 |         523,708 |
+| [naive_matmul(n=16)](#naive_matmul)                                   |    79,044 |      109,217 |     130,824 |         181,258 |
+| [tiled_matmul(n=16)](#tiled_matmul)                                   |    93,369 |       78,708 |      82,520 |         143,812 |
+| [tiled_matmul_explicit(n=16,T=4)](#tiled_matmul_explicit)             |    73,927 |       99,006 |      82,520 |         201,547 |
+| [rmm(n=16)](#rmm)                                                     |   107,058 |       83,196 |      93,291 |         151,375 |
+| [naive_strassen(n=16)](#naive_strassen)                               |   135,273 |      175,157 |     231,112 |         343,737 |
+| [fused_strassen(n=16)](#fused_strassen)                               |   135,273 |      175,157 |     121,612 |         343,737 |
+| [naive_attn(N=32,d=2)](#naive_attn)                                   |   127,674 |      144,851 |     215,538 |         281,164 |
+| [flash_attn(N=32,d=2,Bk=8)](#flash_attn)                              |    75,992 |       98,273 |     127,782 |         167,393 |
+| [matvec_row(n=64)](#matvec_row)                                       |   217,053 |      229,527 |     455,587 |         266,353 |
+| [matvec_col(n=64)](#matvec_col)                                       |   197,719 |      229,716 |     209,312 |         270,193 |
+| [matvec_blocked(n=64,B=4)](#matvec_blocked)                           |   208,307 |      215,668 |     275,535 |         256,422 |
+| [fft_iterative(N=256)](#fft_iterative)                                |    35,400 |       47,088 |      31,240 |          71,317 |
+| [fft_recursive(N=256)](#fft_recursive)                                |    28,170 |       33,110 |     109,002 |          62,417 |
+| [stencil_naive(32x32)](#stencil_naive)                                |    61,258 |       65,937 |     121,628 |         109,401 |
+| [stencil_recursive(32x32,leaf=8)](#stencil_recursive)                 |    54,599 |       58,764 |     121,628 |         101,657 |
+| [spatial_conv(32x32,K=5)](#spatial_conv)                              |   344,389 |      402,858 |     537,944 |         681,253 |
+| [regular_conv(16x16,K=3,Cin=4,Cout=4)](#regular_conv)                 |   724,678 |      778,473 |     975,610 |       1,290,500 |
+| [fft_conv(N=256)](#fft_conv)                                          |   110,194 |      148,641 |     152,812 |         233,158 |
+| [quicksort(N=64)](#quicksort)                                         |     2,470 |        2,852 |       4,718 |           4,292 |
+| [heapsort(N=64)](#heapsort)                                           |     3,597 |        4,696 |       5,523 |           7,889 |
+| [mergesort(N=64)](#mergesort)                                         |     2,474 |        3,148 |       9,160 |           4,411 |
+| [lcs_dp(32x32)](#lcs_dp)                                              |    23,497 |       29,980 |      80,940 |          44,575 |
+| [lu_no_pivot(n=32)](#lu_no_pivot)                                     |   482,123 |      407,042 |     751,252 |         705,126 |
+| [blocked_lu(n=32,NB=8)](#blocked_lu)                                  |   365,960 |      283,294 |     870,705 |         515,134 |
+| [recursive_lu(n=32)](#recursive_lu)                                   |   398,310 |      304,365 |     750,560 |         546,679 |
+| [lu_partial_pivot(n=32)](#lu_partial_pivot)                           |   510,278 |      420,780 |     793,416 |         730,673 |
+| [cholesky(n=32)](#cholesky)                                           |   176,488 |      176,313 |     494,000 |         293,328 |
+| [householder_qr(32x32)](#householder_qr)                              |   781,325 |      605,876 |   1,146,072 |       1,131,740 |
+| [blocked_qr(32x32,NB=8)](#blocked_qr)                                 |   549,811 |      610,248 |   1,175,373 |       1,068,832 |
+| [tsqr(64x16,br=8)](#tsqr)                                             |   380,689 |      267,962 |     729,566 |         546,266 |
+| [transpose_naive(n=32)](#transpose_naive)                             |    44,704 |       44,704 |      44,704 |          62,799 |
+| [transpose_blocked(n=32)](#transpose_blocked)                         |    43,296 |       43,873 |      44,704 |          62,341 |
+| [transpose_recursive(n=32)](#transpose_recursive)                     |    41,434 |       42,513 |      44,704 |          61,688 |
+| [stencil_time_naive(16x16,T=4)](#stencil_time_naive)                  |    42,332 |       55,466 |      67,258 |          88,017 |
+| [stencil_time_diamond(16x16,T=4)](#stencil_time_diamond)              |   178,875 |      230,387 |     562,290 |         414,232 |
+| [floyd_warshall_naive(V=16)](#floyd_warshall_naive)                   |    82,119 |      104,528 |     142,800 |         168,288 |
+| [floyd_warshall_recursive(V=16)](#floyd_warshall_recursive)           |    48,445 |       47,495 |     142,288 |          95,871 |
+| [layernorm_unfused(N=256)](#layernorm_unfused)                        |    16,823 |       19,022 |      14,571 |          30,891 |
+| [layernorm_fused(N=256)](#layernorm_fused)                            |    13,485 |       15,172 |      15,329 |          24,400 |
+| [matrix_powers_naive(n=16,s=4)](#matrix_powers_naive)                 |    17,249 |       24,085 |      27,198 |          37,513 |
+| [matrix_powers_ca(n=16,s=4)](#matrix_powers_ca)                       |    17,467 |       24,377 |      27,198 |          38,702 |
+| [cholesky_left_looking(n=32)](#cholesky_left_looking)                 |   212,125 |      190,103 |     494,000 |         352,335 |
+| [spmv_csr_banded(n=32,bw=3)](#spmv_csr_banded)                        |     2,318 |        4,219 |       6,190 |           7,164 |
+| [spmv_csr_random(n=32,nnz=7)](#spmv_csr_random)                       |     3,158 |        4,984 |       6,676 |           8,649 |
+| [bitonic_sort(N=64)](#bitonic_sort)                                   |     8,512 |       13,418 |       8,556 |          20,363 |
 
 ## Run
 
@@ -907,3 +922,259 @@ the tall-skinny shape makes each local QR dominate less.
 **Reuse distance per load** (max = 1,024).
 
 ![](traces/tsqr_64x16_br_8_reuse_distance.png)
+
+## transpose_naive
+`n=32`. **Algorithm.** `B[i][j] = A[j][i]` read column-major. The cache-thrashing baseline — every A-read jumps by `n` bytes.
+
+**Manual placement.** A on arg stack, B on scratch; the per-cell arg-read cost dominates.
+
+![](traces/transpose_naive_n_32.png)
+
+**Working-set size over time** (peak = 1,024).
+
+![](traces/transpose_naive_n_32_liveset.png)
+
+**Reuse distance per load** (max = 1,024).
+
+![](traces/transpose_naive_n_32_reuse_distance.png)
+
+---
+
+## transpose_blocked
+`n=32, T=√n`. **Algorithm.** Blocked iteration over A — same reads as naive in block-major order.
+
+**Manual** matches naive layout; the heuristics reward the locality-friendly order only where LRU recency and density ranking can catch it.
+
+![](traces/transpose_blocked_n_32.png)
+
+**Working-set size over time** (peak = 1,024).
+
+![](traces/transpose_blocked_n_32_liveset.png)
+
+**Reuse distance per load** (max = 1,024).
+
+![](traces/transpose_blocked_n_32_reuse_distance.png)
+
+---
+
+## transpose_recursive
+`n=32`. **Algorithm.** Cache-oblivious recursive transpose — split into 4 quadrants until `sz=1`.
+
+**Manual** again matches the same fixed A/B addresses; heuristic difference comes from the quadrant traversal order.
+
+![](traces/transpose_recursive_n_32.png)
+
+**Working-set size over time** (peak = 1,024).
+
+![](traces/transpose_recursive_n_32_liveset.png)
+
+**Reuse distance per load** (max = 1,024).
+
+![](traces/transpose_recursive_n_32_reuse_distance.png)
+
+---
+
+## stencil_time_naive
+`n=16, T=4`. **Algorithm.** 4 full Jacobi sweeps, each reading the current grid and writing a fresh next-timestep buffer — naive communication-avoiding baseline.
+
+**Manual.** Input A preloaded to scratch `cur`, ping-pong with `nxt`. Every cell is re-touched T times from bulk scratch.
+
+![](traces/stencil_time_naive_16x16_t_4.png)
+
+**Working-set size over time** (peak = 312).
+
+![](traces/stencil_time_naive_16x16_t_4_liveset.png)
+
+**Reuse distance per load** (max = 312).
+
+![](traces/stencil_time_naive_16x16_t_4_reuse_distance.png)
+
+---
+
+## stencil_time_diamond
+`n=16, T=4, block=4`. **Algorithm.** Diamond tiling: per (bi,bj) block, load a halo-expanded region into a hot scratchpad and run all T steps locally before flushing.
+
+**Manual.** Reads are concentrated in the per-block buffer (low scratch addrs) for T steps, at the cost of O(block+2T)² redundant halo loads per block. On this small `n=16` grid the redundancy dominates — diamond is *more* expensive than naive, a known regime.
+
+![](traces/stencil_time_diamond_16x16_t_4.png)
+
+**Working-set size over time** (peak = 424).
+
+![](traces/stencil_time_diamond_16x16_t_4_liveset.png)
+
+**Reuse distance per load** (max = 383).
+
+![](traces/stencil_time_diamond_16x16_t_4_reuse_distance.png)
+
+---
+
+## floyd_warshall_naive
+`V=16`. **Algorithm.** Standard 3-nested loop APSP: `D[i][j] = min(D[i][j], D[i][k] + D[k][j])` with branch-free stand-ins.
+
+**Manual.** Input graph preloaded to `D` on scratch; each (k,i,j) does 3 D-reads + 1 D-write — same access shape as naive matmul but with in-place update into D.
+
+![](traces/floyd_warshall_naive_v_16.png)
+
+**Working-set size over time** (peak = 257).
+
+![](traces/floyd_warshall_naive_v_16_liveset.png)
+
+**Reuse distance per load** (max = 256).
+
+![](traces/floyd_warshall_naive_v_16_reuse_distance.png)
+
+---
+
+## floyd_warshall_recursive
+`V=16`. **Algorithm.** Kleene's cache-oblivious APSP: 8 recursive quadrant calls per level.
+
+**Manual.** Same D buffer but quadrant-ordered traversal brings neighbouring reads closer in time — LRU heuristics pick up the win immediately.
+
+![](traces/floyd_warshall_recursive_v_16.png)
+
+**Working-set size over time** (peak = 257).
+
+![](traces/floyd_warshall_recursive_v_16_liveset.png)
+
+**Reuse distance per load** (max = 256).
+
+![](traces/floyd_warshall_recursive_v_16_reuse_distance.png)
+
+---
+
+## layernorm_unfused
+`N=256`. **Algorithm.** Three-pass LayerNorm: mean → variance → normalize. Each pass re-reads x from bulk.
+
+**Manual.** x on arg stack; s/v/mean/inv_std scalars on scratch addrs 1-4 for hot accumulation. Output y on scratch.
+
+![](traces/layernorm_unfused_n_256.png)
+
+**Working-set size over time** (peak = 260).
+
+![](traces/layernorm_unfused_n_256_liveset.png)
+
+**Reuse distance per load** (max = 258).
+
+![](traces/layernorm_unfused_n_256_reuse_distance.png)
+
+---
+
+## layernorm_fused
+`N=256`. **Algorithm.** Welford's online mean+var in one pass, plus a second pass to normalize. The running accumulators stay in hot registers across all N updates.
+
+**Manual.** Fewer address-space traversals — mu and m2 are read and written O(N) times but stay at depth 1-2 throughout.
+
+![](traces/layernorm_fused_n_256.png)
+
+**Working-set size over time** (peak = 260).
+
+![](traces/layernorm_fused_n_256_liveset.png)
+
+**Reuse distance per load** (max = 258).
+
+![](traces/layernorm_fused_n_256_reuse_distance.png)
+
+---
+
+## matrix_powers_naive
+`n=16, s=4`. **Algorithm.** Run matvec s times — `x₁=Ax₀, x₂=Ax₁, …`. A is re-read in full every step.
+
+**Manual.** A on arg stack so re-reads are priced identically each time; the naive cost is dominated by the fixed arg-stack positions of A.
+
+![](traces/matrix_powers_naive_n_16_s_4.png)
+
+**Working-set size over time** (peak = 288).
+
+![](traces/matrix_powers_naive_n_16_s_4_liveset.png)
+
+**Reuse distance per load** (max = 287).
+
+![](traces/matrix_powers_naive_n_16_s_4_reuse_distance.png)
+
+---
+
+## matrix_powers_ca
+`n=16, s=4, block=4`. **Algorithm.** Communication-avoiding s-step: process A in row-blocks; for each block compute all step outputs locally before moving on.
+
+**Manual.** Under the two-stack model A already lives on the arg stack with fixed per-position cost, so the CA benefit cannot amortize. Cost matches naive — heuristic differences come from the re-order of the events.
+
+![](traces/matrix_powers_ca_n_16_s_4.png)
+
+**Working-set size over time** (peak = 288).
+
+![](traces/matrix_powers_ca_n_16_s_4_liveset.png)
+
+**Reuse distance per load** (max = 287).
+
+![](traces/matrix_powers_ca_n_16_s_4_reuse_distance.png)
+
+---
+
+## cholesky_left_looking
+`n=32`. **Algorithm.** Complement of the default right-looking Cholesky: for column k pull data from all previously-factored columns 0..k-1 (far-flung reads), then finalize column k locally (concentrated writes).
+
+**Manual.** Under `⌈√d⌉` pricing with free writes, left-looking's read-heavy profile produces the same manual total as right-looking — the cost asymmetry lives entirely in the heuristic-scheduled columns.
+
+![](traces/cholesky_left_looking_n_32.png)
+
+**Working-set size over time** (peak = 1,025).
+
+![](traces/cholesky_left_looking_n_32_liveset.png)
+
+**Reuse distance per load** (max = 1,024).
+
+![](traces/cholesky_left_looking_n_32_reuse_distance.png)
+
+---
+
+## spmv_csr_banded
+`n=32, bandwidth=3`. **Algorithm.** Sparse matvec with CSR indices clustered near the diagonal. col_ind is a compile-time array (no memory cost), x-reads are data-dependent but spatially local.
+
+**Manual.** vals and x on arg stack; accumulator and y on scratch.
+
+![](traces/spmv_csr_banded_n_32_bw_3.png)
+
+**Working-set size over time** (peak = 214).
+
+![](traces/spmv_csr_banded_n_32_bw_3_liveset.png)
+
+**Reuse distance per load** (max = 213).
+
+![](traces/spmv_csr_banded_n_32_bw_3_reuse_distance.png)
+
+---
+
+## spmv_csr_random
+`n=32, nnz/row=7`. **Algorithm.** Same CSR machinery as banded but col_ind is a random Erdős-Rényi pattern. x-reads scatter all over the vector, which LRU heuristics penalize while density ranking can still pin hot nodes.
+
+**Manual.** Identical layout to banded; the cost difference comes from which arg-stack positions of x get read how often.
+
+![](traces/spmv_csr_random_n_32_nnz_7.png)
+
+**Working-set size over time** (peak = 226).
+
+![](traces/spmv_csr_random_n_32_nnz_7_liveset.png)
+
+**Reuse distance per load** (max = 226).
+
+![](traces/spmv_csr_random_n_32_nnz_7_reuse_distance.png)
+
+---
+
+## bitonic_sort
+`N=64`. **Algorithm.** Data-oblivious sorting network: `log²N` compare-swap passes in butterfly order (identical in flavor to the iterative FFT).
+
+**Manual.** Input preloaded to scratch; every pass does N/2 pair compare-swaps against varying-stride partners, exercising the full scratch range uniformly.
+
+![](traces/bitonic_sort_n_64.png)
+
+**Working-set size over time** (peak = 64).
+
+![](traces/bitonic_sort_n_64_liveset.png)
+
+**Reuse distance per load** (max = 64).
+
+![](traces/bitonic_sort_n_64_reuse_distance.png)
+
+---
+

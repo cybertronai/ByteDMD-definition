@@ -71,15 +71,22 @@ N_ATT, D_ATT, BK = 32, 2, 8  # attention
 N_FFT = 256          # FFT input length (power of 2)
 N_STENCIL = 32       # stencil grid side
 LEAF_STENCIL = 8     # tile-recursion base size
+N_ST_TIME = 16       # time-skewed stencil side (kept small due to T-sweeps)
+T_STENCIL = 4        # temporal sweeps
 H_SP, W_SP, K_SP = 32, 32, 5           # spatial (single-channel) convolution
 H_CV, W_CV, K_CV, CIN, COUT = 16, 16, 3, 4, 4   # regular (multi-channel) conv
 N_FFTC = 256                             # FFT-accelerated 1D convolution
 N_SORT = 64                              # mergesort input length
 M_LCS, N_LCS = 32, 32                    # LCS DP table (m+1) x (n+1)
+V_FW = 16                                # Floyd-Warshall graph size
+N_LN = 256                               # LayerNorm vector length
+N_MP, S_MP = 16, 4                       # matrix powers: 16x16, 4 steps
 N_LU = 32                                # LU / Cholesky square size
 NB_LU = 8                                # block size for blocked_lu / blocked_qr
 M_QR, N_QR = 32, 32                      # Householder / blocked QR
 M_TSQR, N_TSQR, BR_TSQR = 64, 16, 8      # tall-skinny QR: 64x16, block=8
+N_SPMV = 32                              # Sparse matvec side
+N_BITONIC = 64                           # bitonic sort length (power of 2)
 
 # Each algorithm is (display_name, traced_fn, traced_args, manual_cost_fn)
 ALGOS: List[Tuple[str, Callable, Tuple, Callable[[], int]]] = [
@@ -187,6 +194,58 @@ ALGOS: List[Tuple[str, Callable, Tuple, Callable[[], int]]] = [
         lambda A: alg.tsqr(A, block_rows=BR_TSQR),
         (rect(M_TSQR, N_TSQR),),
         lambda: man.manual_tsqr(M_TSQR, N_TSQR, block_rows=BR_TSQR)),
+    (f"transpose_naive(n={N_TR})",
+        alg.transpose_naive,         (mat(N_TR),),
+        lambda: man.manual_transpose_naive(N_TR)),
+    (f"transpose_blocked(n={N_TR})",
+        alg.transpose_blocked,       (mat(N_TR),),
+        lambda: man.manual_transpose_blocked(N_TR)),
+    (f"transpose_recursive(n={N_TR})",
+        alg.transpose_recursive,     (mat(N_TR),),
+        lambda: man.manual_transpose_recursive(N_TR)),
+    (f"stencil_time_naive({N_ST_TIME}x{N_ST_TIME},T={T_STENCIL})",
+        lambda A: alg.stencil_time_naive(A, T=T_STENCIL),
+        (mat(N_ST_TIME),),
+        lambda: man.manual_stencil_time_naive(N_ST_TIME, T=T_STENCIL)),
+    (f"stencil_time_diamond({N_ST_TIME}x{N_ST_TIME},T={T_STENCIL})",
+        lambda A: alg.stencil_time_diamond(A, T=T_STENCIL, block=4),
+        (mat(N_ST_TIME),),
+        lambda: man.manual_stencil_time_diamond(N_ST_TIME, T=T_STENCIL,
+                                                block=4)),
+    (f"floyd_warshall_naive(V={V_FW})",
+        alg.floyd_warshall_naive,    (mat(V_FW),),
+        lambda: man.manual_floyd_warshall_naive(V_FW)),
+    (f"floyd_warshall_recursive(V={V_FW})",
+        alg.floyd_warshall_recursive,(mat(V_FW),),
+        lambda: man.manual_floyd_warshall_recursive(V_FW)),
+    (f"layernorm_unfused(N={N_LN})",
+        alg.layernorm_unfused,       (vec(N_LN),),
+        lambda: man.manual_layernorm_unfused(N_LN)),
+    (f"layernorm_fused(N={N_LN})",
+        alg.layernorm_fused,         (vec(N_LN),),
+        lambda: man.manual_layernorm_fused(N_LN)),
+    (f"matrix_powers_naive(n={N_MP},s={S_MP})",
+        lambda A, x: alg.matrix_powers_naive(A, x, s=S_MP),
+        (mat(N_MP), vec(N_MP)),
+        lambda: man.manual_matrix_powers_naive(N_MP, s=S_MP)),
+    (f"matrix_powers_ca(n={N_MP},s={S_MP})",
+        lambda A, x: alg.matrix_powers_ca(A, x, s=S_MP, block=4),
+        (mat(N_MP), vec(N_MP)),
+        lambda: man.manual_matrix_powers_ca(N_MP, s=S_MP, block=4)),
+    (f"cholesky_left_looking(n={N_LU})",
+        alg.cholesky_left_looking,   (mat(N_LU),),
+        lambda: man.manual_cholesky_left_looking(N_LU)),
+    (f"spmv_csr_banded(n={N_SPMV},bw=3)",
+        lambda x: alg.spmv_csr_banded(x, n=N_SPMV, bandwidth=3),
+        (vec(N_SPMV),),
+        lambda: man.manual_spmv_csr_banded(N_SPMV, bandwidth=3)),
+    (f"spmv_csr_random(n={N_SPMV},nnz=7)",
+        lambda x: alg.spmv_csr_random(x, n=N_SPMV, nnz_per_row=7),
+        (vec(N_SPMV),),
+        lambda: man.manual_spmv_csr_random(N_SPMV, nnz_per_row=7)),
+    (f"bitonic_sort(N={N_BITONIC})",
+        alg.bitonic_sort,            (vec(N_BITONIC),),
+        lambda: man.manual_bitonic_sort(N_BITONIC)),
 ]
 
 
