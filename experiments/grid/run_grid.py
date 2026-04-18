@@ -214,12 +214,14 @@ def main() -> None:
 
     # Pre-trace each algorithm once.
     traces: Dict[str, List[L2Event]] = {}
+    input_idx: Dict[str, Dict[int, int]] = {}
     trace_times: Dict[str, float] = {}
     for name, fn, args, _ in ALGOS:
         t0 = time.perf_counter()
-        events, _iv = trace(fn, args)
+        events, input_vars = trace(fn, args)
         trace_times[name] = time.perf_counter() - t0
         traces[name] = events
+        input_idx[name] = {v: i + 1 for i, v in enumerate(input_vars)}
 
     # Fill the grid: grid[algo_index][metric_index]
     grid: List[List[int]] = [[0] * len(METRICS) for _ in ALGOS]
@@ -227,9 +229,10 @@ def main() -> None:
 
     for ri, (name, _, _, manual_fn) in enumerate(ALGOS):
         events = traces[name]
+        iidx = input_idx[name]
         for ci, (mname, mfn) in enumerate(METRICS):
             t0 = time.perf_counter()
-            val = manual_fn() if mfn is None else mfn(events)
+            val = manual_fn() if mfn is None else mfn(events, iidx)
             dt = time.perf_counter() - t0
             grid[ri][ci] = int(val)
             cell_time[ri][ci] = dt

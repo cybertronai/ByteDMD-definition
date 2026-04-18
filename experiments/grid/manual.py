@@ -13,11 +13,14 @@ import math
 
 
 class Allocator:
-    """Bump-pointer allocator with push/pop stack discipline.
+    """Bump-pointer allocator with two independent address spaces.
 
-    touch(addr) charges ceil(sqrt(addr)) — modelling one read at that
-    address in the continuous-Manhattan cache. When logging=True, also
-    records the address sequence into .log (reads).
+    Two stacks run in parallel, each with its own bump pointer and its own
+    Manhattan-disc origin at address 1:
+      - Arg stack (alloc_arg / touch_arg): holds inputs, read-only.
+      - Scratch stack (alloc / touch): holds temporaries and outputs.
+    Both price reads as ceil(sqrt(addr)). touch() and touch_arg() record
+    log entries as (space, addr) pairs where space ∈ {"scratch", "arg"}.
 
     write(addr) is FREE under the ByteDMD convention (no cost added)
     but when logging=True is recorded into one of two lists:
@@ -28,24 +31,35 @@ class Allocator:
                        at real address.
     Both store (time, addr) pairs, time = len(self.log).
     """
-    __slots__ = ("cost", "ptr", "peak", "log", "writes",
-                 "output_writes", "out_start", "out_end")
+    __slots__ = ("cost", "ptr", "peak", "arg_ptr", "arg_peak",
+                 "log", "writes", "output_writes", "out_start", "out_end")
 
     def __init__(self, logging: bool = False) -> None:
         self.cost = 0
-        self.ptr = 1
-        self.peak = 1
-        self.log = [] if logging else None
+        self.ptr = 1         # scratch bump pointer
+        self.peak = 1        # scratch peak
+        self.arg_ptr = 1     # arg bump pointer
+        self.arg_peak = 1    # arg peak
+        self.log = [] if logging else None             # list of (space, addr)
         self.writes = [] if logging else None
         self.output_writes = [] if logging else None
         self.out_start = None
         self.out_end = None
 
     def alloc(self, size: int) -> int:
+        """Allocate `size` cells on the scratch stack."""
         addr = self.ptr
         self.ptr += size
         if self.ptr > self.peak:
             self.peak = self.ptr
+        return addr
+
+    def alloc_arg(self, size: int) -> int:
+        """Allocate `size` cells on the argument stack (read-only inputs)."""
+        addr = self.arg_ptr
+        self.arg_ptr += size
+        if self.arg_ptr > self.arg_peak:
+            self.arg_peak = self.arg_ptr
         return addr
 
     def push(self) -> int:
@@ -55,16 +69,24 @@ class Allocator:
         self.ptr = p
 
     def set_output_range(self, start: int, end: int) -> None:
-        """Mark [start, end) as the algorithm's output region. Writes to
-        addresses in this range get classified as output_writes (shifted
-        above peak in the plot); writes outside are treated as scratch."""
+        """Mark [start, end) as the algorithm's output region (on the
+        scratch stack). Writes to addresses in this range get classified
+        as output_writes (shifted above peak in the plot); writes outside
+        are treated as scratch."""
         self.out_start = start
         self.out_end = end
 
     def touch(self, addr: int) -> None:
+        """Read from the scratch stack at `addr`."""
         self.cost += math.isqrt(max(0, addr - 1)) + 1
         if self.log is not None:
-            self.log.append(addr)
+            self.log.append(("scratch", addr))
+
+    def touch_arg(self, addr: int) -> None:
+        """Read from the argument stack at `addr`."""
+        self.cost += math.isqrt(max(0, addr - 1)) + 1
+        if self.log is not None:
+            self.log.append(("arg", addr))
 
     def write(self, addr: int) -> None:
         if self.writes is None:
@@ -75,6 +97,18 @@ class Allocator:
             self.output_writes.append((t, addr))
         else:
             self.writes.append((t, addr))
+
+    def read_output(self) -> None:
+        """Epilogue: the program must return its output, so every output
+        cell is read once more at the end from the scratch stack. Priced
+        like any other scratch read, but tagged in the log as "output"
+        so visualizations can distinguish this final pass."""
+        if self.out_start is None or self.out_end is None:
+            return
+        for addr in range(self.out_start, self.out_end):
+            self.cost += math.isqrt(max(0, addr - 1)) + 1
+            if self.log is not None:
+                self.log.append(("output", addr))
 
 
 # Module-level override for the allocator used inside manual_* functions.
@@ -100,32 +134,32 @@ def _alloc() -> Allocator:
 
 def manual_naive_matmul(n: int) -> int:
     """Hand-placed naive triple loop computing C = A @ B^T.
-    C[i][j] = sum_k A[i][k] * B[j][k] — both A and B are traversed
-    row-major (contiguous) in the inner k-loop. Accumulator s at addr 1
-    (read once per (i,j)); 2 reads (A[i][k], B[j][k]) per MAC."""
+    Inputs A, B on the arg stack; accumulator s and output C on scratch.
+    2 arg-reads + 1 scratch-read (s) per MAC."""
     a = _alloc()
-    s = a.alloc(1)
-    A = a.alloc(n * n); B = a.alloc(n * n); C = a.alloc(n * n)
+    A = a.alloc_arg(n * n); B = a.alloc_arg(n * n)
+    s = a.alloc(1); C = a.alloc(n * n)
     a.set_output_range(C, C + n * n)
     for i in range(n):
         for j in range(n):
             a.touch(s)
             for k in range(n):
-                a.touch(A + i * n + k)
-                a.touch(B + j * n + k)
+                a.touch_arg(A + i * n + k)
+                a.touch_arg(B + j * n + k)
             a.write(C + i * n + j)
+    a.read_output()
     return a.cost
 
 
 def manual_tiled_matmul(n: int, T: int | None = None) -> int:
-    """One-level blocked matmul. Scratchpad holds sA, sB, sC (T*T each) at
-    the lowest addresses, reloaded per (bi,bj,bk) tile. MAC convention:
-    sC read once per (ii,jj) outside kk-loop; 2 reads per MAC."""
+    """One-level blocked matmul. A, B on arg stack (read once per tile-load
+    into scratch sA, sB). sA, sB, sC and output C on scratch."""
     if T is None:
         T = max(1, int(round(n ** 0.5)))
     a = _alloc()
+    A = a.alloc_arg(n * n); B = a.alloc_arg(n * n)
     sA = a.alloc(T * T); sB = a.alloc(T * T); sC = a.alloc(T * T)
-    A = a.alloc(n * n); B = a.alloc(n * n); C = a.alloc(n * n)
+    C = a.alloc(n * n)
     a.set_output_range(C, C + n * n)
 
     for bi in range(0, n, T):
@@ -139,12 +173,12 @@ def manual_tiled_matmul(n: int, T: int | None = None) -> int:
                 # Load A tile into sA
                 for ii in range(min(T, n - bi)):
                     for kk in range(min(T, n - bk)):
-                        a.touch(A + (bi + ii) * n + (bk + kk))
+                        a.touch_arg(A + (bi + ii) * n + (bk + kk))
                         a.write(sA + ii * T + kk)
                 # Load B tile into sB
                 for kk in range(min(T, n - bk)):
                     for jj in range(min(T, n - bj)):
-                        a.touch(B + (bk + kk) * n + (bj + jj))
+                        a.touch_arg(B + (bk + kk) * n + (bj + jj))
                         a.write(sB + kk * T + jj)
                 # MAC: accumulate into sC (sC write per (ii,jj))
                 for ii in range(min(T, n - bi)):
@@ -159,17 +193,19 @@ def manual_tiled_matmul(n: int, T: int | None = None) -> int:
                 for jj in range(min(T, n - bj)):
                     a.touch(sC + ii * T + jj)
                     a.write(C + (bi + ii) * n + (bj + jj))
+    a.read_output()
     return a.cost
 
 
 def manual_rmm(n: int, T: int = 4) -> int:
     """Recursive (cache-oblivious) matmul with T-tile scratchpad at leaves.
-    MAC convention: fast_C read once per (i,j) outside k-loop; bulk read of
-    fast_C before MAC; on first write of a C-tile, skip pre-load of pC
-    (the tile is fresh)."""
+    A, B on arg stack; sA/sB/sC/C on scratch. MAC convention: fast_C
+    read once per (i,j) outside k-loop; bulk read of fast_C before MAC;
+    on first write of a C-tile, skip pre-load of pC (fresh)."""
     a = _alloc()
+    A = a.alloc_arg(n * n); B = a.alloc_arg(n * n)
     sA = a.alloc(T * T); sB = a.alloc(T * T); sC = a.alloc(T * T)
-    A = a.alloc(n * n); B = a.alloc(n * n); C = a.alloc(n * n)
+    C = a.alloc(n * n)
     a.set_output_range(C, C + n * n)
     # is_first is checked against the PREVIOUS compute_tile's C coordinate
     # only — if the C tile loaded in fast_C still matches, skip the pC
@@ -179,14 +215,14 @@ def manual_rmm(n: int, T: int = 4) -> int:
     def compute_tile(rA: int, cA: int, rB: int, cB: int, rC: int, cC: int) -> None:
         is_first = (last_C[0] != (rC, cC))
         last_C[0] = (rC, cC)
-        # Load A, B tiles (read main, write scratchpad)
+        # Load A, B tiles (read from arg stack, write to scratch)
         for ii in range(T):
             for jj in range(T):
-                a.touch(A + (rA + ii) * n + cA + jj)
+                a.touch_arg(A + (rA + ii) * n + cA + jj)
                 a.write(sA + ii * T + jj)
         for ii in range(T):
             for jj in range(T):
-                a.touch(B + (rB + ii) * n + cB + jj)
+                a.touch_arg(B + (rB + ii) * n + cB + jj)
                 a.write(sB + ii * T + jj)
         # Bulk read of fast_C (accumulator init)
         for i in range(T * T):
@@ -221,31 +257,40 @@ def manual_rmm(n: int, T: int = 4) -> int:
             recurse(rA + dr, cA + dc, rB + erb, cB + ecb, rC + frc, cC + fcc, h)
 
     recurse(0, 0, 0, 0, 0, 0, n)
+    a.read_output()
     return a.cost
 
 
 def manual_strassen(n: int, T: int = 4) -> int:
-    """Standard Strassen with scratchpad at base case + push/pop stack for 7
-    materialized M-intermediates (SA, SB, M[0..6] — this is what fused_strassen
-    avoids). MAC convention matches manual_rmm / strassen_trace.py."""
+    """Standard Strassen. A, B on arg stack (at top); SA/SB/M/sA/sB/sC/C on
+    scratch. Recursion threads is_arg flags through since sub-products
+    flip pointers back to scratch buffers (M-intermediates)."""
     a = _alloc()
+    A = a.alloc_arg(n * n); B = a.alloc_arg(n * n)
     sA = a.alloc(T * T); sB = a.alloc(T * T); sC = a.alloc(T * T)
-    A = a.alloc(n * n); B = a.alloc(n * n); C = a.alloc(n * n)
+    C = a.alloc(n * n)
     a.set_output_range(C, C + n * n)
 
-    def add_mats(p1: int, s1: int, p2: int, s2: int, h: int) -> None:
+    def _t(addr: int, is_arg: bool) -> None:
+        (a.touch_arg if is_arg else a.touch)(addr)
+
+    def add_mats(p1: int, s1: int, is1a: bool,
+                 p2: int, s2: int, is2a: bool, h: int) -> None:
         for i in range(h):
             for j in range(h):
-                a.touch(p1 + i * s1 + j); a.touch(p2 + i * s2 + j)
+                _t(p1 + i * s1 + j, is1a)
+                _t(p2 + i * s2 + j, is2a)
 
-    def compute_tile(pA: int, sAstr: int, pB: int, sBstr: int, pC: int, sCstr: int) -> None:
+    def compute_tile(pA: int, sAstr: int, isAarg: bool,
+                     pB: int, sBstr: int, isBarg: bool,
+                     pC: int, sCstr: int) -> None:
         for ii in range(T):
             for jj in range(T):
-                a.touch(pA + ii * sAstr + jj)
+                _t(pA + ii * sAstr + jj, isAarg)
                 a.write(sA + ii * T + jj)
         for ii in range(T):
             for jj in range(T):
-                a.touch(pB + ii * sBstr + jj)
+                _t(pB + ii * sBstr + jj, isBarg)
                 a.write(sB + ii * T + jj)
         for ii in range(T):
             for jj in range(T):
@@ -263,9 +308,11 @@ def manual_strassen(n: int, T: int = 4) -> int:
                 a.touch(sC + ii * T + jj)
                 a.write(pC + ii * sCstr + jj)
 
-    def recurse(pA_: int, sAstr: int, pB_: int, sBstr: int, pC_: int, sCstr: int, sz: int) -> None:
+    def recurse(pA_: int, sAstr: int, isAa: bool,
+                pB_: int, sBstr: int, isBa: bool,
+                pC_: int, sCstr: int, sz: int) -> None:
         if sz <= T:
-            compute_tile(pA_, sAstr, pB_, sBstr, pC_, sCstr)
+            compute_tile(pA_, sAstr, isAa, pB_, sBstr, isBa, pC_, sCstr)
             return
         h = sz // 2
         ckpt = a.push()
@@ -277,29 +324,31 @@ def manual_strassen(n: int, T: int = 4) -> int:
         B11, B12 = pB_, pB_ + h
         B21, B22 = pB_ + h * sBstr, pB_ + h * sBstr + h
 
-        add_mats(A11, sAstr, A22, sAstr, h); add_mats(B11, sBstr, B22, sBstr, h)
-        recurse(SA, h, SB, h, M[0], h, h)
+        add_mats(A11, sAstr, isAa, A22, sAstr, isAa, h)
+        add_mats(B11, sBstr, isBa, B22, sBstr, isBa, h)
+        recurse(SA, h, False, SB, h, False, M[0], h, h)
 
-        add_mats(A21, sAstr, A22, sAstr, h)
-        recurse(SA, h, B11, sBstr, M[1], h, h)
+        add_mats(A21, sAstr, isAa, A22, sAstr, isAa, h)
+        recurse(SA, h, False, B11, sBstr, isBa, M[1], h, h)
 
-        add_mats(B12, sBstr, B22, sBstr, h)
-        recurse(A11, sAstr, SB, h, M[2], h, h)
+        add_mats(B12, sBstr, isBa, B22, sBstr, isBa, h)
+        recurse(A11, sAstr, isAa, SB, h, False, M[2], h, h)
 
-        add_mats(B21, sBstr, B11, sBstr, h)
-        recurse(A22, sAstr, SB, h, M[3], h, h)
+        add_mats(B21, sBstr, isBa, B11, sBstr, isBa, h)
+        recurse(A22, sAstr, isAa, SB, h, False, M[3], h, h)
 
-        add_mats(A11, sAstr, A12, sAstr, h)
-        recurse(SA, h, B22, sBstr, M[4], h, h)
+        add_mats(A11, sAstr, isAa, A12, sAstr, isAa, h)
+        recurse(SA, h, False, B22, sBstr, isBa, M[4], h, h)
 
-        add_mats(A21, sAstr, A11, sAstr, h); add_mats(B11, sBstr, B12, sBstr, h)
-        recurse(SA, h, SB, h, M[5], h, h)
+        add_mats(A21, sAstr, isAa, A11, sAstr, isAa, h)
+        add_mats(B11, sBstr, isBa, B12, sBstr, isBa, h)
+        recurse(SA, h, False, SB, h, False, M[5], h, h)
 
-        add_mats(A12, sAstr, A22, sAstr, h); add_mats(B21, sBstr, B22, sBstr, h)
-        recurse(SA, h, SB, h, M[6], h, h)
+        add_mats(A12, sAstr, isAa, A22, sAstr, isAa, h)
+        add_mats(B21, sBstr, isBa, B22, sBstr, isBa, h)
+        recurse(SA, h, False, SB, h, False, M[6], h, h)
 
-        # Reads to assemble C quadrants (4 submatrix adds/subs each),
-        # followed by writes into the corresponding C quadrant of pC_.
+        # Assemble C quadrants. M[*] and pC_ are both scratch.
         def read_M(*indices: int) -> None:
             for i in range(h):
                 for j in range(h):
@@ -318,33 +367,33 @@ def manual_strassen(n: int, T: int = 4) -> int:
 
         a.pop(ckpt)
 
-    recurse(A, n, B, n, C, n, n)
+    recurse(A, n, True, B, n, True, C, n, n)
+    a.read_output()
     return a.cost
 
 
 def manual_fused_strassen(n: int, T: int = 4) -> int:
-    """Zero-Allocation Fused Strassen (ZAFS): single-level outer Strassen,
-    no intermediate matrices — sub-additions are fused into the L1 tile
-    loads and the 7 M-products are flushed straight into their target C
-    quadrants. MAC convention matches strassen_trace.py / Gemini's
-    reference: fast_C is read once per (i,j) outside the k-loop."""
+    """Zero-Allocation Fused Strassen (ZAFS): A, B on arg stack; fast
+    scratchpads + output C on scratch. Sub-additions are fused into the
+    L1 tile loads. fast_C read once per (i,j) outside k-loop."""
     a = _alloc()
+    A = a.alloc_arg(n * n); B = a.alloc_arg(n * n)
     fast_A = a.alloc(T * T); fast_B = a.alloc(T * T); fast_C = a.alloc(T * T)
-    A = a.alloc(n * n); B = a.alloc(n * n); C = a.alloc(n * n)
+    C = a.alloc(n * n)
     a.set_output_range(C, C + n * n)
 
     def compute_fused_tile(ops_A, ops_B, ops_C, r, c, k_off):
-        # 1. Fused load A tile into fast_A
+        # 1. Fused load A tile (arg) into fast_A (scratch)
         for i in range(T):
             for j in range(T):
                 for _sgn, rb, cb in ops_A:
-                    a.touch(A + (rb + r + i) * n + cb + k_off + j)
+                    a.touch_arg(A + (rb + r + i) * n + cb + k_off + j)
                 a.write(fast_A + i * T + j)
-        # 2. Fused load B tile into fast_B
+        # 2. Fused load B tile (arg) into fast_B (scratch)
         for i in range(T):
             for j in range(T):
                 for _sgn, rb, cb in ops_B:
-                    a.touch(B + (rb + k_off + i) * n + cb + c + j)
+                    a.touch_arg(B + (rb + k_off + i) * n + cb + c + j)
                 a.write(fast_B + i * T + j)
         # 3. Bulk read of fast_C (accumulator init)
         for i in range(T * T):
@@ -382,6 +431,7 @@ def manual_fused_strassen(n: int, T: int = 4) -> int:
             compute_fused_tile(A_ops, B_ops, C_ops, r, c, k_off=0)
             C_ops_accum = [(sgn, rb, cb, False) for sgn, rb, cb, _ in C_ops]
             compute_fused_tile(A_ops, B_ops, C_ops_accum, r, c, k_off=T)
+    a.read_output()
     return a.cost
 
 
@@ -390,13 +440,13 @@ def manual_fused_strassen(n: int, T: int = 4) -> int:
 # ============================================================================
 
 def manual_naive_attention(N: int, d: int) -> int:
-    """Three stages: S = Q K^T, P = softmax(S), O = P V. Full N×N S materialized."""
+    """Three stages: S = Q K^T, P = softmax(S), O = P V.
+    Q, K, V on arg stack; S (full N×N) and O on scratch; hot scalars too."""
     a = _alloc()
+    Q = a.alloc_arg(N * d); K = a.alloc_arg(N * d); V = a.alloc_arg(N * d)
     # Hot scratch scalars at low addresses
     s_acc = a.alloc(1); tmp = a.alloc(1)
     row_max = a.alloc(1); row_sum = a.alloc(1); inv_sum = a.alloc(1)
-    # Bulk data
-    Q = a.alloc(N * d); K = a.alloc(N * d); V = a.alloc(N * d)
     S = a.alloc(N * N)
     O = a.alloc(N * d)
     a.set_output_range(O, O + N * d)
@@ -404,9 +454,9 @@ def manual_naive_attention(N: int, d: int) -> int:
     # Stage 1: S[i][j] = Q[i] . K[j] (scale folded in)
     for i in range(N):
         for j in range(N):
-            a.touch(Q + i * d + 0); a.touch(K + j * d + 0)
+            a.touch_arg(Q + i * d + 0); a.touch_arg(K + j * d + 0)
             for dd in range(1, d):
-                a.touch(Q + i * d + dd); a.touch(K + j * d + dd)
+                a.touch_arg(Q + i * d + dd); a.touch_arg(K + j * d + dd)
                 a.touch(s_acc); a.touch(tmp)
             a.touch(s_acc)
             a.write(S + i * N + j)  # write S[i][j]
@@ -432,18 +482,21 @@ def manual_naive_attention(N: int, d: int) -> int:
     P = S
     for i in range(N):
         for dd in range(d):
-            a.touch(P + i * N + 0); a.touch(V + 0 * d + dd)
+            a.touch(P + i * N + 0); a.touch_arg(V + 0 * d + dd)
             for j in range(1, N):
-                a.touch(P + i * N + j); a.touch(V + j * d + dd)
+                a.touch(P + i * N + j); a.touch_arg(V + j * d + dd)
                 a.touch(s_acc); a.touch(tmp)
             a.touch(s_acc)
             a.write(O + i * d + dd)
+    a.read_output()
     return a.cost
 
 
 def manual_flash_attention(N: int, d: int, Bk: int) -> int:
-    """Flash attention: stream K/V in blocks; never materialize full N×N S."""
+    """Flash attention: Q, K, V on arg stack; hot scalars, block scratchpads,
+    and O on scratch. Never materializes full N×N S."""
     a = _alloc()
+    Q = a.alloc_arg(N * d); K = a.alloc_arg(N * d); V = a.alloc_arg(N * d)
     # Hot scalars
     m_i = a.alloc(1); l_i = a.alloc(1)
     m_block = a.alloc(1); l_block = a.alloc(1)
@@ -452,8 +505,6 @@ def manual_flash_attention(N: int, d: int, Bk: int) -> int:
     # Small block scratchpads
     s_block = a.alloc(Bk); p_block = a.alloc(Bk)
     o_acc = a.alloc(d)
-    # Bulk data
-    Q = a.alloc(N * d); K = a.alloc(N * d); V = a.alloc(N * d)
     O = a.alloc(N * d)
     a.set_output_range(O, O + N * d)
 
@@ -465,9 +516,9 @@ def manual_flash_attention(N: int, d: int, Bk: int) -> int:
             bs = min(Bk, N - k0)
             # s_block[j] = Q[i] . K[k0+j]
             for j in range(bs):
-                a.touch(Q + i * d + 0); a.touch(K + (k0 + j) * d + 0)
+                a.touch_arg(Q + i * d + 0); a.touch_arg(K + (k0 + j) * d + 0)
                 for dd in range(1, d):
-                    a.touch(Q + i * d + dd); a.touch(K + (k0 + j) * d + dd)
+                    a.touch_arg(Q + i * d + dd); a.touch_arg(K + (k0 + j) * d + dd)
                     a.touch(s_block + j); a.touch(tmp)
                 a.touch(s_block + j)
                 a.write(s_block + j)
@@ -482,9 +533,9 @@ def manual_flash_attention(N: int, d: int, Bk: int) -> int:
                 a.touch(m_block); a.touch(l_block)
                 a.write(m_i); a.write(l_i)
                 for dd in range(d):
-                    a.touch(p_block + 0); a.touch(V + k0 * d + dd)
+                    a.touch(p_block + 0); a.touch_arg(V + k0 * d + dd)
                     for j in range(1, bs):
-                        a.touch(p_block + j); a.touch(V + (k0 + j) * d + dd)
+                        a.touch(p_block + j); a.touch_arg(V + (k0 + j) * d + dd)
                         a.touch(o_acc + dd); a.touch(tmp)
                     a.write(o_acc + dd)
             else:
@@ -497,7 +548,7 @@ def manual_flash_attention(N: int, d: int, Bk: int) -> int:
                 for dd in range(d):
                     a.touch(alpha); a.touch(o_acc + dd)
                     for j in range(bs):
-                        a.touch(p_block + j); a.touch(V + (k0 + j) * d + dd)
+                        a.touch(p_block + j); a.touch_arg(V + (k0 + j) * d + dd)
                         a.touch(beta); a.touch(tmp); a.touch(o_acc + dd)
                     a.write(o_acc + dd)
         # Final: O[i][dd] = o_acc[dd] / l_i
@@ -505,6 +556,7 @@ def manual_flash_attention(N: int, d: int, Bk: int) -> int:
         for dd in range(d):
             a.touch(o_acc + dd); a.touch(inv_l)
             a.write(O + i * d + dd)
+    a.read_output()
     return a.cost
 
 
@@ -513,43 +565,48 @@ def manual_flash_attention(N: int, d: int, Bk: int) -> int:
 # ============================================================================
 
 def manual_transpose_naive(n: int) -> int:
-    """Read A column-major (B[i][j] = A[j][i]) — one read per cell."""
+    """B[i][j] = A[j][i]. A on arg stack, B on scratch."""
     a = _alloc()
-    A = a.alloc(n * n); B = a.alloc(n * n)
+    A = a.alloc_arg(n * n)
+    B = a.alloc(n * n)
     a.set_output_range(B, B + n * n)
     for i in range(n):
         for j in range(n):
-            a.touch(A + j * n + i)
+            a.touch_arg(A + j * n + i)
             a.write(B + i * n + j)
+    a.read_output()
     return a.cost
 
 
 def manual_transpose_blocked(n: int, T: int | None = None) -> int:
-    """Blocked iteration order over A — no scratchpad (redundant in the fixed-
-    address Manhattan model). Reads each A cell once in block order."""
+    """Blocked iteration order over A (arg stack); B on scratch."""
     if T is None:
         T = max(1, int(round(n ** 0.5)))
     a = _alloc()
-    A = a.alloc(n * n); B = a.alloc(n * n)
+    A = a.alloc_arg(n * n)
+    B = a.alloc(n * n)
     a.set_output_range(B, B + n * n)
     for bi in range(0, n, T):
         for bj in range(0, n, T):
             for ii in range(min(T, n - bi)):
                 for jj in range(min(T, n - bj)):
-                    a.touch(A + (bj + jj) * n + (bi + ii))
+                    a.touch_arg(A + (bj + jj) * n + (bi + ii))
                     a.write(B + (bi + ii) * n + (bj + jj))
+    a.read_output()
     return a.cost
 
 
 def manual_transpose_recursive(n: int) -> int:
-    """Cache-oblivious transpose: recursively split into 4 quadrants."""
+    """Cache-oblivious transpose: recursively split into 4 quadrants.
+    A on arg stack, B on scratch."""
     a = _alloc()
-    A = a.alloc(n * n); B = a.alloc(n * n)
+    A = a.alloc_arg(n * n)
+    B = a.alloc(n * n)
     a.set_output_range(B, B + n * n)
 
     def rec(ar: int, ac: int, br: int, bc: int, sz: int) -> None:
         if sz == 1:
-            a.touch(A + ar * n + ac)
+            a.touch_arg(A + ar * n + ac)
             a.write(B + br * n + bc)
             return
         h = sz // 2
@@ -559,6 +616,7 @@ def manual_transpose_recursive(n: int) -> int:
         rec(ar + h, ac + h, br + h, bc + h, h)
 
     rec(0, 0, 0, 0, n)
+    a.read_output()
     return a.cost
 
 
@@ -567,53 +625,46 @@ def manual_transpose_recursive(n: int) -> int:
 # ============================================================================
 
 def manual_matvec_row(n: int) -> int:
-    """y[i] = sum_j A[i][j] * x[j], outer loop over i — A read row-major.
-    Hot slots first: s, tmp, y, x at low addrs; A is the cold bulk region."""
+    """y[i] = sum_j A[i][j] * x[j]. A, x on arg stack; s, tmp, y on scratch."""
     a = _alloc()
+    A = a.alloc_arg(n * n); x = a.alloc_arg(n)
     s = a.alloc(1); tmp = a.alloc(1)
-    y = a.alloc(n); x = a.alloc(n)
-    A = a.alloc(n * n)
+    y = a.alloc(n)
     a.set_output_range(y, y + n)
     for i in range(n):
-        a.touch(A + i * n + 0); a.touch(x + 0)
+        a.touch_arg(A + i * n + 0); a.touch_arg(x + 0)
         a.write(s)
         for j in range(1, n):
-            a.touch(A + i * n + j); a.touch(x + j)
+            a.touch_arg(A + i * n + j); a.touch_arg(x + j)
             a.touch(s); a.touch(tmp)
             a.write(s)
         a.touch(s)
         a.write(y + i)
+    a.read_output()
     return a.cost
 
 
 def manual_matvec_blocked(n: int, B: int = 4) -> int:
-    """Blocked matvec with x-tile scratchpad. A is placed as a full
-    n×n slab in the spatial grid — every A[i][j] read pays
-    ceil(sqrt(its actual address)) under the 2D cache model. Layout:
-      addrs 1..B                 : B accumulators s[0..B-1]
-      addrs B+1..2B              : x_tile (hot B-slot scratchpad)
-      addr  2B+1                 : tmp (A·x intermediate)
-      addrs 2B+2..2B+n+1         : x_main (cold bulk for x)
-      addrs 2B+n+2..2B+n+1+n*n   : A (n×n slab)
-    The only blocking benefit here is reusing the x-slice in x_tile
-    across B rows — A's per-cell cost is unchanged from matvec_row."""
+    """Blocked matvec. A and x_main on arg stack; B accumulators,
+    x_tile scratchpad, tmp and y on scratch. x_tile reuses an x-slice
+    across B rows — A's per-cell arg-read cost is unchanged from
+    matvec_row."""
     a = _alloc()
+    A = a.alloc_arg(n * n); x_main = a.alloc_arg(n)
     s = [a.alloc(1) for _ in range(B)]
     x_tile = a.alloc(B)
     tmp = a.alloc(1)
-    x_main = a.alloc(n)
-    A = a.alloc(n * n)
     y = a.alloc(n)
     a.set_output_range(y, y + n)
 
     for i_out in range(0, n, B):
         for j_out in range(0, n, B):
             for j in range(B):
-                a.touch(x_main + j_out + j)
+                a.touch_arg(x_main + j_out + j)
                 a.write(x_tile + j)
             for i in range(B):
                 for j in range(B):
-                    a.touch(A + (i_out + i) * n + (j_out + j))
+                    a.touch_arg(A + (i_out + i) * n + (j_out + j))
                     a.touch(x_tile + j)
                     if j_out != 0 or j != 0:
                         a.touch(s[i])
@@ -622,26 +673,28 @@ def manual_matvec_blocked(n: int, B: int = 4) -> int:
         for i in range(B):
             a.touch(s[i])
             a.write(y + i_out + i)
+    a.read_output()
     return a.cost
 
 
 def manual_matvec_col(n: int) -> int:
-    """Outer loop over j: y[i] += A[i][j] * x[j] — A read column-major (strided).
-    Hot slots first: tmp, y, x at low addrs; A is the cold bulk region."""
+    """Outer loop over j: y[i] += A[i][j] * x[j]. A, x on arg stack;
+    tmp and y on scratch."""
     a = _alloc()
+    A = a.alloc_arg(n * n); x = a.alloc_arg(n)
     tmp = a.alloc(1)
-    y = a.alloc(n); x = a.alloc(n)
-    A = a.alloc(n * n)
+    y = a.alloc(n)
     a.set_output_range(y, y + n)
     for j in range(n):
-        a.touch(x + j)
+        a.touch_arg(x + j)
         for i in range(n):
-            a.touch(A + i * n + j)
+            a.touch_arg(A + i * n + j)
             if j == 0:
                 a.write(y + i)  # init
             else:
                 a.touch(y + i); a.touch(tmp)
                 a.write(y + i)
+    a.read_output()
     return a.cost
 
 
@@ -650,10 +703,17 @@ def manual_matvec_col(n: int) -> int:
 # ============================================================================
 
 def manual_fft_iterative(N: int) -> int:
-    """In-place radix-2 Cooley-Tukey on an N-slot array at low addresses."""
+    """In-place radix-2 Cooley-Tukey. Input on arg stack is copied once
+    to the scratch-side x buffer (the output); all butterflies then run
+    on scratch."""
     a = _alloc()
+    x_in = a.alloc_arg(N)
     x = a.alloc(N)
     a.set_output_range(x, x + N)
+    # Load input from arg stack into scratch.
+    for i in range(N):
+        a.touch_arg(x_in + i)
+        a.write(x + i)
     # Bit-reverse permutation — swaps
     j = 0
     for i in range(1, N):
@@ -675,16 +735,20 @@ def manual_fft_iterative(N: int) -> int:
                 a.write(x + k + jj)
                 a.write(x + k + jj + m)
         m *= 2
+    a.read_output()
     return a.cost
 
 
 def manual_fft_recursive(N: int) -> int:
-    """Out-of-place recursive radix-2: at each level push/pop fresh
-    even/odd temp arrays. Temps live briefly but drive the allocator
-    pointer up during recursion."""
+    """Out-of-place recursive radix-2. Input on arg stack is copied once
+    to scratch x; recursion allocates fresh even/odd temps on scratch."""
     a = _alloc()
+    x_in = a.alloc_arg(N)
     x = a.alloc(N)
     a.set_output_range(x, x + N)
+    for i in range(N):
+        a.touch_arg(x_in + i)
+        a.write(x + i)
 
     def rec(base: int, sz: int) -> None:
         if sz == 1:
@@ -707,6 +771,7 @@ def manual_fft_recursive(N: int) -> int:
         a.pop(ckpt)
 
     rec(x, N)
+    a.read_output()
     return a.cost
 
 
@@ -715,28 +780,30 @@ def manual_fft_recursive(N: int) -> int:
 # ============================================================================
 
 def manual_stencil_naive(n: int) -> int:
-    """Row-major single sweep of 5-point Jacobi. 5 reads of A per
-    interior cell; writes to B are free."""
+    """Row-major single sweep of 5-point Jacobi. A on arg stack, B on scratch."""
     a = _alloc()
-    A = a.alloc(n * n); B = a.alloc(n * n)
+    A = a.alloc_arg(n * n)
+    B = a.alloc(n * n)
     a.set_output_range(B, B + n * n)
     for i in range(1, n - 1):
         for j in range(1, n - 1):
-            a.touch(A + i * n + j)
-            a.touch(A + (i - 1) * n + j)
-            a.touch(A + (i + 1) * n + j)
-            a.touch(A + i * n + j - 1)
-            a.touch(A + i * n + j + 1)
+            a.touch_arg(A + i * n + j)
+            a.touch_arg(A + (i - 1) * n + j)
+            a.touch_arg(A + (i + 1) * n + j)
+            a.touch_arg(A + i * n + j - 1)
+            a.touch_arg(A + i * n + j + 1)
             a.write(B + i * n + j)
+    a.read_output()
     return a.cost
 
 
 def manual_stencil_recursive(n: int, leaf: int = 8) -> int:
-    """Tile-recursive 5-point Jacobi. Same set of reads as naive — in
-    the fixed-placement Manhattan model the total cost is identical;
-    only access ORDER differs (visible to bytedmd_classic/bytedmd_live)."""
+    """Tile-recursive 5-point Jacobi. A on arg stack, B on scratch.
+    Same read set as naive — only access order differs (visible to the
+    LRU heuristics)."""
     a = _alloc()
-    A = a.alloc(n * n); B = a.alloc(n * n)
+    A = a.alloc_arg(n * n)
+    B = a.alloc(n * n)
     a.set_output_range(B, B + n * n)
 
     def rec(r0: int, c0: int, sz: int) -> None:
@@ -744,11 +811,11 @@ def manual_stencil_recursive(n: int, leaf: int = 8) -> int:
             for i in range(r0, r0 + sz):
                 for j in range(c0, c0 + sz):
                     if 0 < i < n - 1 and 0 < j < n - 1:
-                        a.touch(A + i * n + j)
-                        a.touch(A + (i - 1) * n + j)
-                        a.touch(A + (i + 1) * n + j)
-                        a.touch(A + i * n + j - 1)
-                        a.touch(A + i * n + j + 1)
+                        a.touch_arg(A + i * n + j)
+                        a.touch_arg(A + (i - 1) * n + j)
+                        a.touch_arg(A + (i + 1) * n + j)
+                        a.touch_arg(A + i * n + j - 1)
+                        a.touch_arg(A + i * n + j + 1)
                         a.write(B + i * n + j)
             return
         h = sz // 2
@@ -758,6 +825,7 @@ def manual_stencil_recursive(n: int, leaf: int = 8) -> int:
         rec(r0 + h, c0 + h, h)
 
     rec(0, 0, n)
+    a.read_output()
     return a.cost
 
 
@@ -766,13 +834,12 @@ def manual_stencil_recursive(n: int, leaf: int = 8) -> int:
 # ============================================================================
 
 def manual_spatial_convolution(H: int, W: int, K: int) -> int:
-    """2D single-channel convolution. Accumulator s and the K*K kernel Wk
-    live at the lowest addresses (hot); the H*W image is the cold bulk.
-    Per output cell: 1 accumulator read + K*K * (image read + kernel read)."""
+    """2D single-channel convolution. img and Wk on arg stack;
+    accumulator s and output O on scratch."""
     a = _alloc()
+    Wk = a.alloc_arg(K * K)
+    img = a.alloc_arg(H * W)
     s = a.alloc(1)
-    Wk = a.alloc(K * K)
-    img = a.alloc(H * W)
     out_h = H - K + 1
     out_w = W - K + 1
     O = a.alloc(out_h * out_w)
@@ -782,18 +849,23 @@ def manual_spatial_convolution(H: int, W: int, K: int) -> int:
             a.touch(s)
             for ki in range(K):
                 for kj in range(K):
-                    a.touch(img + (i + ki) * W + (j + kj))
-                    a.touch(Wk + ki * K + kj)
+                    a.touch_arg(img + (i + ki) * W + (j + kj))
+                    a.touch_arg(Wk + ki * K + kj)
             a.write(O + i * out_w + j)
+    a.read_output()
     return a.cost
 
 
 def manual_fft_conv(N: int) -> int:
-    """Convolution via FFT: two forward FFTs + pointwise multiply + inverse
-    FFT. Arrays X, Y, Z allocated at the lowest addresses."""
+    """Convolution via FFT. Inputs X_in, Y_in on arg stack; X, Y (working
+    copies) and Z (output) on scratch. Preload X_in→X, Y_in→Y."""
     a = _alloc()
+    X_in = a.alloc_arg(N); Y_in = a.alloc_arg(N)
     X = a.alloc(N); Y = a.alloc(N); Z = a.alloc(N)
     a.set_output_range(Z, Z + N)
+    for i in range(N):
+        a.touch_arg(X_in + i); a.write(X + i)
+        a.touch_arg(Y_in + i); a.write(Y + i)
 
     def fft_in_place(base: int) -> None:
         j = 0
@@ -823,18 +895,17 @@ def manual_fft_conv(N: int) -> int:
         a.touch(Y + k)
         a.write(Z + k)
     fft_in_place(Z)
+    a.read_output()
     return a.cost
 
 
 def manual_regular_convolution(H: int, W: int, K: int, Cin: int, Cout: int) -> int:
-    """Full multi-channel CNN layer. Layout: s (1) | Wk (K*K*Cin*Cout) |
-    img (H*W*Cin). Image channel-inner-most, kernel channel-pair inner-most.
-    Per output cell: 1 accumulator read + K*K*Cin*Cout * (image + kernel)
-    for each of Cout output channels."""
+    """Full multi-channel CNN layer. img and Wk on arg stack;
+    accumulator s and output O on scratch."""
     a = _alloc()
+    Wk = a.alloc_arg(K * K * Cin * Cout)
+    img = a.alloc_arg(H * W * Cin)
     s = a.alloc(1)
-    Wk = a.alloc(K * K * Cin * Cout)
-    img = a.alloc(H * W * Cin)
     out_h = H - K + 1
     out_w = W - K + 1
     O = a.alloc(out_h * out_w * Cout)
@@ -846,9 +917,10 @@ def manual_regular_convolution(H: int, W: int, K: int, Cin: int, Cout: int) -> i
                 for ki in range(K):
                     for kj in range(K):
                         for ci in range(Cin):
-                            a.touch(img + ((i + ki) * W + (j + kj)) * Cin + ci)
-                            a.touch(Wk + ((ki * K + kj) * Cin + ci) * Cout + co)
+                            a.touch_arg(img + ((i + ki) * W + (j + kj)) * Cin + ci)
+                            a.touch_arg(Wk + ((ki * K + kj) * Cin + ci) * Cout + co)
                 a.write(O + (i * out_w + j) * Cout + co)
+    a.read_output()
     return a.cost
 
 
@@ -857,12 +929,14 @@ def manual_regular_convolution(H: int, W: int, K: int, Cin: int, Cout: int) -> i
 # ============================================================================
 
 def manual_quicksort(N: int) -> int:
-    """In-place recursive quicksort. Only the input array at addrs 1..N —
-    no temp allocations (quicksort partitions in place). At each level,
-    scan sz-1 elements against the pivot (2 reads each); recurse on halves."""
+    """In-place recursive quicksort. Input copied from arg stack into the
+    scratch array, then partitioned in place."""
     a = _alloc()
+    arr_in = a.alloc_arg(N)
     arr = a.alloc(N)
     a.set_output_range(arr, arr + N)
+    for i in range(N):
+        a.touch_arg(arr_in + i); a.write(arr + i)
 
     def rec(base: int, sz: int) -> None:
         if sz <= 1:
@@ -877,18 +951,19 @@ def manual_quicksort(N: int) -> int:
         rec(base + mid, sz - mid)
 
     rec(arr, N)
+    a.read_output()
     return a.cost
 
 
 def manual_heapsort(N: int) -> int:
-    """In-place heapsort. Only the input array at addrs 1..N — binary-heap
-    index arithmetic is in-place. Two phases: build (sift-down from n/2-1
-    down to 0), then extract (N-1 iterations of root-swap + sift-down
-    over a shrinking prefix). Each sift-down step reads parent+child(ren)
-    at tree-linked addresses."""
+    """In-place heapsort. Input copied from arg stack to scratch, then
+    binary-heap index arithmetic runs in place on scratch."""
     a = _alloc()
+    arr_in = a.alloc_arg(N)
     arr = a.alloc(N)
     a.set_output_range(arr, arr + N)
+    for i in range(N):
+        a.touch_arg(arr_in + i); a.write(arr + i)
 
     def sift_down(j: int, heap_size: int) -> None:
         while 2 * j + 1 < heap_size:
@@ -911,16 +986,19 @@ def manual_heapsort(N: int) -> int:
         a.write(arr + k)
         a.write(arr + 0)
         sift_down(0, k)
+    a.read_output()
     return a.cost
 
 
 def manual_mergesort(N: int) -> int:
-    """Recursive mergesort on an N-slot array at addr 1..N. Each merge level
-    allocates a temp of the merge size (popped after copy-back). Each merge
-    does 2*sz reads (both frontiers) and sz reads (copy-back temp → base)."""
+    """Recursive mergesort. Input copied from arg stack to scratch, then
+    each merge level allocates a temp on scratch (popped after copy-back)."""
     a = _alloc()
+    arr_in = a.alloc_arg(N)
     arr = a.alloc(N)
     a.set_output_range(arr, arr + N)
+    for i in range(N):
+        a.touch_arg(arr_in + i); a.write(arr + i)
 
     def rec(base: int, sz: int) -> None:
         if sz <= 1:
@@ -942,6 +1020,7 @@ def manual_mergesort(N: int) -> int:
         a.pop(ckpt)
 
     rec(arr, N)
+    a.read_output()
     return a.cost
 
 
@@ -954,10 +1033,14 @@ def manual_mergesort(N: int) -> int:
 # ============================================================================
 
 def manual_lu_no_pivot(n: int) -> int:
-    """In-place no-pivot LU. A at addrs 1..n²; all traffic stays inside A."""
+    """In-place no-pivot LU. Input A preloaded from arg stack to scratch;
+    elimination runs in place on scratch A."""
     a = _alloc()
+    A_in = a.alloc_arg(n * n)
     A = a.alloc(n * n)
     a.set_output_range(A, A + n * n)
+    for i in range(n * n):
+        a.touch_arg(A_in + i); a.write(A + i)
     for k in range(n):
         pivot_addr = A + k * n + k
         a.touch(pivot_addr)
@@ -971,18 +1054,22 @@ def manual_lu_no_pivot(n: int) -> int:
                 a.touch(A + i * n + k)
                 a.touch(A + k * n + j)
                 a.write(A + i * n + j)   # rank-1 update
+    a.read_output()
     return a.cost
 
 
 def manual_blocked_lu(n: int, NB: int = 8) -> int:
-    """One-level blocked LU with scratchpad for the NB×NB panel/row-strip
-    staging. Scratch at addrs 1..3NB²; A in the bulk region."""
+    """One-level blocked LU. Input A preloaded from arg stack to scratch.
+    NB×NB panel/row/diagonal scratchpads sit at the lowest scratch addrs."""
     a = _alloc()
+    A_in = a.alloc_arg(n * n)
     S_diag = a.alloc(NB * NB)     # diagonal block scratchpad
     S_panel = a.alloc(NB * NB)    # below-diagonal panel scratch
     S_row = a.alloc(NB * NB)      # row strip scratch
     A = a.alloc(n * n)
     a.set_output_range(A, A + n * n)
+    for i in range(n * n):
+        a.touch_arg(A_in + i); a.write(A + i)
 
     def panel_lu(base_r: int, base_c: int, sz: int, scratch: int) -> None:
         for ii in range(sz):
@@ -1035,15 +1122,19 @@ def manual_blocked_lu(n: int, NB: int = 8) -> int:
                     a.touch(A + i * n + k)
                     a.touch(A + k * n + j)
                     a.write(A + i * n + j)
+    a.read_output()
     return a.cost
 
 
 def manual_recursive_lu(n: int) -> int:
-    """Recursive LU. Top-level A at addrs 1..n². Sub-blocks are processed
-    in-place — no temp allocation, only address arithmetic."""
+    """Recursive LU. Input A preloaded from arg stack to scratch; sub-blocks
+    processed in place on scratch."""
     a = _alloc()
+    A_in = a.alloc_arg(n * n)
     A = a.alloc(n * n)
     a.set_output_range(A, A + n * n)
+    for i in range(n * n):
+        a.touch_arg(A_in + i); a.write(A + i)
 
     def rec(r0: int, c0: int, sz: int) -> None:
         if sz == 1:
@@ -1077,15 +1168,18 @@ def manual_recursive_lu(n: int) -> int:
         rec(r0 + h, c0 + h, sz - h)
 
     rec(0, 0, n)
+    a.read_output()
     return a.cost
 
 
 def manual_lu_partial_pivot(n: int) -> int:
-    """LU with partial pivoting. Adds a column scan (n-k reads) per step
-    and a row-swap pass touching row k and row p=(k+1) across n-k columns."""
+    """LU with partial pivoting. Input A preloaded from arg stack to scratch."""
     a = _alloc()
+    A_in = a.alloc_arg(n * n)
     A = a.alloc(n * n)
     a.set_output_range(A, A + n * n)
+    for i in range(n * n):
+        a.touch_arg(A_in + i); a.write(A + i)
     for k in range(n):
         for i in range(k, n):
             a.touch(A + i * n + k)
@@ -1107,6 +1201,7 @@ def manual_lu_partial_pivot(n: int) -> int:
                 a.touch(A + i * n + k)
                 a.touch(A + k * n + j)
                 a.write(A + i * n + j)
+    a.read_output()
     return a.cost
 
 
@@ -1115,11 +1210,14 @@ def manual_lu_partial_pivot(n: int) -> int:
 # ============================================================================
 
 def manual_cholesky(n: int) -> int:
-    """Right-looking Cholesky. Lower triangle only — reads span i >= j
-    only, so ~half the touches of full LU. A at addrs 1..n²."""
+    """Right-looking Cholesky. Input A preloaded from arg stack to scratch.
+    Lower triangle only — reads span i >= j (~half full LU)."""
     a = _alloc()
+    A_in = a.alloc_arg(n * n)
     A = a.alloc(n * n)
     a.set_output_range(A, A + n * n)
+    for i in range(n * n):
+        a.touch_arg(A_in + i); a.write(A + i)
     for k in range(n):
         pivot_addr = A + k * n + k
         a.touch(pivot_addr)
@@ -1134,6 +1232,7 @@ def manual_cholesky(n: int) -> int:
                 a.touch(A + i * n + k)
                 a.touch(A + j * n + k)
                 a.write(A + i * n + j)
+    a.read_output()
     return a.cost
 
 
@@ -1142,10 +1241,13 @@ def manual_cholesky(n: int) -> int:
 # ============================================================================
 
 def manual_householder_qr(m: int, n: int) -> int:
-    """Classical Householder QR in place."""
+    """Classical Householder QR. Input A preloaded from arg stack to scratch."""
     a = _alloc()
+    A_in = a.alloc_arg(m * n)
     A = a.alloc(m * n)
     a.set_output_range(A, A + m * n)
+    for i in range(m * n):
+        a.touch_arg(A_in + i); a.write(A + i)
     for k in range(min(m, n)):
         a.touch(A + k * n + k)
         for i in range(k + 1, m):
@@ -1162,15 +1264,20 @@ def manual_householder_qr(m: int, n: int) -> int:
             for i in range(k + 1, m):
                 a.touch(A + i * n + j); a.touch(A + i * n + k)
                 a.write(A + i * n + j)
+    a.read_output()
     return a.cost
 
 
 def manual_blocked_qr(m: int, n: int, NB: int = 8) -> int:
-    """Blocked QR (WY form, simplified)."""
+    """Blocked QR (WY form, simplified). Input A preloaded from arg stack
+    to scratch; W-vector scratchpad sits at the lowest scratch addrs."""
     a = _alloc()
+    A_in = a.alloc_arg(m * n)
     w = a.alloc(NB)
     A = a.alloc(m * n)
     a.set_output_range(A, A + m * n)
+    for i in range(m * n):
+        a.touch_arg(A_in + i); a.write(A + i)
     for kb in range(0, min(m, n), NB):
         ke = min(kb + NB, min(m, n))
         for k in range(kb, ke):
@@ -1201,15 +1308,19 @@ def manual_blocked_qr(m: int, n: int, NB: int = 8) -> int:
                 for i in range(k + 1, m):
                     a.touch(A + i * n + j); a.touch(A + i * n + k); a.touch(w + t_idx)
                     a.write(A + i * n + j)
+    a.read_output()
     return a.cost
 
 
 def manual_tsqr(m: int, n: int, block_rows: int = 8) -> int:
-    """Tall-skinny QR: local Householder QR per row-tile, then pairwise
-    tree-reduction over stacked R factors."""
+    """Tall-skinny QR. Input A preloaded from arg stack to scratch.
+    Local Householder QR per row-tile, pairwise tree-reduction over R factors."""
     a = _alloc()
+    A_in = a.alloc_arg(m * n)
     A = a.alloc(m * n)
     a.set_output_range(A, A + m * n)
+    for i in range(m * n):
+        a.touch_arg(A_in + i); a.write(A + i)
     # Phase 1: local QR per row-tile
     for row0 in range(0, m, block_rows):
         row1 = min(row0 + block_rows, m)
@@ -1253,6 +1364,7 @@ def manual_tsqr(m: int, n: int, block_rows: int = 8) -> int:
                         a.touch(A + i * n + j); a.touch(A + i * n + k)
                         a.write(A + i * n + j)
         stride *= 2
+    a.read_output()
     return a.cost
 
 
@@ -1261,20 +1373,22 @@ def manual_tsqr(m: int, n: int, block_rows: int = 8) -> int:
 # ============================================================================
 
 def manual_lcs_dp(m: int, n: int) -> int:
-    """Row-major LCS DP. Cell (i,j) reads D[i-1][j-1], D[i-1][j], D[i][j-1]
-    and the two input characters x[i-1], y[j-1]."""
+    """Row-major LCS DP. Input strings x, y on arg stack; DP table D on
+    scratch. The Python algorithm returns only D[m][n] (the LCS length),
+    so the output epilogue reads just that one cell."""
     a = _alloc()
-    # Strings at low addrs (repeatedly touched), DP table at higher addrs
-    x = a.alloc(m); y = a.alloc(n)
+    x = a.alloc_arg(m); y = a.alloc_arg(n)
     D = a.alloc((m + 1) * (n + 1))
-    a.set_output_range(D, D + (m + 1) * (n + 1))
     stride = n + 1
+    answer = D + m * stride + n
+    a.set_output_range(answer, answer + 1)
     for i in range(1, m + 1):
         for j in range(1, n + 1):
             a.touch(D + (i - 1) * stride + (j - 1))
             a.touch(D + (i - 1) * stride + j)
             a.touch(D + i * stride + (j - 1))
-            a.touch(x + i - 1)
-            a.touch(y + j - 1)
+            a.touch_arg(x + i - 1)
+            a.touch_arg(y + j - 1)
             a.write(D + i * stride + j)
+    a.read_output()
     return a.cost

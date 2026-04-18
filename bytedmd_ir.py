@@ -151,9 +151,13 @@ class _Tracked:
 def trace(func: Callable, args: Tuple) -> Tuple[List[L2Event], List[int]]:
     """Trace func(*args) at L1, return (l2_events, input_vars).
 
-    Each input scalar is allocated a fresh var via STORE. Every op produces
-    LOAD events for its operands followed by STORE for its result, with an
-    OP event tagged in between for human inspection.
+    Two-stack model: input scalars live on an argument stack in input
+    order, NOT the geometric stack. No L2Store is emitted for them; the
+    heuristic prices their first L2Load at the arg-stack cost, then
+    treats them as just-stored on the geometric stack.
+
+    Trailing epilogue: every scalar in the return value is loaded once
+    at the end, modelling the program-exit output read.
     """
     t = _Tracer()
 
@@ -165,12 +169,23 @@ def trace(func: Callable, args: Tuple) -> Tuple[List[L2Event], List[int]]:
         if isinstance(v, (int, float)):
             var = t.fresh()
             t.input_vars.append(var)
-            t.events.append(L2Store(var))
             return _Tracked(t, var, v)
         return v
 
     wrapped = tuple(wrap(a) for a in args)
-    func(*wrapped)
+    result = func(*wrapped)
+
+    def emit_output_loads(v):
+        if isinstance(v, _Tracked):
+            t.events.append(L2Load(v._v))
+        elif isinstance(v, (list, tuple)):
+            for x in v:
+                emit_output_loads(x)
+        elif isinstance(v, dict):
+            for x in v.values():
+                emit_output_loads(x)
+
+    emit_output_loads(result)
     return t.events, t.input_vars
 
 
@@ -788,19 +803,25 @@ class _Fenwick:
         return s
 
 
-def _lru_cost(events: Sequence[L2Event], compact_on_last_load: bool) -> int:
-    """Shared LRU walk priced by ceil(sqrt(stack_depth)) per LOAD.
+def _lru_cost(events: Sequence[L2Event],
+              compact_on_last_load: bool,
+              input_arg_idx: Optional[Dict[int, int]] = None) -> int:
+    """Shared LRU walk priced by ceil(sqrt(stack_depth)) per LOAD, with
+    optional two-stack argument pricing.
 
-    Implementation: each variable currently in the stack owns a unique
-    timestamp t ∈ [1, T]. A Fenwick tree marks which timestamps are live.
-    Depth of variable X at a read = (#live timestamps) - (#live timestamps
-    with value < t(X)) = 1 + (#live timestamps with value > t(X)).
+    Two-stack model: if `input_arg_idx` is provided, mapping input var →
+    1-based position on the arg stack, the FIRST L2Load of an input var
+    is priced at ceil(sqrt(arg_idx)) — read from the arg stack — and then
+    the var is "promoted" onto the geometric stack as if freshly Stored.
+    Subsequent L2Loads price at geom-stack depth as usual.
 
     When compact_on_last_load is True, the variable is dropped entirely on
     its last LOAD (ByteDMD-live). Otherwise its timestamp is refreshed to
     the top (ByteDMD-classic LRU bump).
     """
-    # Assign every var a dense timestamp up-front; reuse slot for later refresh.
+    input_arg_idx = input_arg_idx or {}
+    pending = set(input_arg_idx)  # inputs whose first read hasn't happened
+
     last_load: Dict[int, int] = {}
     if compact_on_last_load:
         for i, ev in enumerate(events):
@@ -808,8 +829,8 @@ def _lru_cost(events: Sequence[L2Event], compact_on_last_load: bool) -> int:
                 last_load[ev.var] = i
 
     # Upper-bound on simultaneously-live timestamps: one per STORE + one per
-    # LOAD-bump. We use a growing Fenwick tree by pre-sizing to len(events)+1.
-    T = len(events) + 1
+    # LOAD-bump, plus one per input promotion. Pre-size to len(events)+K+1.
+    T = len(events) + len(input_arg_idx) + 1
     bit = _Fenwick(T)
 
     var_ts: Dict[int, int] = {}
@@ -824,6 +845,18 @@ def _lru_cost(events: Sequence[L2Event], compact_on_last_load: bool) -> int:
             var_ts[ev.var] = next_ts
             bit.add(next_ts, 1)
         elif isinstance(ev, L2Load):
+            if ev.var in pending:
+                # First read: from arg stack, priced by input position.
+                arg_idx = input_arg_idx[ev.var]
+                total += math.isqrt(max(0, arg_idx - 1)) + 1
+                pending.discard(ev.var)
+                if compact_on_last_load and last_load.get(ev.var) == i:
+                    continue  # read once and never again — no geom insert
+                # Promote onto geometric stack as if just Stored.
+                next_ts += 1
+                var_ts[ev.var] = next_ts
+                bit.add(next_ts, 1)
+                continue
             t = var_ts[ev.var]
             # depth = # live timestamps with t' >= t = total_live - prefix(t-1)
             total_live = bit.prefix(T)
@@ -841,27 +874,30 @@ def _lru_cost(events: Sequence[L2Event], compact_on_last_load: bool) -> int:
     return total
 
 
-def bytedmd_classic(events: Sequence[L2Event]) -> int:
+def bytedmd_classic(events: Sequence[L2Event],
+                    input_arg_idx: Optional[Dict[int, int]] = None) -> int:
     """ByteDMD-classic: LRU stack depth without liveness compaction.
 
     Walk the L2 trace with an LRU stack. Every STORE pushes a variable to
     the top (depth 1). Every LOAD looks up the variable's current depth,
     charges ceil(sqrt(depth)), and bumps it to the top. Dead variables are
-    never removed — deeper slots get polluted by the whole allocation
-    history. This is the "memory-leak" reuse-distance measure.
+    never removed. If input_arg_idx is given, input vars pay arg-stack cost
+    on first read, then are promoted to the geometric stack.
     """
-    return _lru_cost(events, compact_on_last_load=False)
+    return _lru_cost(events, compact_on_last_load=False,
+                     input_arg_idx=input_arg_idx)
 
 
-def bytedmd_live(events: Sequence[L2Event]) -> int:
+def bytedmd_live(events: Sequence[L2Event],
+                 input_arg_idx: Optional[Dict[int, int]] = None) -> int:
     """ByteDMD-live: LRU stack depth WITH liveness compaction.
 
     Same LRU walk as bytedmd_classic except a variable is dropped from the
-    stack on its last LOAD. The cost of a LOAD of X reflects only the
-    number of LIVE variables referenced between its previous LOAD and the
-    current one.
+    stack on its last LOAD. If input_arg_idx is given, input vars pay
+    arg-stack cost on first read, then are promoted to the geometric stack.
     """
-    return _lru_cost(events, compact_on_last_load=True)
+    return _lru_cost(events, compact_on_last_load=True,
+                     input_arg_idx=input_arg_idx)
 
 
 # ============================================================================
