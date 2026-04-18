@@ -150,6 +150,16 @@ because the two variants are symmetric.
 
 ![](traces/naive_matmul_n_16.svg)
 
+**Working-set size over time** (under ByteDMD-live compaction + two-stack
+argument promotion). Each point counts how many variables currently live
+on the geometric stack. The trace climbs as B elements are promoted once
+and remain live across every outer-i sweep, and as each final `s` gets
+pushed and waits for the output epilogue. Peak is 512 — roughly 256 B
+entries + 256 output scalars stacked up by the time the last row is
+computed. (Produced by `active_set_naive_matmul.py`.)
+
+![](traces/naive_matmul_n_16_liveset.svg)
+
 ---
 
 ## tiled_matmul
