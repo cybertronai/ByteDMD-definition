@@ -41,11 +41,14 @@ This rounding corresponds to routing wire length on a 2D grid with LRU stack arr
 
 An idealized processor operates directly on an element-level LRU stack. **Computations and writes are free; only memory reads incur a cost.**
 
-- **Stack State:** Ordered from least recently used (bottom) to most recently used (top). Depth is measured in bytes from the top (topmost byte = depth 1). Multi-byte scalars are treated as contiguous blocks of bytes.
-- **Eager initialization:** Arguments are loaded onto the stack left to right — the first argument sits at the top (depth 1). All input elements are live and addressable from the start.
-- **Read Cost:** Reading a byte at depth $d$ costs $\lceil\sqrt{d}\rceil$.
-- **Simultaneous pricing:** All inputs to an instruction are priced against the stack state *before* any LRU bumping. This guarantees commutativity: `Cost(a+b) == Cost(b+a)`.
-- **Only live contribute to depth of the stack:** Any value that's dead (no longer used) is immediately removed from the stack and remaining elements slide up to close the gap. This models an optimal compiler that keeps the stack clamped to the active working set.
+- **Two stacks:** Reads are priced against one of two stacks, each with the same $\lceil\sqrt{d}\rceil$ depth-cost shape:
+  - *Argument stack* (read-only): holds the input arguments, packed left-to-right. The first argument sits at depth 1, the second at depth 2, and so on — all input elements are live and addressable from the start.
+  - *Geometric stack* (read-write): holds intermediates produced during execution, ordered from least recently used (bottom) to most recently used (top). Depth is measured in bytes from the top (topmost byte = depth 1). Multi-byte scalars are treated as contiguous blocks of bytes.
+- **Argument promotion:** The **first** read of an argument is priced against its depth on the argument stack; that read then promotes the argument onto the top of the geometric stack, as if it had just been produced. Every **subsequent** read of that argument is priced against the geometric stack like any other intermediate.
+- **Read Cost:** Reading a byte at depth $d$ on either stack costs $\lceil\sqrt{d}\rceil$.
+- **Simultaneous pricing:** All inputs to an instruction are priced against the stack state *before* any LRU bumping or argument promotion. This guarantees commutativity: `Cost(a+b) == Cost(b+a)`.
+- **Only live contribute to depth of the geometric stack:** Any value that's dead (no longer used) is immediately removed from the geometric stack and remaining elements slide up to close the gap. This models an optimal compiler that keeps the stack clamped to the active working set. The argument stack is fixed and does not compact — arguments that have already been promoted no longer contribute depth on it.
+- **Output epilogue:** At the end of execution, every element of the return value is read once from the geometric stack, modelling the final pass that writes the result to the caller's buffer. The write is free; the read is priced.
 
 ### Instruction Semantics
 
@@ -66,28 +69,28 @@ def my_add(a, b, c):
     return (a + b) + c
 ```
 
-**1. Initial Stack (left = top, right = bottom)** 
-Arguments are loaded left to right — first argument at the top:
+**1. Initial state (left = top, right = bottom)**
+Arguments are packed left to right on the argument stack; the geometric stack starts empty:
 ```text
-[a, b, c]    ← a at depth 1, b at depth 2, c at depth 3
+arg stack:  [a, b, c]    ← a at depth 1, b at depth 2, c at depth 3
+geom stack: []
 ```
 
-**2. First operation: `a + b`**  
-Both operands are priced simultaneously against the initial stack:
+**2. First operation: `a + b`**
+`a` and `b` are both first reads — priced against the argument stack. Both operands see the pre-instruction snapshot simultaneously:
 
 $$C(a) + C(b) = \lceil\sqrt{1}\rceil + \lceil\sqrt{2}\rceil = 1 + 2 = 3$$
 
-After LRU bumping and pushing the result `t = a + b`:
+After the op, `a` and `b` are promoted onto the top of the geometric stack, the result `t = a + b` is pushed, and liveness evicts `a` and `b` (their last use just happened):
 ```text
-[t, b, a, c]    ← t at depth 1, b at depth 2, a at depth 3, c at depth 4
-```
-Liveness analysis evicts `a` and `b` (their last use just happened):
-```text
-[t, c]    ← t at depth 1, c at depth 2
+arg stack:  [a, b, c]    ← a and b remain in their slots but no longer matter
+geom stack: [t]          ← t at depth 1
 ```
 
-**3. Second operation: `t + c`**  
-$$C(t) + C(c) = \lceil\sqrt{1}\rceil + \lceil\sqrt{2}\rceil = 1 + 2 = 3$$
+**3. Second operation: `t + c`**
+`t` is read from the geometric stack at depth 1. `c` is a first read — priced against the argument stack at depth 3:
+
+$$C(t) + C(c) = \lceil\sqrt{1}\rceil + \lceil\sqrt{3}\rceil = 1 + 2 = 3$$
 
 **Total cost:** $3 + 3 = 6$. Trace: `[1, 2, 1, 2]`.
 
