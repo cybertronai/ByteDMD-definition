@@ -160,6 +160,17 @@ computed. (Produced by `active_set_naive_matmul.py`.)
 
 ![](traces/naive_matmul_n_16_liveset.svg)
 
+**Reuse distance per load.** The LRU depth at which each L2Load finds
+its variable — exactly the `d` in the per-access `⌈√d⌉` cost. First
+reads of inputs are priced against the arg-stack position, so they
+spread uniformly from depth 1 up to depth 512 (arg-stack size). Once an
+input is promoted, subsequent reads of it hit the geom stack: the
+accumulator `s` and the multiplied-tmp sit near the top (depth 1-2),
+while A/B elements re-surfaced from the bottom show up as a broad band.
+Median depth is 25, max is 512.
+
+![](traces/naive_matmul_n_16_reuse_distance.svg)
+
 ---
 
 ## tiled_matmul
