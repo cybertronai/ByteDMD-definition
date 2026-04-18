@@ -522,37 +522,33 @@ def fft_recursive(x_in):
 # ===========================================================================
 
 def manual_fft_recursive(N: int) -> int:
-    """Out-of-place recursive radix-2. Input on arg stack is copied once
-    to scratch x; recursion allocates fresh even/odd temps on scratch."""
+    """In-place recursive radix-2 Cooley-Tukey. Input on arg stack is
+    evaluated directly into the target output array x via strided reads,
+    avoiding fresh even/odd temps on the scratch stack.
+
+    Leaves route arg-stack cells straight into their bit-reversed slots
+    inside a single N-wide scratch buffer; every butterfly combination
+    then operates purely in-place. Peak scratch footprint is exactly N,
+    and the geometric cost evaluates over addresses 1..N only."""
     a = _alloc()
     x_in = a.alloc_arg(N)
     x = a.alloc(N)
     a.set_output_range(x, x + N)
-    for i in range(N):
-        a.touch_arg(x_in + i)
-        a.write(x + i)
 
-    def rec(base: int, sz: int) -> None:
+    def rec(base: int, sz: int, stride: int, offset: int) -> None:
         if sz == 1:
+            a.touch_arg(offset)
+            a.write(base)
             return
-        ckpt = a.push()
-        even = a.alloc(sz // 2)
-        odd  = a.alloc(sz // 2)
-        for i in range(sz // 2):
-            a.touch(base + 2 * i)
-            a.touch(base + 2 * i + 1)
-            a.write(even + i)
-            a.write(odd + i)
-        rec(even, sz // 2)
-        rec(odd,  sz // 2)
+        rec(base, sz // 2, stride * 2, offset)
+        rec(base + sz // 2, sz // 2, stride * 2, offset + stride)
         for k in range(sz // 2):
-            a.touch(odd + k)
-            a.touch(even + k)
-            a.write(base + k)
-            a.write(base + k + sz // 2)
-        a.pop(ckpt)
+            a.touch(base + sz // 2 + k)   # odd component
+            a.touch(base + k)             # even component
+            a.write(base + k)             # overwrite even
+            a.write(base + sz // 2 + k)   # overwrite odd
 
-    rec(x, N)
+    rec(x, N, 1, x_in)
     a.read_output()
     return a.cost
 

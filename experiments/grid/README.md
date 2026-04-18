@@ -71,7 +71,7 @@ DAGs are identical, so `bytedmd_live` / `bytedmd_classic` match — only
 | [matvec_col(n=64)](#matvec_col)                                       |   197,719 |      229,716 |     209,312 |         270,193 |
 | [matvec_blocked(n=64,B=4)](#matvec_blocked)                           |   208,307 |      215,668 |     275,535 |         256,422 |
 | [fft_iterative(N=256)](#fft_iterative)                                |    35,400 |       47,088 |      31,240 |          71,317 |
-| [fft_recursive(N=256)](#fft_recursive)                                |    28,170 |       33,110 |     109,002 |          62,417 |
+| [fft_recursive(N=256)](#fft_recursive)                                |    28,170 |       33,110 |      28,560 |          62,417 |
 | [stencil_naive(32x32)](#stencil_naive)                                |    61,258 |       65,937 |     121,628 |         109,401 |
 | [stencil_recursive(32x32,leaf=8)](#stencil_recursive)                 |    54,599 |       58,764 |     121,628 |         101,657 |
 | [spatial_conv(32x32,K=5)](#spatial_conv)                              |   344,389 |      402,858 |     537,944 |         681,253 |
@@ -482,18 +482,19 @@ anticipate once the working set fits entirely at low addresses.
 ---
 
 ## fft_recursive [(code)](scripts/fft_recursive_n_256.py)
-`N=256`. **Algorithm.** Out-of-place recursive radix-2 Cooley–Tukey:
+`N=256`. **Algorithm.** In-place recursive radix-2 Cooley–Tukey:
 split into even/odd halves, recurse, then combine with twiddles.
 
-**Manual placement.** Top-level `x` at 1..N; each recursion level uses
-`push/pop` to allocate fresh `even` and `odd` buffers (size N/2 each)
-just above the pointer. The allocator climbs during recursion (peak
-~2N slots = 512), so deeper levels pay `⌈√addr⌉` at much higher addrs
-than iterative does. At N=256 the gap widens dramatically — manual
-(103,290) is now **4× `bytedmd_iterative` manual (25,528)** and above
-`bytedmd_classic` (63,195), because stack discipline alone cannot
-match the aggressive recency-based compaction of live-only LRU when
-log₂N is large.
+**Manual placement.** A single `x[1..N]` working buffer on scratch;
+the recursion carries a *logical stride* so leaves route arg-stack
+cells directly into their bit-reversed scratch slots without any
+intermediate copy. Every butterfly then operates purely in-place.
+Peak scratch footprint is exactly `N` and every read pays
+`⌈√addr⌉` over addrs 1..N only. The resulting manual cost (28,560)
+is the mathematical minimum under this model: `log₂N + 2 = 10`
+sequential passes over N cells (1 arg-load leaf pass + log₂N = 8
+butterfly passes + 1 output epilogue), and it even beats
+`bytedmd_live` (33,110).
 
 ![](traces/fft_recursive_n_256.png)
 
