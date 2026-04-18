@@ -73,8 +73,9 @@ def plot_trace(log: list[tuple[str, int]],
                    label="arg read (shifted -addr)")
     if out_pts_t:
         ax.scatter(out_pts_t, out_pts_y,
-                   s=0.9, c="tab:purple", alpha=0.75,
+                   s=3.0, c="#8B008B", alpha=0.9,
                    rasterized=True, linewidths=0,
+                   zorder=5,
                    label="output read (epilogue)")
     if writes:
         wt, wa = zip(*writes)
