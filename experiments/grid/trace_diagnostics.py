@@ -6,8 +6,8 @@
 """Two ByteDMD-live + two-stack diagnostic plots per algorithm in
 run_grid.ALGOS:
 
-  <slug>_liveset.svg           — live working-set size over time
-  <slug>_reuse_distance.svg    — LRU depth at each L2Load
+  <slug>_liveset.png           — live working-set size over time
+  <slug>_reuse_distance.png    — LRU depth at each L2Load
 
 Both walk the L2 trace with the same Fenwick-tree semantics as
 bytedmd_ir._lru_cost (compaction + arg-stack first-touch promotion).
@@ -112,9 +112,9 @@ def walk_live_and_reuse(events, input_vars) -> Tuple[List[int], List[int],
 def plot_liveset(times, sizes, title, out_path):
     fig, ax = plt.subplots(figsize=(11, 3.2))
     ax.plot(times, sizes, color="tab:blue", linewidth=0.8,
-            drawstyle="steps-post", rasterized=False)
+            drawstyle="steps-post", rasterized=True)
     ax.fill_between(times, 0, sizes, color="tab:blue", alpha=0.18,
-                    linewidth=0, step="post", rasterized=False)
+                    linewidth=0, step="post", rasterized=True)
     ax.set_xlabel("Access index (time)")
     ax.set_ylabel("Live variables on geom stack")
     ax.set_title(title)
@@ -123,14 +123,14 @@ def plot_liveset(times, sizes, title, out_path):
         ax.set_xlim(0, times[-1] + 1)
     ax.set_ylim(bottom=0)
     fig.tight_layout()
-    fig.savefig(out_path, bbox_inches="tight")
+    fig.savefig(out_path, dpi=200, bbox_inches="tight")
     plt.close(fig)
 
 
 def plot_reuse_distance(times, distances, title, out_path):
     fig, ax = plt.subplots(figsize=(11, 3.2))
     ax.scatter(times, distances, s=0.8, c="tab:purple", alpha=0.35,
-               linewidths=0, rasterized=False)
+               linewidths=0, rasterized=True)
     ax.set_xlabel("Access index (time)")
     ax.set_ylabel("Reuse distance (LRU depth at read)")
     ax.set_title(title)
@@ -139,7 +139,7 @@ def plot_reuse_distance(times, distances, title, out_path):
         ax.set_xlim(0, times[-1] + 1)
     ax.set_ylim(bottom=0)
     fig.tight_layout()
-    fig.savefig(out_path, bbox_inches="tight")
+    fig.savefig(out_path, dpi=200, bbox_inches="tight")
     plt.close(fig)
 
 
@@ -161,11 +161,11 @@ def main() -> None:
         slug = slugify(name)
         plot_liveset(ls_t, ls_s,
                      f"{name} — live working-set size (peak = {peak:,})",
-                     os.path.join(traces_dir, f"{slug}_liveset.svg"))
+                     os.path.join(traces_dir, f"{slug}_liveset.png"))
         plot_reuse_distance(
             rd_t, rd_d,
             f"{name} — reuse distance per load (max = {mx:,})",
-            os.path.join(traces_dir, f"{slug}_reuse_distance.svg"))
+            os.path.join(traces_dir, f"{slug}_reuse_distance.png"))
         summary.append((name, slug, peak, mx, med))
         print(f"{name:<42} {len(events):>8,} {peak:>10,} "
               f"{mx:>8,} {med:>8,}")

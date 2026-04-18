@@ -93,7 +93,7 @@ DAGs are identical, so `bytedmd_live` / `bytedmd_classic` match — only
 ## Run
 
     ./run_grid.py          # tabulate: writes grid.csv, grid.md
-    ./generate_traces.py   # visualize: writes traces/<slug>.svg per algorithm
+    ./generate_traces.py   # visualize: writes traces/<slug>.png per algorithm
 
 ## Notes
 
@@ -148,7 +148,7 @@ addresses touched the same number of times) — only the LRU-recency
 heuristics distinguish them, and even there the differences are tiny
 because the two variants are symmetric.
 
-![](traces/naive_matmul_n_16.svg)
+![](traces/naive_matmul_n_16.png)
 
 **Working-set size over time** (under ByteDMD-live compaction + two-stack
 argument promotion). Each point counts how many variables currently live
@@ -158,7 +158,7 @@ pushed and waits for the output epilogue. Peak is 512 — roughly 256 B
 entries + 256 output scalars stacked up by the time the last row is
 computed. (Produced by `active_set_naive_matmul.py`.)
 
-![](traces/naive_matmul_n_16_liveset.svg)
+![](traces/naive_matmul_n_16_liveset.png)
 
 **Reuse distance per load.** The LRU depth at which each L2Load finds
 its variable — exactly the `d` in the per-access `⌈√d⌉` cost. First
@@ -169,7 +169,7 @@ accumulator `s` and the multiplied-tmp sit near the top (depth 1-2),
 while A/B elements re-surfaced from the bottom show up as a broad band.
 Median depth is 25, max is 512.
 
-![](traces/naive_matmul_n_16_reuse_distance.svg)
+![](traces/naive_matmul_n_16_reuse_distance.png)
 
 ---
 
@@ -183,15 +183,15 @@ loop. Same arithmetic as naive but in block-major order for locality.
 load C tile into sC; for each bk: load A/B tiles into sA/sB; MAC into sC
 (accumulator read once per (ii,jj) outside kk-loop); flush sC back.
 
-![](traces/tiled_matmul_n_16.svg)
+![](traces/tiled_matmul_n_16.png)
 
 **Working-set size over time** (peak = 500).
 
-![](traces/tiled_matmul_n_16_liveset.svg)
+![](traces/tiled_matmul_n_16_liveset.png)
 
 **Reuse distance per load** (max = 512).
 
-![](traces/tiled_matmul_n_16_reuse_distance.svg)
+![](traces/tiled_matmul_n_16_reuse_distance.png)
 
 ---
 
@@ -225,15 +225,15 @@ Manual uses the same physical schedule as this explicit version, so
 it has the same cost (86,030) — all three "explicit" / "manual" /
 "SpaceDMD-of-explicit" converge onto the TPU bound.
 
-![](traces/tiled_matmul_explicit_n_16_t_4.svg)
+![](traces/tiled_matmul_explicit_n_16_t_4.png)
 
 **Working-set size over time** (peak = 609).
 
-![](traces/tiled_matmul_explicit_n_16_t_4_liveset.svg)
+![](traces/tiled_matmul_explicit_n_16_t_4_liveset.png)
 
 **Reuse distance per load** (max = 576).
 
-![](traces/tiled_matmul_explicit_n_16_t_4_reuse_distance.svg)
+![](traces/tiled_matmul_explicit_n_16_t_4_reuse_distance.png)
 
 ---
 
@@ -249,15 +249,15 @@ naturally generates a Hamiltonian walk over C-tiles; only the
 strassen_trace's cache semantic), so 7 of 8 consecutive base calls reload
 C while 1 skips the pre-fetch.
 
-![](traces/rmm_n_16.svg)
+![](traces/rmm_n_16.png)
 
 **Working-set size over time** (peak = 554).
 
-![](traces/rmm_n_16_liveset.svg)
+![](traces/rmm_n_16_liveset.png)
 
 **Reuse distance per load** (max = 522).
 
-![](traces/rmm_n_16_reuse_distance.svg)
+![](traces/rmm_n_16_reuse_distance.png)
 
 ---
 
@@ -278,15 +278,15 @@ full `⌈√addr⌉` on the stack-high region. Manual cost 282,382 is **2.01×
 higher than `fused_strassen`** (140,526) — the entire ZAFS win is the
 avoidance of these materialized intermediates.
 
-![](traces/naive_strassen_n_16.svg)
+![](traces/naive_strassen_n_16.png)
 
 **Working-set size over time** (peak = 937).
 
-![](traces/naive_strassen_n_16_liveset.svg)
+![](traces/naive_strassen_n_16_liveset.png)
 
 **Reuse distance per load** (max = 768).
 
-![](traces/naive_strassen_n_16_reuse_distance.svg)
+![](traces/naive_strassen_n_16_reuse_distance.png)
 
 ---
 
@@ -303,15 +303,15 @@ addrs 1..3T²) plus A, B, C in main memory. No allocation of the 7 M
 matrices — the ZAFS win shows up entirely here in manual (140,526 vs
 353,901 for the naïve trace-based upper envelope).
 
-![](traces/fused_strassen_n_16.svg)
+![](traces/fused_strassen_n_16.png)
 
 **Working-set size over time** (peak = 937).
 
-![](traces/fused_strassen_n_16_liveset.svg)
+![](traces/fused_strassen_n_16_liveset.png)
 
 **Reuse distance per load** (max = 768).
 
-![](traces/fused_strassen_n_16_reuse_distance.svg)
+![](traces/fused_strassen_n_16_reuse_distance.png)
 
 ---
 
@@ -325,15 +325,15 @@ at addrs 1..5; bulk Q, K, V (N·d each); the N² score/probability matrix
 S (reused as P in-place); output O. The bulk S matrix dominates the
 cost — every access pays `⌈√(addr ≈ N²)⌉`.
 
-![](traces/naive_attn_n_32_d_2.svg)
+![](traces/naive_attn_n_32_d_2.png)
 
 **Working-set size over time** (peak = 1,060).
 
-![](traces/naive_attn_n_32_d_2_liveset.svg)
+![](traces/naive_attn_n_32_d_2_liveset.png)
 
 **Reuse distance per load** (max = 1,059).
 
-![](traces/naive_attn_n_32_d_2_reuse_distance.svg)
+![](traces/naive_attn_n_32_d_2_reuse_distance.png)
 
 ---
 
@@ -350,15 +350,15 @@ scalars `m_block, l_block, m_new, α, β, inv_l, tmp` also hot. Only Q,
 K, V, O live in main memory — the saved N² footprint drops manual from
 naive's 242k to 137k.
 
-![](traces/flash_attn_n_32_d_2_bk_8.svg)
+![](traces/flash_attn_n_32_d_2_bk_8.png)
 
 **Working-set size over time** (peak = 206).
 
-![](traces/flash_attn_n_32_d_2_bk_8_liveset.svg)
+![](traces/flash_attn_n_32_d_2_bk_8_liveset.png)
 
 **Reuse distance per load** (max = 192).
 
-![](traces/flash_attn_n_32_d_2_bk_8_reuse_distance.svg)
+![](traces/flash_attn_n_32_d_2_bk_8_reuse_distance.png)
 
 ---
 
@@ -371,15 +371,15 @@ A is read row-major (contiguous); `x` is re-read n times.
 is read once per output row; A and `x` are hit every k-iteration, but
 all of `x` sits in the hot region so its cost is amortized.
 
-![](traces/matvec_row_n_64.svg)
+![](traces/matvec_row_n_64.png)
 
 **Working-set size over time** (peak = 128).
 
-![](traces/matvec_row_n_64_liveset.svg)
+![](traces/matvec_row_n_64_liveset.png)
 
 **Reuse distance per load** (max = 4,160).
 
-![](traces/matvec_row_n_64_reuse_distance.svg)
+![](traces/matvec_row_n_64_reuse_distance.png)
 
 ---
 
@@ -393,15 +393,15 @@ the whole bulk region in stride-n jumps, which `bytedmd_live` rewards
 (177k vs row's 229k) but manual barely distinguishes (212k vs 238k) —
 again, the sum is fixed.
 
-![](traces/matvec_col_n_64.svg)
+![](traces/matvec_col_n_64.png)
 
 **Working-set size over time** (peak = 66).
 
-![](traces/matvec_col_n_64_liveset.svg)
+![](traces/matvec_col_n_64_liveset.png)
 
 **Reuse distance per load** (max = 4,160).
 
-![](traces/matvec_col_n_64_reuse_distance.svg)
+![](traces/matvec_col_n_64_reuse_distance.png)
 
 ---
 
@@ -430,15 +430,15 @@ real, and entirely accounted for by the scratchpad. A-reads sum to
 ~184k either way because every A cell must occupy its own grid
 address and be read exactly once.
 
-![](traces/matvec_blocked_n_64_b_4.svg)
+![](traces/matvec_blocked_n_64_b_4.png)
 
 **Working-set size over time** (peak = 129).
 
-![](traces/matvec_blocked_n_64_b_4_liveset.svg)
+![](traces/matvec_blocked_n_64_b_4_liveset.png)
 
 **Reuse distance per load** (max = 4,160).
 
-![](traces/matvec_blocked_n_64_b_4_reuse_distance.svg)
+![](traces/matvec_blocked_n_64_b_4_reuse_distance.png)
 
 ---
 
@@ -454,15 +454,15 @@ data region. Manual cost (25,528) is well *below* `bytedmd_live`
 (44,212) — a cheap-placement win that recency heuristics can't
 anticipate once the working set fits entirely at low addresses.
 
-![](traces/fft_iterative_n_256.svg)
+![](traces/fft_iterative_n_256.png)
 
 **Working-set size over time** (peak = 257).
 
-![](traces/fft_iterative_n_256_liveset.svg)
+![](traces/fft_iterative_n_256_liveset.png)
 
 **Reuse distance per load** (max = 256).
 
-![](traces/fft_iterative_n_256_reuse_distance.svg)
+![](traces/fft_iterative_n_256_reuse_distance.png)
 
 ---
 
@@ -480,15 +480,15 @@ than iterative does. At N=256 the gap widens dramatically — manual
 match the aggressive recency-based compaction of live-only LRU when
 log₂N is large.
 
-![](traces/fft_recursive_n_256.svg)
+![](traces/fft_recursive_n_256.png)
 
 **Working-set size over time** (peak = 257).
 
-![](traces/fft_recursive_n_256_liveset.svg)
+![](traces/fft_recursive_n_256_liveset.png)
 
 **Reuse distance per load** (max = 256).
 
-![](traces/fft_recursive_n_256_reuse_distance.svg)
+![](traces/fft_recursive_n_256_reuse_distance.png)
 
 ---
 
@@ -501,15 +501,15 @@ is touched 5× (once as center, four times as neighbor across its
 dependent B outputs), giving 5(n-2)² reads. Fixed-placement cost is
 pattern-independent.
 
-![](traces/stencil_naive_32x32.svg)
+![](traces/stencil_naive_32x32.png)
 
 **Working-set size over time** (peak = 930).
 
-![](traces/stencil_naive_32x32_liveset.svg)
+![](traces/stencil_naive_32x32_liveset.png)
 
 **Reuse distance per load** (max = 1,023).
 
-![](traces/stencil_naive_32x32_reuse_distance.svg)
+![](traces/stencil_naive_32x32_reuse_distance.png)
 
 ---
 
@@ -525,15 +525,15 @@ exactly 5× — the cost sum `Σ⌈√addr⌉` is invariant to access order.
 `bytedmd_live` distinguishes them (37,737 vs 44,468) via recency
 effects only.
 
-![](traces/stencil_recursive_32x32_leaf_8.svg)
+![](traces/stencil_recursive_32x32_leaf_8.png)
 
 **Working-set size over time** (peak = 908).
 
-![](traces/stencil_recursive_32x32_leaf_8_liveset.svg)
+![](traces/stencil_recursive_32x32_leaf_8_liveset.png)
 
 **Reuse distance per load** (max = 1,023).
 
-![](traces/stencil_recursive_32x32_leaf_8_reuse_distance.svg)
+![](traces/stencil_recursive_32x32_leaf_8_reuse_distance.png)
 
 ---
 
@@ -546,15 +546,15 @@ effects only.
 bulk). Each output cell reads `s` once then touches image and kernel
 K² times.
 
-![](traces/spatial_conv_32x32_k_5.svg)
+![](traces/spatial_conv_32x32_k_5.png)
 
 **Working-set size over time** (peak = 913).
 
-![](traces/spatial_conv_32x32_k_5_liveset.svg)
+![](traces/spatial_conv_32x32_k_5_liveset.png)
 
 **Reuse distance per load** (max = 1,049).
 
-![](traces/spatial_conv_32x32_k_5_reuse_distance.svg)
+![](traces/spatial_conv_32x32_k_5_reuse_distance.png)
 
 ---
 
@@ -568,15 +568,15 @@ Kernel fits in the hot region so all 144 weights are cheap; image
 sweeps the mid-range bulk for each of the Cin channels per spatial
 position.
 
-![](traces/regular_conv_16x16_k_3_cin_4_cout_4.svg)
+![](traces/regular_conv_16x16_k_3_cin_4_cout_4.png)
 
 **Working-set size over time** (peak = 1,016).
 
-![](traces/regular_conv_16x16_k_3_cin_4_cout_4_liveset.svg)
+![](traces/regular_conv_16x16_k_3_cin_4_cout_4_liveset.png)
 
 **Reuse distance per load** (max = 1,168).
 
-![](traces/regular_conv_16x16_k_3_cin_4_cout_4_reuse_distance.svg)
+![](traces/regular_conv_16x16_k_3_cin_4_cout_4_reuse_distance.png)
 
 ---
 
@@ -593,15 +593,15 @@ in-place FFT layout still wins over any trace-only LRU estimate,
 though the margin narrows at N=256 because the 3N hot region is no
 longer negligibly small.
 
-![](traces/fft_conv_n_256.svg)
+![](traces/fft_conv_n_256.png)
 
 **Working-set size over time** (peak = 513).
 
-![](traces/fft_conv_n_256_liveset.svg)
+![](traces/fft_conv_n_256_liveset.png)
 
 **Reuse distance per load** (max = 512).
 
-![](traces/fft_conv_n_256_reuse_distance.svg)
+![](traces/fft_conv_n_256_reuse_distance.png)
 
 ---
 
@@ -619,15 +619,15 @@ address of each recursion window. `manual` (3,974) slightly exceeds
 `⌈√(base+sz-1)⌉` under fixed placement, while LRU bumping would keep
 the pivot at depth 1 after its first read inside the inner loop.
 
-![](traces/quicksort_n_64.svg)
+![](traces/quicksort_n_64.png)
 
 **Working-set size over time** (peak = 64).
 
-![](traces/quicksort_n_64_liveset.svg)
+![](traces/quicksort_n_64_liveset.png)
 
 **Reuse distance per load** (max = 64).
 
-![](traces/quicksort_n_64_reuse_distance.svg)
+![](traces/quicksort_n_64_reuse_distance.png)
 
 ---
 
@@ -647,15 +647,15 @@ backbone of a pointer-less heap. `manual` (4,779) lands between
 `bytedmd_live` (4,548) and `bytedmd_classic` (7,164), and well under
 `mergesort`'s 8,416 — in-place + no temps buys it a lot.
 
-![](traces/heapsort_n_64.svg)
+![](traces/heapsort_n_64.png)
 
 **Working-set size over time** (peak = 64).
 
-![](traces/heapsort_n_64_liveset.svg)
+![](traces/heapsort_n_64_liveset.png)
 
 **Reuse distance per load** (max = 64).
 
-![](traces/heapsort_n_64_reuse_distance.svg)
+![](traces/heapsort_n_64_reuse_distance.png)
 
 ---
 
@@ -672,15 +672,15 @@ base. Temps stack up during recursion (peak ~2N). Manual (8,416) ends
 up *above* `bytedmd_classic` (4,344) — live temps drive the allocator
 pointer high, and fixed placement pays full cost on every access.
 
-![](traces/mergesort_n_64.svg)
+![](traces/mergesort_n_64.png)
 
 **Working-set size over time** (peak = 65).
 
-![](traces/mergesort_n_64_liveset.svg)
+![](traces/mergesort_n_64_liveset.png)
 
 **Reuse distance per load** (max = 65).
 
-![](traces/mergesort_n_64_reuse_distance.svg)
+![](traces/mergesort_n_64_reuse_distance.png)
 
 ---
 
@@ -698,15 +698,15 @@ reads 3 neighbors that span 2 rows of the table, so each touch pays
 heuristics — a clean case where fixed-placement is a *pessimistic*
 upper envelope.
 
-![](traces/lcs_dp_32x32.svg)
+![](traces/lcs_dp_32x32.png)
 
 **Working-set size over time** (peak = 97).
 
-![](traces/lcs_dp_32x32_liveset.svg)
+![](traces/lcs_dp_32x32_liveset.png)
 
 **Reuse distance per load** (max = 96).
 
-![](traces/lcs_dp_32x32_reuse_distance.svg)
+![](traces/lcs_dp_32x32_reuse_distance.png)
 
 ---
 
@@ -724,15 +724,15 @@ and every MAC reads three A cells — one fixed (pivot-column), one
 shared per-row, and one shared per-column — so the dominant
 contribution is the trailing submatrix rank-1 loop.
 
-![](traces/lu_no_pivot_n_32.svg)
+![](traces/lu_no_pivot_n_32.png)
 
 **Working-set size over time** (peak = 1,025).
 
-![](traces/lu_no_pivot_n_32_liveset.svg)
+![](traces/lu_no_pivot_n_32_liveset.png)
 
 **Reuse distance per load** (max = 1,024).
 
-![](traces/lu_no_pivot_n_32_reuse_distance.svg)
+![](traces/lu_no_pivot_n_32_reuse_distance.png)
 
 ---
 
@@ -750,15 +750,15 @@ total manual cost (821,347) actually **exceeds** `lu_no_pivot`'s
 706,548. The scratchpad pays its overhead without enough reuse to
 recoup it at n=32; the crossover would happen at larger n.
 
-![](traces/blocked_lu_n_32_nb_8.svg)
+![](traces/blocked_lu_n_32_nb_8.png)
 
 **Working-set size over time** (peak = 1,025).
 
-![](traces/blocked_lu_n_32_nb_8_liveset.svg)
+![](traces/blocked_lu_n_32_nb_8_liveset.png)
 
 **Reuse distance per load** (max = 1,024).
 
-![](traces/blocked_lu_n_32_nb_8_reuse_distance.svg)
+![](traces/blocked_lu_n_32_nb_8_reuse_distance.png)
 
 ---
 
@@ -774,15 +774,15 @@ with `lu_no_pivot` — in the fixed-placement Manhattan model, the
 touched-cell set and multiplicities are identical; only the LRU-based
 heuristics spread them differently.
 
-![](traces/recursive_lu_n_32.svg)
+![](traces/recursive_lu_n_32.png)
 
 **Working-set size over time** (peak = 1,025).
 
-![](traces/recursive_lu_n_32_liveset.svg)
+![](traces/recursive_lu_n_32_liveset.png)
 
 **Reuse distance per load** (max = 1,024).
 
-![](traces/recursive_lu_n_32_reuse_distance.svg)
+![](traces/recursive_lu_n_32_reuse_distance.png)
 
 ---
 
@@ -798,15 +798,15 @@ adds 2(n-k) reads per step (another n² touches). Manual cost
 (748,712) is ~6% above `lu_no_pivot` — the pivoting overhead is
 real but modest, since the dominant cost remains the rank-1 update.
 
-![](traces/lu_partial_pivot_n_32.svg)
+![](traces/lu_partial_pivot_n_32.png)
 
 **Working-set size over time** (peak = 1,025).
 
-![](traces/lu_partial_pivot_n_32_liveset.svg)
+![](traces/lu_partial_pivot_n_32_liveset.png)
 
 **Reuse distance per load** (max = 1,024).
 
-![](traces/lu_partial_pivot_n_32_reuse_distance.svg)
+![](traces/lu_partial_pivot_n_32_reuse_distance.png)
 
 ---
 
@@ -822,15 +822,15 @@ runs only over `i ≥ j`, the total touch count is **half** of LU's
 triangular-only access pattern is exactly why Cholesky is the
 textbook "locality isolate" benchmark.
 
-![](traces/cholesky_n_32.svg)
+![](traces/cholesky_n_32.png)
 
 **Working-set size over time** (peak = 529).
 
-![](traces/cholesky_n_32_liveset.svg)
+![](traces/cholesky_n_32_liveset.png)
 
 **Reuse distance per load** (max = 1,024).
 
-![](traces/cholesky_n_32_reuse_distance.svg)
+![](traces/cholesky_n_32_reuse_distance.png)
 
 ---
 
@@ -846,15 +846,15 @@ column (once for dot-product, once for rank-1 update), so each
 column-pair sees ~4(m-k) reads — the characteristic "panel
 read-read-write" pattern.
 
-![](traces/householder_qr_32x32.svg)
+![](traces/householder_qr_32x32.png)
 
 **Working-set size over time** (peak = 1,026).
 
-![](traces/householder_qr_32x32_liveset.svg)
+![](traces/householder_qr_32x32_liveset.png)
 
 **Reuse distance per load** (max = 1,024).
 
-![](traces/householder_qr_32x32_reuse_distance.svg)
+![](traces/householder_qr_32x32_reuse_distance.png)
 
 ---
 
@@ -871,15 +871,15 @@ Householder (1,101,368) — my implementation still reads V and the
 input columns directly from A, so the WY tight inner loop doesn't
 pay off in the fixed-placement model at this size.
 
-![](traces/blocked_qr_32x32_nb_8.svg)
+![](traces/blocked_qr_32x32_nb_8.png)
 
 **Working-set size over time** (peak = 1,033).
 
-![](traces/blocked_qr_32x32_nb_8_liveset.svg)
+![](traces/blocked_qr_32x32_nb_8_liveset.png)
 
 **Reuse distance per load** (max = 1,024).
 
-![](traces/blocked_qr_32x32_nb_8_reuse_distance.svg)
+![](traces/blocked_qr_32x32_nb_8_reuse_distance.png)
 
 ---
 
@@ -898,12 +898,12 @@ level. Manual cost 684,862 is well below the square
 (1024 vs 1024 — same footprint but different aspect ratio) because
 the tall-skinny shape makes each local QR dominate less.
 
-![](traces/tsqr_64x16_br_8.svg)
+![](traces/tsqr_64x16_br_8.png)
 
 **Working-set size over time** (peak = 1,026).
 
-![](traces/tsqr_64x16_br_8_liveset.svg)
+![](traces/tsqr_64x16_br_8_liveset.png)
 
 **Reuse distance per load** (max = 1,024).
 
-![](traces/tsqr_64x16_br_8_reuse_distance.svg)
+![](traces/tsqr_64x16_br_8_reuse_distance.png)
