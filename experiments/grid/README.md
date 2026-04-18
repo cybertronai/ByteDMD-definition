@@ -2,7 +2,7 @@
 
 This experiment compares a concrete no-free-compaction 2D cost against SpaceDMD and the two abstract ByteDMD heuristics on a small suite of workloads.
 
-Every traced metric cell finished under 4.967 seconds on this run.
+Every traced metric cell finished under 4.790 seconds on this run.
 
 ## Algorithms
 
@@ -159,65 +159,129 @@ Attention uses proxy `max`, `exp`, and reciprocal operators with the same read a
 | ByteDMD-live | 0.853 | 55.7% |
 | ByteDMD-classic | 0.846 | 46.3% |
 
+## Trace Diagnostics
+
+These follow the dev-branch style plots for the current `ByteDMD-live` path: each algorithm gets a reuse-distance-per-load scatter plot and a working-set-size-over-time step plot under [`diagnostics/`](./diagnostics/).
+
+A tab-separated summary is also saved as [`diagnostics/diagnostics_summary.tsv`](./diagnostics/diagnostics_summary.tsv).
+
+| Algorithm | Peak live | Max reuse | Median reuse | Working-set plot | Reuse-distance plot |
+| --- | --- | --- | --- | --- | --- |
+| Naive Matmul | 770 | 768 | 34 | [link](diagnostics/naive-matmul-16_liveset.png) | [link](diagnostics/naive-matmul-16_reuse_distance.png) |
+| Tiled Matmul | 771 | 768 | 11 | [link](diagnostics/tiled-matmul-16_liveset.png) | [link](diagnostics/tiled-matmul-16_reuse_distance.png) |
+| Recursive Matmul | 896 | 768 | 11 | [link](diagnostics/rmm-16_liveset.png) | [link](diagnostics/rmm-16_reuse_distance.png) |
+| Recursive In-Place (Lex) | 770 | 768 | 6 | [link](diagnostics/rmm-lex-16_liveset.png) | [link](diagnostics/rmm-lex-16_reuse_distance.png) |
+| Recursive In-Place (Gray) | 770 | 768 | 7 | [link](diagnostics/rmm-gray-16_liveset.png) | [link](diagnostics/rmm-gray-16_reuse_distance.png) |
+| Strassen | 1,194 | 1,023 | 13 | [link](diagnostics/strassen-16_liveset.png) | [link](diagnostics/strassen-16_reuse_distance.png) |
+| Fused Strassen | 774 | 773 | 8 | [link](diagnostics/fused-strassen-16_liveset.png) | [link](diagnostics/fused-strassen-16_reuse_distance.png) |
+| Naive Attention (d=2) | 2,309 | 2,082 | 4 | [link](diagnostics/naive-attention-32x2_liveset.png) | [link](diagnostics/naive-attention-32x2_reuse_distance.png) |
+| Flash Attention (Bk=8) | 409 | 343 | 4 | [link](diagnostics/flash-attention-32x2-b8_liveset.png) | [link](diagnostics/flash-attention-32x2-b8_reuse_distance.png) |
+| Naive Attention (d=4) | 2,565 | 2,146 | 4 | [link](diagnostics/regular-attention-32x4_liveset.png) | [link](diagnostics/regular-attention-32x4_reuse_distance.png) |
+| Flash Attention | 723 | 593 | 5 | [link](diagnostics/flash-attention-32x4_liveset.png) | [link](diagnostics/flash-attention-32x4_reuse_distance.png) |
+| LayerNorm (Unfused) | 2,057 | 2,054 | 4 | [link](diagnostics/layernorm-unfused-1024_liveset.png) | [link](diagnostics/layernorm-unfused-1024_reuse_distance.png) |
+| LayerNorm (Fused) | 2,058 | 2,055 | 4 | [link](diagnostics/layernorm-fused-1024_liveset.png) | [link](diagnostics/layernorm-fused-1024_reuse_distance.png) |
+| Matvec | 1,090 | 1,056 | 25 | [link](diagnostics/matvec-32_liveset.png) | [link](diagnostics/matvec-32_reuse_distance.png) |
+| Vecmat | 1,090 | 1,056 | 13 | [link](diagnostics/vecmat-32_liveset.png) | [link](diagnostics/vecmat-32_reuse_distance.png) |
+| Matvec Row | 4,226 | 4,160 | 49 | [link](diagnostics/matvec-row-64_liveset.png) | [link](diagnostics/matvec-row-64_reuse_distance.png) |
+| Matvec Column | 4,226 | 4,160 | 23 | [link](diagnostics/matvec-col-64_liveset.png) | [link](diagnostics/matvec-col-64_reuse_distance.png) |
+| Matrix Powers (Naive) | 1,122 | 1,088 | 65 | [link](diagnostics/matrix-powers-naive-32-s4_liveset.png) | [link](diagnostics/matrix-powers-naive-32-s4_reuse_distance.png) |
+| Matrix Powers (CA) | 1,473 | 1,024 | 66 | [link](diagnostics/matrix-powers-ca-32-s4_liveset.png) | [link](diagnostics/matrix-powers-ca-32-s4_reuse_distance.png) |
+| SpMV CSR (Banded) | 567 | 560 | 14 | [link](diagnostics/spmv-csr-banded-64_liveset.png) | [link](diagnostics/spmv-csr-banded-64_reuse_distance.png) |
+| SpMV CSR (Random) | 579 | 569 | 28 | [link](diagnostics/spmv-csr-random-64_liveset.png) | [link](diagnostics/spmv-csr-random-64_reuse_distance.png) |
+| Row Scan | 4,098 | 4,096 | 1 | [link](diagnostics/scan-row-64_liveset.png) | [link](diagnostics/scan-row-64_reuse_distance.png) |
+| Column Scan | 4,098 | 4,096 | 1 | [link](diagnostics/scan-column-64_liveset.png) | [link](diagnostics/scan-column-64_reuse_distance.png) |
+| Transpose (Naive) | 2,048 | 2,047 | 836 | [link](diagnostics/transpose-naive-32_liveset.png) | [link](diagnostics/transpose-naive-32_reuse_distance.png) |
+| Transpose (Blocked) | 2,048 | 2,047 | 821 | [link](diagnostics/transpose-blocked-32_liveset.png) | [link](diagnostics/transpose-blocked-32_reuse_distance.png) |
+| Transpose (Recursive) | 2,048 | 2,047 | 832 | [link](diagnostics/transpose-recursive-32_liveset.png) | [link](diagnostics/transpose-recursive-32_reuse_distance.png) |
+| FFT (Iterative) | 2,051 | 2,048 | 3 | [link](diagnostics/fft-iterative-1024_liveset.png) | [link](diagnostics/fft-iterative-1024_reuse_distance.png) |
+| FFT (Recursive) | 3,073 | 2,559 | 3 | [link](diagnostics/fft-recursive-1024_liveset.png) | [link](diagnostics/fft-recursive-1024_reuse_distance.png) |
+| Stencil (Naive) | 2,049 | 2,047 | 9 | [link](diagnostics/jacobi-naive-32_liveset.png) | [link](diagnostics/jacobi-naive-32_reuse_distance.png) |
+| Stencil (Recursive) | 2,049 | 2,047 | 9 | [link](diagnostics/jacobi-recursive-32_liveset.png) | [link](diagnostics/jacobi-recursive-32_reuse_distance.png) |
+| Stencil (Time-Naive) | 3,074 | 2,048 | 9 | [link](diagnostics/stencil-time-naive-32-t4_liveset.png) | [link](diagnostics/stencil-time-naive-32-t4_reuse_distance.png) |
+| Stencil (Time-Diamond) | 2,817 | 2,385 | 9 | [link](diagnostics/stencil-time-diamond-32-t4_liveset.png) | [link](diagnostics/stencil-time-diamond-32-t4_reuse_distance.png) |
+| Spatial Conv (2D, 16x16) | 539 | 537 | 33 | [link](diagnostics/conv2d-spatial-16x16-k5_liveset.png) | [link](diagnostics/conv2d-spatial-16x16-k5_reuse_distance.png) |
+| Spatial Conv (2D, 32x32) | 2,075 | 2,073 | 34 | [link](diagnostics/spatial-conv-32x32-k5_liveset.png) | [link](diagnostics/spatial-conv-32x32-k5_reuse_distance.png) |
+| Regular Conv | 2,194 | 2,192 | 51 | [link](diagnostics/regular-conv-16x16-k3-c4_liveset.png) | [link](diagnostics/regular-conv-16x16-k3-c4_reuse_distance.png) |
+| FFT Conv (1D) | 225 | 127 | 3 | [link](diagnostics/fft-conv-32_liveset.png) | [link](diagnostics/fft-conv-32_reuse_distance.png) |
+| FFT Conv (2D) | 5,715 | 3,096 | 3 | [link](diagnostics/conv2d-fft-16x16-k5_liveset.png) | [link](diagnostics/conv2d-fft-16x16-k5_reuse_distance.png) |
+| Mergesort | 192 | 159 | 3 | [link](diagnostics/mergesort-64_liveset.png) | [link](diagnostics/mergesort-64_reuse_distance.png) |
+| Bitonic Sort | 130 | 127 | 61 | [link](diagnostics/bitonic-sort-64_liveset.png) | [link](diagnostics/bitonic-sort-64_reuse_distance.png) |
+| LCS DP | 1,155 | 1,152 | 4 | [link](diagnostics/lcs-dp-32x32_liveset.png) | [link](diagnostics/lcs-dp-32x32_reuse_distance.png) |
+| Floyd-Warshall (Naive) | 2,050 | 2,047 | 4 | [link](diagnostics/floyd-warshall-naive-32_liveset.png) | [link](diagnostics/floyd-warshall-naive-32_reuse_distance.png) |
+| Floyd-Warshall (Recursive) | 2,050 | 2,047 | 4 | [link](diagnostics/floyd-warshall-recursive-32_liveset.png) | [link](diagnostics/floyd-warshall-recursive-32_reuse_distance.png) |
+| Gaussian Elimination | 1,228 | 1,200 | 25 | [link](diagnostics/gaussian-elimination-24_liveset.png) | [link](diagnostics/gaussian-elimination-24_reuse_distance.png) |
+| Gauss-Jordan Inverse | 772 | 767 | 44 | [link](diagnostics/gauss-jordan-inverse-16_liveset.png) | [link](diagnostics/gauss-jordan-inverse-16_reuse_distance.png) |
+| LU (No Pivot) | 1,431 | 1,152 | 29 | [link](diagnostics/lu-no-pivot-24_liveset.png) | [link](diagnostics/lu-no-pivot-24_reuse_distance.png) |
+| LU (Blocked) | 2,710 | 1,409 | 10 | [link](diagnostics/blocked-lu-24_liveset.png) | [link](diagnostics/blocked-lu-24_reuse_distance.png) |
+| LU (Recursive) | 2,115 | 1,325 | 15 | [link](diagnostics/recursive-lu-24_liveset.png) | [link](diagnostics/recursive-lu-24_reuse_distance.png) |
+| LU (Partial Pivot) | 1,431 | 1,151 | 37 | [link](diagnostics/lu-partial-pivot-24_liveset.png) | [link](diagnostics/lu-partial-pivot-24_reuse_distance.png) |
+| Cholesky | 604 | 599 | 4 | [link](diagnostics/cholesky-24_liveset.png) | [link](diagnostics/cholesky-24_reuse_distance.png) |
+| Cholesky (Blocked) | 1,266 | 1,151 | 9 | [link](diagnostics/blocked-cholesky-24_liveset.png) | [link](diagnostics/blocked-cholesky-24_reuse_distance.png) |
+| Cholesky (Recursive) | 1,467 | 905 | 13 | [link](diagnostics/recursive-cholesky-24_liveset.png) | [link](diagnostics/recursive-cholesky-24_reuse_distance.png) |
+| Cholesky (Right-Looking) | 1,454 | 1,151 | 13 | [link](diagnostics/cholesky-right-looking-24_liveset.png) | [link](diagnostics/cholesky-right-looking-24_reuse_distance.png) |
+| Householder QR | 1,256 | 1,201 | 4 | [link](diagnostics/householder-qr-48x12_liveset.png) | [link](diagnostics/householder-qr-48x12_reuse_distance.png) |
+| Blocked QR | 1,349 | 1,338 | 4 | [link](diagnostics/blocked-qr-48x12_liveset.png) | [link](diagnostics/blocked-qr-48x12_reuse_distance.png) |
+| TSQR | 1,208 | 719 | 4 | [link](diagnostics/tsqr-48x12_liveset.png) | [link](diagnostics/tsqr-48x12_reuse_distance.png) |
+
 ## Runtime
 
 | Algorithm | Max traced cell (s) | Total traced time (s) |
 | --- | --- | --- |
-| Naive Matmul | 0.212 | 0.346 |
-| Tiled Matmul | 0.181 | 0.293 |
-| Recursive Matmul | 0.189 | 0.307 |
-| Recursive In-Place (Lex) | 0.141 | 0.255 |
-| Recursive In-Place (Gray) | 0.137 | 0.246 |
-| Strassen | 0.563 | 0.804 |
-| Fused Strassen | 0.488 | 0.699 |
-| Naive Attention (d=2) | 0.528 | 0.862 |
-| Flash Attention (Bk=8) | 0.146 | 0.273 |
-| Naive Attention (d=4) | 0.886 | 1.354 |
-| Flash Attention | 0.437 | 0.694 |
-| LayerNorm (Unfused) | 0.433 | 0.702 |
-| LayerNorm (Fused) | 0.379 | 0.629 |
-| Matvec | 0.032 | 0.092 |
-| Vecmat | 0.031 | 0.076 |
-| Matvec Row | 0.379 | 1.075 |
-| Matvec Column | 0.396 | 0.851 |
-| Matrix Powers (Naive) | 0.474 | 0.734 |
-| Matrix Powers (CA) | 0.188 | 0.394 |
-| SpMV CSR (Banded) | 0.011 | 0.032 |
-| SpMV CSR (Random) | 0.017 | 0.044 |
-| Row Scan | 0.321 | 0.946 |
-| Column Scan | 0.351 | 0.708 |
-| Transpose (Naive) | 0.082 | 0.186 |
-| Transpose (Blocked) | 0.081 | 0.183 |
-| Transpose (Recursive) | 0.082 | 0.183 |
-| FFT (Iterative) | 1.234 | 1.886 |
-| FFT (Recursive) | 0.596 | 1.013 |
-| Stencil (Naive) | 0.196 | 0.350 |
-| Stencil (Recursive) | 0.195 | 0.417 |
-| Stencil (Time-Naive) | 1.576 | 2.924 |
-| Stencil (Time-Diamond) | 4.108 | 5.776 |
-| Spatial Conv (2D, 16x16) | 0.150 | 0.268 |
-| Spatial Conv (2D, 32x32) | 1.630 | 2.304 |
-| Regular Conv | 3.080 | 4.235 |
+| Naive Matmul | 0.225 | 0.372 |
+| Tiled Matmul | 0.187 | 0.302 |
+| Recursive Matmul | 0.191 | 0.319 |
+| Recursive In-Place (Lex) | 0.148 | 0.266 |
+| Recursive In-Place (Gray) | 0.147 | 0.260 |
+| Strassen | 0.546 | 0.791 |
+| Fused Strassen | 0.548 | 0.795 |
+| Naive Attention (d=2) | 0.532 | 0.858 |
+| Flash Attention (Bk=8) | 0.155 | 0.287 |
+| Naive Attention (d=4) | 0.873 | 1.343 |
+| Flash Attention | 0.512 | 0.776 |
+| LayerNorm (Unfused) | 0.453 | 0.735 |
+| LayerNorm (Fused) | 0.395 | 0.657 |
+| Matvec | 0.035 | 0.100 |
+| Vecmat | 0.032 | 0.079 |
+| Matvec Row | 0.420 | 1.185 |
+| Matvec Column | 0.425 | 0.939 |
+| Matrix Powers (Naive) | 0.505 | 0.794 |
+| Matrix Powers (CA) | 0.192 | 0.388 |
+| SpMV CSR (Banded) | 0.009 | 0.027 |
+| SpMV CSR (Random) | 0.014 | 0.037 |
+| Row Scan | 0.355 | 1.040 |
+| Column Scan | 0.418 | 0.786 |
+| Transpose (Naive) | 0.094 | 0.203 |
+| Transpose (Blocked) | 0.117 | 0.269 |
+| Transpose (Recursive) | 0.088 | 0.204 |
+| FFT (Iterative) | 1.354 | 2.068 |
+| FFT (Recursive) | 0.644 | 1.075 |
+| Stencil (Naive) | 0.197 | 0.352 |
+| Stencil (Recursive) | 0.190 | 0.400 |
+| Stencil (Time-Naive) | 1.729 | 3.154 |
+| Stencil (Time-Diamond) | 4.287 | 6.105 |
+| Spatial Conv (2D, 16x16) | 0.153 | 0.272 |
+| Spatial Conv (2D, 32x32) | 1.804 | 2.496 |
+| Regular Conv | 2.947 | 4.090 |
 | FFT Conv (1D) | 0.005 | 0.014 |
-| FFT Conv (2D) | 1.949 | 3.031 |
-| Mergesort | 0.003 | 0.010 |
-| Bitonic Sort | 0.009 | 0.024 |
-| LCS DP | 0.075 | 0.111 |
-| Floyd-Warshall (Naive) | 4.628 | 6.992 |
-| Floyd-Warshall (Recursive) | 4.967 | 7.529 |
-| Gaussian Elimination | 0.345 | 0.561 |
-| Gauss-Jordan Inverse | 0.585 | 0.930 |
-| LU (No Pivot) | 0.463 | 0.696 |
-| LU (Blocked) | 0.468 | 0.844 |
-| LU (Recursive) | 0.381 | 0.593 |
-| LU (Partial Pivot) | 0.516 | 0.775 |
-| Cholesky | 0.081 | 0.151 |
-| Cholesky (Blocked) | 0.113 | 0.210 |
-| Cholesky (Recursive) | 0.187 | 0.313 |
-| Cholesky (Right-Looking) | 0.119 | 0.231 |
-| Householder QR | 0.473 | 0.742 |
-| Blocked QR | 0.493 | 0.759 |
-| TSQR | 0.434 | 0.722 |
+| FFT Conv (2D) | 1.865 | 2.922 |
+| Mergesort | 0.004 | 0.010 |
+| Bitonic Sort | 0.010 | 0.027 |
+| LCS DP | 0.074 | 0.113 |
+| Floyd-Warshall (Naive) | 4.790 | 7.218 |
+| Floyd-Warshall (Recursive) | 4.744 | 7.157 |
+| Gaussian Elimination | 0.369 | 0.599 |
+| Gauss-Jordan Inverse | 0.633 | 1.000 |
+| LU (No Pivot) | 0.502 | 0.742 |
+| LU (Blocked) | 0.525 | 0.913 |
+| LU (Recursive) | 0.427 | 0.643 |
+| LU (Partial Pivot) | 0.555 | 0.822 |
+| Cholesky | 0.082 | 0.154 |
+| Cholesky (Blocked) | 0.115 | 0.214 |
+| Cholesky (Recursive) | 0.192 | 0.324 |
+| Cholesky (Right-Looking) | 0.115 | 0.223 |
+| Householder QR | 0.503 | 0.792 |
+| Blocked QR | 0.498 | 0.768 |
+| TSQR | 0.451 | 0.752 |
 
 Run the experiment with:
 

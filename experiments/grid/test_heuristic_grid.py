@@ -54,8 +54,9 @@ from experiments.grid.algorithms import (
     tsqr,
 )
 from experiments.grid.manual_2d import ManualTracer, measure_manual_2d
-from experiments.grid.measure import SpaceDMD, measure_function, measure_space_dmd
+from experiments.grid.measure import SpaceDMD, measure_function, measure_function_diagnostics, measure_space_dmd
 from experiments.grid.run_experiment import CLASSIC, LIVE, SPACE, TARGET, collect_results
+from experiments.grid.trace_diagnostics import collect_trace_diagnostics, plot_liveset, plot_reuse_distance
 
 
 def _matmul_numeric(A, B):
@@ -352,6 +353,38 @@ def test_space_dmd_measurement_runs_on_matvec():
 
     assert measurement["cost_discrete"] > 0
     assert measurement["n_reads"] > 0
+
+
+def test_measure_function_diagnostics_tracks_live_set_and_reuse():
+    measurement = measure_function_diagnostics(matvec, (make_matrix(8), make_vector(8)))
+
+    assert measurement["n_reads"] == len(measurement["trace"]) == len(measurement["read_depths"])
+    assert measurement["trace"] == measurement["read_depths"]
+    assert len(measurement["read_times"]) == len(measurement["read_depths"])
+    assert measurement["peak_live"] == max(measurement["live_sizes"])
+    assert measurement["max_reuse"] == max(measurement["read_depths"])
+
+
+def test_trace_diagnostic_plot_helpers_render(tmp_path):
+    liveset_path = tmp_path / "liveset.png"
+    reuse_path = tmp_path / "reuse.png"
+
+    plot_liveset([0, 1, 2], [1, 3, 2], "live", liveset_path)
+    plot_reuse_distance([0, 1, 2], [2, 4, 1], "reuse", reuse_path)
+
+    assert liveset_path.exists()
+    assert reuse_path.exists()
+
+
+def test_collect_trace_diagnostics_for_single_algorithm(tmp_path):
+    spec = build_algorithm_specs()[0]
+    diagnostics = collect_trace_diagnostics([spec], out_dir=tmp_path, render_plots=False)
+
+    assert len(diagnostics["algorithms"]) == 1
+    row = diagnostics["algorithms"][0]
+    assert row["key"] == spec.key
+    assert row["peak_live"] > 0
+    assert row["max_reuse"] > 0
 
 
 def test_flash_attention_beats_regular_attention_on_selected_workload():

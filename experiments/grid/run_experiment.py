@@ -1,6 +1,7 @@
 #!/usr/bin/env -S uv run --script
 # /// script
 # requires-python = ">=3.9"
+# dependencies = ["matplotlib"]
 # ///
 """Run the heuristic-grid experiment and write results plus a markdown report."""
 
@@ -19,6 +20,7 @@ if str(ROOT) not in sys.path:
 from experiments.grid.algorithms import build_algorithm_specs
 from experiments.grid.manual_2d import measure_manual_2d
 from experiments.grid.measure import measure_function, measure_space_dmd
+from experiments.grid.trace_diagnostics import collect_trace_diagnostics
 
 
 SPACE = "SpaceDMD"
@@ -230,6 +232,8 @@ def render_report(results: dict[str, object]) -> str:
     algorithms = list(results["algorithms"])
     ranking = list(results["ranking"])
     overall_max_cell = results["overall_max_cell_seconds"]
+    diagnostics = list(results.get("diagnostics", []))
+    diagnostics_summary = str(results.get("diagnostics_summary_tsv", ""))
     rho_winner = max(ranking, key=lambda row: float(row["spearman_rho"]))
     mape_winner = min(ranking, key=lambda row: float(row["scaled_mape"]))
 
@@ -252,6 +256,17 @@ def render_report(results: dict[str, object]) -> str:
             "Scaled MAPE": f"{100.0 * float(row['scaled_mape']):.1f}%",
         }
         for row in ranking
+    ]
+    diagnostic_rows = [
+        {
+            "Algorithm": row["algorithm"],
+            "Peak live": int(row["peak_live"]),
+            "Max reuse": int(row["max_reuse"]),
+            "Median reuse": int(row["median_reuse"]),
+            "Working-set plot": f"[link]({row['liveset_plot']})",
+            "Reuse-distance plot": f"[link]({row['reuse_distance_plot']})",
+        }
+        for row in diagnostics
     ]
     runtime_rows = [
         {
@@ -308,6 +323,17 @@ def render_report(results: dict[str, object]) -> str:
         "",
         _markdown_table(ranking_rows, ["Heuristic", "Spearman rho", "Scaled MAPE"]),
         "",
+        "## Trace Diagnostics",
+        "",
+        "These follow the dev-branch style plots for the current `ByteDMD-live` path: each algorithm gets a reuse-distance-per-load scatter plot and a working-set-size-over-time step plot under [`diagnostics/`](./diagnostics/).",
+        "",
+        f"A tab-separated summary is also saved as [`{diagnostics_summary}`](./{diagnostics_summary})." if diagnostics_summary else "",
+        "",
+        _markdown_table(
+            diagnostic_rows,
+            ["Algorithm", "Peak live", "Max reuse", "Median reuse", "Working-set plot", "Reuse-distance plot"],
+        ) if diagnostic_rows else "",
+        "",
         "## Runtime",
         "",
         _markdown_table(runtime_rows, ["Algorithm", "Max traced cell (s)", "Total traced time (s)"]),
@@ -324,6 +350,14 @@ def render_report(results: dict[str, object]) -> str:
 def main() -> None:
     out_dir = Path(__file__).resolve().parent
     results = collect_results()
+    diagnostics = collect_trace_diagnostics(out_dir=out_dir / "diagnostics", render_plots=True)
+    diagnostics_by_key = {str(row["key"]): row for row in diagnostics["algorithms"]}
+    results["diagnostics"] = [
+        diagnostics_by_key[str(row["key"])]
+        for row in results["algorithms"]
+        if str(row["key"]) in diagnostics_by_key
+    ]
+    results["diagnostics_summary_tsv"] = diagnostics["summary_tsv"]
 
     results_path = out_dir / "results.json"
     results_path.write_text(json.dumps(results, indent=2))

@@ -1,0 +1,56 @@
+key	algorithm	peak_live	max_reuse	median_reuse	liveset_plot	reuse_distance_plot
+matvec-32	Matvec	1090	1056	25	diagnostics/matvec-32_liveset.png	diagnostics/matvec-32_reuse_distance.png
+vecmat-32	Vecmat	1090	1056	13	diagnostics/vecmat-32_liveset.png	diagnostics/vecmat-32_reuse_distance.png
+matvec-row-64	Matvec Row	4226	4160	49	diagnostics/matvec-row-64_liveset.png	diagnostics/matvec-row-64_reuse_distance.png
+matvec-col-64	Matvec Column	4226	4160	23	diagnostics/matvec-col-64_liveset.png	diagnostics/matvec-col-64_reuse_distance.png
+transpose-naive-32	Transpose (Naive)	2048	2047	836	diagnostics/transpose-naive-32_liveset.png	diagnostics/transpose-naive-32_reuse_distance.png
+transpose-blocked-32	Transpose (Blocked)	2048	2047	821	diagnostics/transpose-blocked-32_liveset.png	diagnostics/transpose-blocked-32_reuse_distance.png
+transpose-recursive-32	Transpose (Recursive)	2048	2047	832	diagnostics/transpose-recursive-32_liveset.png	diagnostics/transpose-recursive-32_reuse_distance.png
+scan-row-64	Row Scan	4098	4096	1	diagnostics/scan-row-64_liveset.png	diagnostics/scan-row-64_reuse_distance.png
+scan-column-64	Column Scan	4098	4096	1	diagnostics/scan-column-64_liveset.png	diagnostics/scan-column-64_reuse_distance.png
+naive-matmul-16	Naive Matmul	770	768	34	diagnostics/naive-matmul-16_liveset.png	diagnostics/naive-matmul-16_reuse_distance.png
+tiled-matmul-16	Tiled Matmul	771	768	11	diagnostics/tiled-matmul-16_liveset.png	diagnostics/tiled-matmul-16_reuse_distance.png
+rmm-16	Recursive Matmul	896	768	11	diagnostics/rmm-16_liveset.png	diagnostics/rmm-16_reuse_distance.png
+rmm-lex-16	Recursive In-Place (Lex)	770	768	6	diagnostics/rmm-lex-16_liveset.png	diagnostics/rmm-lex-16_reuse_distance.png
+rmm-gray-16	Recursive In-Place (Gray)	770	768	7	diagnostics/rmm-gray-16_liveset.png	diagnostics/rmm-gray-16_reuse_distance.png
+strassen-16	Strassen	1194	1023	13	diagnostics/strassen-16_liveset.png	diagnostics/strassen-16_reuse_distance.png
+fused-strassen-16	Fused Strassen	774	773	8	diagnostics/fused-strassen-16_liveset.png	diagnostics/fused-strassen-16_reuse_distance.png
+gaussian-elimination-24	Gaussian Elimination	1228	1200	25	diagnostics/gaussian-elimination-24_liveset.png	diagnostics/gaussian-elimination-24_reuse_distance.png
+gauss-jordan-inverse-16	Gauss-Jordan Inverse	772	767	44	diagnostics/gauss-jordan-inverse-16_liveset.png	diagnostics/gauss-jordan-inverse-16_reuse_distance.png
+lu-no-pivot-24	LU (No Pivot)	1431	1152	29	diagnostics/lu-no-pivot-24_liveset.png	diagnostics/lu-no-pivot-24_reuse_distance.png
+blocked-lu-24	LU (Blocked)	2710	1409	10	diagnostics/blocked-lu-24_liveset.png	diagnostics/blocked-lu-24_reuse_distance.png
+recursive-lu-24	LU (Recursive)	2115	1325	15	diagnostics/recursive-lu-24_liveset.png	diagnostics/recursive-lu-24_reuse_distance.png
+lu-partial-pivot-24	LU (Partial Pivot)	1431	1151	37	diagnostics/lu-partial-pivot-24_liveset.png	diagnostics/lu-partial-pivot-24_reuse_distance.png
+cholesky-24	Cholesky	604	599	4	diagnostics/cholesky-24_liveset.png	diagnostics/cholesky-24_reuse_distance.png
+blocked-cholesky-24	Cholesky (Blocked)	1266	1151	9	diagnostics/blocked-cholesky-24_liveset.png	diagnostics/blocked-cholesky-24_reuse_distance.png
+recursive-cholesky-24	Cholesky (Recursive)	1467	905	13	diagnostics/recursive-cholesky-24_liveset.png	diagnostics/recursive-cholesky-24_reuse_distance.png
+householder-qr-48x12	Householder QR	1256	1201	4	diagnostics/householder-qr-48x12_liveset.png	diagnostics/householder-qr-48x12_reuse_distance.png
+blocked-qr-48x12	Blocked QR	1349	1338	4	diagnostics/blocked-qr-48x12_liveset.png	diagnostics/blocked-qr-48x12_reuse_distance.png
+tsqr-48x12	TSQR	1208	719	4	diagnostics/tsqr-48x12_liveset.png	diagnostics/tsqr-48x12_reuse_distance.png
+fft-iterative-1024	FFT (Iterative)	2051	2048	3	diagnostics/fft-iterative-1024_liveset.png	diagnostics/fft-iterative-1024_reuse_distance.png
+fft-recursive-1024	FFT (Recursive)	3073	2559	3	diagnostics/fft-recursive-1024_liveset.png	diagnostics/fft-recursive-1024_reuse_distance.png
+conv2d-spatial-16x16-k5	Spatial Conv (2D, 16x16)	539	537	33	diagnostics/conv2d-spatial-16x16-k5_liveset.png	diagnostics/conv2d-spatial-16x16-k5_reuse_distance.png
+spatial-conv-32x32-k5	Spatial Conv (2D, 32x32)	2075	2073	34	diagnostics/spatial-conv-32x32-k5_liveset.png	diagnostics/spatial-conv-32x32-k5_reuse_distance.png
+regular-conv-16x16-k3-c4	Regular Conv	2194	2192	51	diagnostics/regular-conv-16x16-k3-c4_liveset.png	diagnostics/regular-conv-16x16-k3-c4_reuse_distance.png
+conv2d-fft-16x16-k5	FFT Conv (2D)	5715	3096	3	diagnostics/conv2d-fft-16x16-k5_liveset.png	diagnostics/conv2d-fft-16x16-k5_reuse_distance.png
+fft-conv-32	FFT Conv (1D)	225	127	3	diagnostics/fft-conv-32_liveset.png	diagnostics/fft-conv-32_reuse_distance.png
+jacobi-naive-32	Stencil (Naive)	2049	2047	9	diagnostics/jacobi-naive-32_liveset.png	diagnostics/jacobi-naive-32_reuse_distance.png
+jacobi-recursive-32	Stencil (Recursive)	2049	2047	9	diagnostics/jacobi-recursive-32_liveset.png	diagnostics/jacobi-recursive-32_reuse_distance.png
+regular-attention-32x4	Naive Attention (d=4)	2565	2146	4	diagnostics/regular-attention-32x4_liveset.png	diagnostics/regular-attention-32x4_reuse_distance.png
+naive-attention-32x2	Naive Attention (d=2)	2309	2082	4	diagnostics/naive-attention-32x2_liveset.png	diagnostics/naive-attention-32x2_reuse_distance.png
+flash-attention-32x4	Flash Attention	723	593	5	diagnostics/flash-attention-32x4_liveset.png	diagnostics/flash-attention-32x4_reuse_distance.png
+flash-attention-32x2-b8	Flash Attention (Bk=8)	409	343	4	diagnostics/flash-attention-32x2-b8_liveset.png	diagnostics/flash-attention-32x2-b8_reuse_distance.png
+mergesort-64	Mergesort	192	159	3	diagnostics/mergesort-64_liveset.png	diagnostics/mergesort-64_reuse_distance.png
+lcs-dp-32x32	LCS DP	1155	1152	4	diagnostics/lcs-dp-32x32_liveset.png	diagnostics/lcs-dp-32x32_reuse_distance.png
+layernorm-unfused-1024	LayerNorm (Unfused)	2057	2054	4	diagnostics/layernorm-unfused-1024_liveset.png	diagnostics/layernorm-unfused-1024_reuse_distance.png
+layernorm-fused-1024	LayerNorm (Fused)	2058	2055	4	diagnostics/layernorm-fused-1024_liveset.png	diagnostics/layernorm-fused-1024_reuse_distance.png
+matrix-powers-naive-32-s4	Matrix Powers (Naive)	1122	1088	65	diagnostics/matrix-powers-naive-32-s4_liveset.png	diagnostics/matrix-powers-naive-32-s4_reuse_distance.png
+matrix-powers-ca-32-s4	Matrix Powers (CA)	1473	1024	66	diagnostics/matrix-powers-ca-32-s4_liveset.png	diagnostics/matrix-powers-ca-32-s4_reuse_distance.png
+spmv-csr-banded-64	SpMV CSR (Banded)	567	560	14	diagnostics/spmv-csr-banded-64_liveset.png	diagnostics/spmv-csr-banded-64_reuse_distance.png
+spmv-csr-random-64	SpMV CSR (Random)	579	569	28	diagnostics/spmv-csr-random-64_liveset.png	diagnostics/spmv-csr-random-64_reuse_distance.png
+stencil-time-naive-32-t4	Stencil (Time-Naive)	3074	2048	9	diagnostics/stencil-time-naive-32-t4_liveset.png	diagnostics/stencil-time-naive-32-t4_reuse_distance.png
+stencil-time-diamond-32-t4	Stencil (Time-Diamond)	2817	2385	9	diagnostics/stencil-time-diamond-32-t4_liveset.png	diagnostics/stencil-time-diamond-32-t4_reuse_distance.png
+bitonic-sort-64	Bitonic Sort	130	127	61	diagnostics/bitonic-sort-64_liveset.png	diagnostics/bitonic-sort-64_reuse_distance.png
+floyd-warshall-naive-32	Floyd-Warshall (Naive)	2050	2047	4	diagnostics/floyd-warshall-naive-32_liveset.png	diagnostics/floyd-warshall-naive-32_reuse_distance.png
+floyd-warshall-recursive-32	Floyd-Warshall (Recursive)	2050	2047	4	diagnostics/floyd-warshall-recursive-32_liveset.png	diagnostics/floyd-warshall-recursive-32_reuse_distance.png
+cholesky-right-looking-24	Cholesky (Right-Looking)	1454	1151	13	diagnostics/cholesky-right-looking-24_liveset.png	diagnostics/cholesky-right-looking-24_reuse_distance.png

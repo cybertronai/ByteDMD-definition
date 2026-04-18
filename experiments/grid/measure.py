@@ -259,6 +259,90 @@ def measure_function(func, args: tuple[Any, ...], *, strategy: str) -> dict[str,
     }
 
 
+def measure_function_diagnostics(func, args: tuple[Any, ...], *, strategy: str = "aggressive") -> dict[str, object]:
+    """Run one function and capture reuse-distance + live-set diagnostics.
+
+    The reuse-distance stream is exactly the measured read-depth trace for the
+    selected strategy. The live-set stream tracks the number of geometric-stack
+    values over time while the computation allocates, reads, and frees tracked
+    temporaries.
+    """
+
+    ctx = Context(strategy=strategy)
+    wrapped_args = tuple(wrap_value(ctx, arg) for arg in args)
+
+    peak_stack = [len(ctx.stack)]
+    event_index = [0]
+    live_times: list[int] = []
+    live_sizes: list[int] = []
+    read_times: list[int] = []
+    read_depths: list[int] = []
+
+    def live_size() -> int:
+        return sum(1 for key in ctx.stack if key != -1)
+
+    def record_live_event() -> None:
+        live_times.append(event_index[0])
+        live_sizes.append(live_size())
+        event_index[0] += 1
+
+    original_allocate = ctx.allocate
+    original_read = ctx.read
+    original_free = ctx.free
+
+    def tracking_allocate(*, is_input: bool = False):
+        key = original_allocate(is_input=is_input)
+        peak_stack[0] = max(peak_stack[0], len(ctx.stack))
+        if not is_input:
+            record_live_event()
+        return key
+
+    def tracking_read(key: int):
+        depth = original_read(key)
+        read_times.append(event_index[0])
+        read_depths.append(depth)
+        peak_stack[0] = max(peak_stack[0], len(ctx.stack))
+        record_live_event()
+        return depth
+
+    def tracking_free(key: int) -> None:
+        before = live_size()
+        original_free(key)
+        after = live_size()
+        if after != before:
+            record_live_event()
+
+    ctx.allocate = tracking_allocate  # type: ignore[assignment]
+    ctx.read = tracking_read  # type: ignore[assignment]
+    ctx.free = tracking_free  # type: ignore[assignment]
+
+    result = func(*wrapped_args)
+    read_return_value(result)
+
+    del result
+    del wrapped_args
+    gc.collect()
+
+    trace = list(ctx.trace)
+    sorted_depths = sorted(read_depths)
+    median_reuse = sorted_depths[len(sorted_depths) // 2] if sorted_depths else 0
+    return {
+        "strategy": strategy,
+        "trace": trace,
+        "cost_discrete": trace_to_cost_discrete(trace),
+        "cost_continuous": trace_to_cost_continuous(trace),
+        "n_reads": len(trace),
+        "peak_stack": peak_stack[0],
+        "live_times": live_times,
+        "live_sizes": live_sizes,
+        "read_times": read_times,
+        "read_depths": read_depths,
+        "peak_live": max(live_sizes, default=0),
+        "max_reuse": max(read_depths, default=0),
+        "median_reuse": median_reuse,
+    }
+
+
 def measure_space_dmd(func, args: tuple[Any, ...]) -> dict[str, object]:
     """Run one function under the SpaceDMD spatial-liveness heuristic."""
 
