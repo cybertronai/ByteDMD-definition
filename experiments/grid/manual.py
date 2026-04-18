@@ -1056,44 +1056,53 @@ def manual_lu_no_pivot(n: int) -> int:
 
 def manual_blocked_lu(n: int, NB: int = 8) -> int:
     """One-level blocked LU. Input A preloaded from arg stack to scratch.
-    NB×NB panel/row/diagonal scratchpads sit at the lowest scratch addrs."""
+    Single NB×NB scratchpad sDiag at the lowest scratch addrs is used to
+    factor each diagonal block in place (hot reads during the inner
+    triple-loop). The previous version allocated two additional panel
+    scratchpads that were never read — that left them dead weight that
+    only pushed A's base address further out. Dropping them shaves a
+    steady ~5 units off every A read across the main body loops.
+
+    Caching the Schur-complement column and row panels into fresh
+    scratchpads was also tried — at n=32,NB=8 the A-base inflation
+    from the extra scratchpad area costs more than the hot panel reads
+    save, so we keep only sDiag.
+    """
     a = _alloc()
     A_in = a.alloc_arg(n * n)
-    S_diag = a.alloc(NB * NB)     # diagonal block scratchpad
-    S_panel = a.alloc(NB * NB)    # below-diagonal panel scratch
-    S_row = a.alloc(NB * NB)      # row strip scratch
+    sDiag = a.alloc(NB * NB)
     A = a.alloc(n * n)
     a.set_output_range(A, A + n * n)
     for i in range(n * n):
         a.touch_arg(A_in + i); a.write(A + i)
 
-    def panel_lu(base_r: int, base_c: int, sz: int, scratch: int) -> None:
+    def panel_lu(base_r: int, base_c: int, sz: int) -> None:
         for ii in range(sz):
             for jj in range(sz):
                 a.touch(A + (base_r + ii) * n + base_c + jj)
-                a.write(scratch + ii * sz + jj)
+                a.write(sDiag + ii * sz + jj)
         for k in range(sz):
-            pivot_addr = scratch + k * sz + k
+            pivot_addr = sDiag + k * sz + k
             a.touch(pivot_addr)
             for i in range(k + 1, sz):
-                a.touch(scratch + i * sz + k)
+                a.touch(sDiag + i * sz + k)
                 a.touch(pivot_addr)
-                a.write(scratch + i * sz + k)
+                a.write(sDiag + i * sz + k)
             for i in range(k + 1, sz):
                 for j in range(k + 1, sz):
-                    a.touch(scratch + i * sz + j)
-                    a.touch(scratch + i * sz + k)
-                    a.touch(scratch + k * sz + j)
-                    a.write(scratch + i * sz + j)
+                    a.touch(sDiag + i * sz + j)
+                    a.touch(sDiag + i * sz + k)
+                    a.touch(sDiag + k * sz + j)
+                    a.write(sDiag + i * sz + j)
         for ii in range(sz):
             for jj in range(sz):
-                a.touch(scratch + ii * sz + jj)
+                a.touch(sDiag + ii * sz + jj)
                 a.write(A + (base_r + ii) * n + base_c + jj)
 
     for kb in range(0, n, NB):
         ke = min(kb + NB, n)
         sz = ke - kb
-        panel_lu(kb, kb, sz, S_diag)
+        panel_lu(kb, kb, sz)
         for i in range(ke, n):
             for k in range(kb, ke):
                 a.touch(A + i * n + k)
