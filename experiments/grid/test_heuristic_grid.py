@@ -1,14 +1,18 @@
 from experiments.memory_management.algorithms import naive_matmul
 from experiments.grid.algorithms import (
+    bitonic_sort,
     blocked_cholesky,
     blocked_lu,
     blocked_qr,
     build_algorithm_specs,
     blocked_transpose,
     cholesky,
+    cholesky_right_looking,
     fft_conv2d,
     fft_conv1d,
     flash_attention,
+    floyd_warshall_naive,
+    floyd_warshall_recursive,
     fused_strassen,
     gaussian_elimination,
     gauss_jordan_inverse,
@@ -16,9 +20,12 @@ from experiments.grid.algorithms import (
     iterative_fft,
     jacobi_stencil_naive,
     jacobi_stencil_recursive,
+    layernorm_fused,
+    layernorm_unfused,
     lcs_dp,
     lu_no_pivot,
     lu_partial_pivot,
+    make_apsp_matrix,
     make_linear_system,
     make_linear_system_matrix,
     make_matrix,
@@ -28,6 +35,8 @@ from experiments.grid.algorithms import (
     make_vector,
     make_volume,
     matvec,
+    matrix_powers_ca,
+    matrix_powers_naive,
     mergesort,
     naive_transpose,
     naive_circular_conv1d,
@@ -37,7 +46,11 @@ from experiments.grid.algorithms import (
     recursive_transpose,
     regular_attention,
     regular_conv2d,
+    spmv_csr_banded,
+    spmv_csr_random,
     spatial_conv2d,
+    stencil_time_diamond,
+    stencil_time_naive,
     tsqr,
 )
 from experiments.grid.manual_2d import ManualTracer, measure_manual_2d
@@ -68,6 +81,12 @@ def _assert_matrix_close(left, right, tol=1e-6):
             assert abs(float(value_left) - float(value_right)) < tol
 
 
+def _assert_vector_close(left, right, tol=1e-6):
+    assert len(left) == len(right)
+    for value_left, value_right in zip(left, right):
+        assert abs(float(value_left) - float(value_right)) < tol
+
+
 def test_fused_strassen_matches_standard_output():
     a = make_matrix(8)
     b = make_matrix(8, offset=1000)
@@ -95,6 +114,15 @@ def test_recursive_jacobi_matches_naive():
     matrix = make_matrix(8)
 
     assert jacobi_stencil_recursive(matrix, leaf=4) == jacobi_stencil_naive(matrix)
+
+
+def test_time_skewed_stencils_preserve_shape():
+    matrix = make_matrix(8)
+    naive = stencil_time_naive(matrix, T=2)
+    tiled = stencil_time_diamond(matrix, T=2, block=4)
+
+    assert len(naive) == len(tiled) == 8
+    assert len(naive[0]) == len(tiled[0]) == 8
 
 
 def test_fft_convolution_matches_spatial_convolution():
@@ -127,6 +155,44 @@ def test_lcs_dp_matches_known_example():
     seq_b = [3, 4, 1, 2, 1, 3]
 
     assert lcs_dp(seq_a, seq_b) == 5
+
+
+def test_floyd_warshall_recursive_matches_naive():
+    matrix = make_apsp_matrix(8, offset=10)
+
+    _assert_matrix_close(
+        floyd_warshall_recursive(matrix, leaf=2),
+        floyd_warshall_naive(matrix),
+    )
+
+
+def test_layernorm_variants_match():
+    x = make_vector(32)
+
+    _assert_vector_close(layernorm_fused(x), layernorm_unfused(x), tol=1e-5)
+
+
+def test_matrix_powers_variants_return_expected_shape():
+    A = make_matrix(8, offset=20)
+    x = make_vector(8, offset=30)
+
+    assert len(matrix_powers_naive(A, x, s=3)) == 8
+    assert len(matrix_powers_ca(A, x, s=3, block=4)) == 8
+
+
+def test_spmv_variants_return_expected_shape():
+    x = make_vector(16, offset=40)
+    banded_vals = [1.0] * sum(len(range(max(0, i - 2), min(16, i + 3))) for i in range(16))
+    random_vals = [1.0] * (16 * 5)
+
+    assert len(spmv_csr_banded(x, banded_vals, n=16, bandwidth=2)) == 16
+    assert len(spmv_csr_random(x, random_vals, n=16, nnz_per_row=5)) == 16
+
+
+def test_bitonic_sort_matches_python_sorted():
+    values = [9, 1, 7, 3, 5, 2, 8, 4]
+
+    assert bitonic_sort(values) == sorted(values)
 
 
 def test_gaussian_elimination_solves_known_system():
@@ -180,6 +246,7 @@ def test_cholesky_variants_reconstruct_spd_matrix():
         cholesky(A),
         blocked_cholesky(A, block=4),
         recursive_cholesky(A, leaf=4),
+        cholesky_right_looking(A),
     ):
         reconstructed = _matmul_numeric(factor, _transpose_numeric(factor))
         _assert_matrix_close(reconstructed, A, tol=1e-5)

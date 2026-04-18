@@ -1224,6 +1224,362 @@ def manual_flash_attention(n: int = 32, d: int = 4, bq: int = 8, bk: int = 4) ->
     return tracer.result()
 
 
+def manual_stencil_time_naive(n: int = 32, T: int = 8) -> dict[str, object]:
+    tracer = ManualTracer()
+    A = tracer.alloc_input_matrix(n, n)
+    cur = tracer.alloc_matrix(n, n, region="data")
+    nxt = tracer.alloc_matrix(n, n, region="data")
+
+    for i in range(n):
+        for j in range(n):
+            tracer.read(A.addr(i, j))
+
+    for _ in range(T):
+        for i in range(1, n - 1):
+            for j in range(1, n - 1):
+                tracer.read(cur.addr(i, j))
+                tracer.read(cur.addr(i - 1, j))
+                tracer.read(cur.addr(i + 1, j))
+                tracer.read(cur.addr(i, j - 1))
+                tracer.read(cur.addr(i, j + 1))
+        cur, nxt = nxt, cur
+
+    tracer.mark_output(cur)
+    return tracer.result()
+
+
+def manual_stencil_time_diamond(n: int = 32, T: int = 8, block: int = 8) -> dict[str, object]:
+    tracer = ManualTracer()
+    A = tracer.alloc_input_matrix(n, n)
+    cur = tracer.alloc_matrix(n, n)
+    out = tracer.alloc_matrix(n, n)
+    span = block + 2 * T
+    buf_cur = tracer.alloc_matrix(span, span)
+    buf_nxt = tracer.alloc_matrix(span, span)
+
+    for i in range(n):
+        for j in range(n):
+            tracer.read(A.addr(i, j))
+
+    for bi in range(0, n, block):
+        for bj in range(0, n, block):
+            rr = max(0, bi - T)
+            cc = max(0, bj - T)
+            rows = min(n, bi + block + T) - rr
+            cols = min(n, bj + block + T) - cc
+            for ii in range(rows):
+                for jj in range(cols):
+                    tracer.read(cur.addr(rr + ii, cc + jj))
+            for _ in range(T):
+                for ii in range(1, rows - 1):
+                    for jj in range(1, cols - 1):
+                        gi = rr + ii
+                        gj = cc + jj
+                        if gi == 0 or gj == 0 or gi == n - 1 or gj == n - 1:
+                            continue
+                        tracer.read(buf_cur.addr(ii, jj))
+                        tracer.read(buf_cur.addr(ii - 1, jj))
+                        tracer.read(buf_cur.addr(ii + 1, jj))
+                        tracer.read(buf_cur.addr(ii, jj - 1))
+                        tracer.read(buf_cur.addr(ii, jj + 1))
+                buf_cur, buf_nxt = buf_nxt, buf_cur
+            for i in range(bi, min(bi + block, n)):
+                for j in range(bj, min(bj + block, n)):
+                    tracer.read(buf_cur.addr(i - rr, j - cc))
+
+    tracer.mark_output(out)
+    return tracer.result()
+
+
+def manual_floyd_warshall_naive(n: int = 32) -> dict[str, object]:
+    tracer = ManualTracer()
+    M = tracer.alloc_input_matrix(n, n)
+    D = tracer.alloc_matrix(n, n)
+
+    for i in range(n):
+        for j in range(n):
+            tracer.read(M.addr(i, j))
+
+    for k in range(n):
+        for i in range(n):
+            for j in range(n):
+                tracer.read(D.addr(i, j))
+                tracer.read(D.addr(i, k))
+                tracer.read(D.addr(k, j))
+
+    tracer.mark_output(D)
+    return tracer.result()
+
+
+def manual_floyd_warshall_recursive(n: int = 32, leaf: int = 8) -> dict[str, object]:
+    tracer = ManualTracer()
+    M = tracer.alloc_input_matrix(n, n)
+    D = tracer.alloc_matrix(n, n)
+
+    for i in range(n):
+        for j in range(n):
+            tracer.read(M.addr(i, j))
+
+    def update_for_k(k: int, i0: int, i1: int, j0: int, j1: int) -> None:
+        i_span = i1 - i0
+        j_span = j1 - j0
+        if i_span <= leaf and j_span <= leaf:
+            for i in range(i0, i1):
+                for j in range(j0, j1):
+                    tracer.read(D.addr(i, j))
+                    tracer.read(D.addr(i, k))
+                    tracer.read(D.addr(k, j))
+            return
+        if i_span >= j_span and i_span > leaf:
+            mid = (i0 + i1) // 2
+            update_for_k(k, i0, mid, j0, j1)
+            update_for_k(k, mid, i1, j0, j1)
+        else:
+            mid = (j0 + j1) // 2
+            update_for_k(k, i0, i1, j0, mid)
+            update_for_k(k, i0, i1, mid, j1)
+
+    def process_k_range(k0: int, k1: int) -> None:
+        if (k1 - k0) <= leaf:
+            for k in range(k0, k1):
+                update_for_k(k, 0, n, 0, n)
+            return
+        mid = (k0 + k1) // 2
+        process_k_range(k0, mid)
+        process_k_range(mid, k1)
+
+    process_k_range(0, n)
+    tracer.mark_output(D)
+    return tracer.result()
+
+
+def manual_layernorm_unfused(n: int = 1024) -> dict[str, object]:
+    tracer = ManualTracer()
+    x = tracer.alloc_input_vector(n)
+    total = tracer.alloc_vector(1)
+    mean = tracer.alloc_vector(1)
+    total_sq = tracer.alloc_vector(1)
+    centered = tracer.alloc_vector(1)
+    inv_std = tracer.alloc_vector(1)
+    tracer.alloc_output_vector(n)
+
+    tracer.read(x.addr(0))
+    for i in range(1, n):
+        tracer.read(total.addr(0))
+        tracer.read(x.addr(i))
+    tracer.read(total.addr(0))
+
+    tracer.read(x.addr(0))
+    tracer.read(mean.addr(0))
+    tracer.read(x.addr(0))
+    tracer.read(mean.addr(0))
+    for i in range(1, n):
+        tracer.read(x.addr(i))
+        tracer.read(mean.addr(0))
+        tracer.read(total_sq.addr(0))
+        tracer.read(centered.addr(0))
+        tracer.read(centered.addr(0))
+    tracer.read(total_sq.addr(0))
+
+    for i in range(n):
+        tracer.read(x.addr(i))
+        tracer.read(mean.addr(0))
+        tracer.read(inv_std.addr(0))
+
+    return tracer.result()
+
+
+def manual_layernorm_fused(n: int = 1024) -> dict[str, object]:
+    tracer = ManualTracer()
+    x = tracer.alloc_input_vector(n)
+    mean = tracer.alloc_vector(1)
+    m2 = tracer.alloc_vector(1)
+    delta = tracer.alloc_vector(1)
+    delta2 = tracer.alloc_vector(1)
+    inv_std = tracer.alloc_vector(1)
+    tracer.alloc_output_vector(n)
+
+    tracer.read(x.addr(0))
+    tracer.read(x.addr(0))
+    for i in range(1, n):
+        tracer.read(x.addr(i))
+        tracer.read(mean.addr(0))
+        tracer.read(mean.addr(0))
+        tracer.read(delta.addr(0))
+        tracer.read(x.addr(i))
+        tracer.read(mean.addr(0))
+        tracer.read(m2.addr(0))
+        tracer.read(delta.addr(0))
+        tracer.read(delta2.addr(0))
+    tracer.read(m2.addr(0))
+
+    for i in range(n):
+        tracer.read(x.addr(i))
+        tracer.read(mean.addr(0))
+        tracer.read(inv_std.addr(0))
+
+    return tracer.result()
+
+
+def manual_matrix_powers_naive(n: int = 32, s: int = 4) -> dict[str, object]:
+    tracer = ManualTracer()
+    A = tracer.alloc_input_matrix(n, n)
+    x = tracer.alloc_input_vector(n)
+    cur = tracer.alloc_vector(n, region="data")
+    nxt = tracer.alloc_vector(n, region="data")
+    acc = tracer.alloc_vector(1)
+
+    for i in range(n):
+        tracer.read(x.addr(i))
+
+    for _ in range(s):
+        for i in range(n):
+            tracer.read(A.addr(i, 0))
+            tracer.read(cur.addr(0))
+            for j in range(1, n):
+                tracer.read(acc.addr(0))
+                tracer.read(A.addr(i, j))
+                tracer.read(cur.addr(j))
+        for i in range(n):
+            tracer.read(nxt.addr(i))
+        cur, nxt = nxt, cur
+
+    tracer.mark_output(cur)
+    return tracer.result()
+
+
+def manual_matrix_powers_ca(n: int = 32, s: int = 4, block: int = 4) -> dict[str, object]:
+    tracer = ManualTracer()
+    A = tracer.alloc_input_matrix(n, n)
+    x = tracer.alloc_input_vector(n)
+    states = [tracer.alloc_vector(n, region="data") for _ in range(s + 1)]
+    acc = tracer.alloc_vector(1)
+    a_tile = tracer.alloc_matrix(block, n)
+
+    for i in range(n):
+        tracer.read(x.addr(i))
+
+    for bi in range(0, n, block):
+        height = min(block, n - bi)
+        for ii in range(height):
+            for j in range(n):
+                tracer.read(A.addr(bi + ii, j))
+        for step in range(s):
+            cur = states[step]
+            nxt = states[step + 1]
+            for ii in range(height):
+                tracer.read(a_tile.addr(ii, 0))
+                tracer.read(cur.addr(0))
+                for j in range(1, n):
+                    tracer.read(acc.addr(0))
+                    tracer.read(a_tile.addr(ii, j))
+                    tracer.read(cur.addr(j))
+
+    tracer.mark_output(states[-1])
+    return tracer.result()
+
+
+def manual_cholesky_right_looking(n: int = 24) -> dict[str, object]:
+    tracer = ManualTracer()
+    A = tracer.alloc_input_matrix(n, n)
+    work = tracer.alloc_matrix(n, n)
+    L = tracer.alloc_matrix(n, n)
+    diag = tracer.alloc_vector(1)
+
+    for i in range(n):
+        for j in range(n):
+            tracer.read(A.addr(i, j))
+
+    for k in range(n):
+        tracer.read(work.addr(k, k))
+        tracer.read(L.addr(k, k))
+        for i in range(k + 1, n):
+            tracer.read(work.addr(i, k))
+            tracer.read(diag.addr(0))
+        for i in range(k + 1, n):
+            for j in range(k + 1, i + 1):
+                tracer.read(work.addr(i, j))
+                tracer.read(L.addr(i, k))
+                tracer.read(L.addr(j, k))
+
+    tracer.mark_output(L)
+    return tracer.result()
+
+
+def _manual_spmv(n: int, row_ptr: list[int], col_ind: list[int]) -> dict[str, object]:
+    tracer = ManualTracer()
+    vals = tracer.alloc_input_vector(len(col_ind))
+    x = tracer.alloc_input_vector(n)
+    acc = tracer.alloc_vector(1)
+    tracer.alloc_output_vector(n)
+
+    for i in range(n):
+        start = row_ptr[i]
+        end = row_ptr[i + 1]
+        if start == end:
+            tracer.read(x.addr(0))
+            continue
+        tracer.read(vals.addr(start))
+        tracer.read(x.addr(col_ind[start]))
+        for k in range(start + 1, end):
+            tracer.read(acc.addr(0))
+            tracer.read(vals.addr(k))
+            tracer.read(x.addr(col_ind[k]))
+    return tracer.result()
+
+
+def manual_spmv_csr_banded(n: int = 64, bandwidth: int = 3) -> dict[str, object]:
+    row_ptr = [0]
+    col_ind: list[int] = []
+    total = 0
+    for i in range(n):
+        for j in range(max(0, i - bandwidth), min(n, i + bandwidth + 1)):
+            col_ind.append(j)
+            total += 1
+        row_ptr.append(total)
+    return _manual_spmv(n, row_ptr, col_ind)
+
+
+def manual_spmv_csr_random(n: int = 64, nnz_per_row: int = 7, seed: int = 0xC0FFEE) -> dict[str, object]:
+    import random
+
+    rng = random.Random(seed)
+    row_ptr = [0]
+    col_ind: list[int] = []
+    total = 0
+    for _ in range(n):
+        cols = sorted(rng.sample(range(n), min(nnz_per_row, n)))
+        col_ind.extend(cols)
+        total += len(cols)
+        row_ptr.append(total)
+    return _manual_spmv(n, row_ptr, col_ind)
+
+
+def manual_bitonic_sort(n: int = 64) -> dict[str, object]:
+    tracer = ManualTracer()
+    arr_in = tracer.alloc_input_vector(n)
+    arr = tracer.alloc_vector(n)
+
+    for i in range(n):
+        tracer.read(arr_in.addr(i))
+
+    k = 2
+    while k <= n:
+        j = k // 2
+        while j > 0:
+            for i in range(n):
+                partner = i ^ j
+                if partner <= i:
+                    continue
+                tracer.read(arr.addr(i))
+                tracer.read(arr.addr(partner))
+            j //= 2
+        k *= 2
+
+    tracer.mark_output(arr)
+    return tracer.result()
+
+
 MANUAL_IMPLEMENTATIONS: dict[str, Callable[[], dict[str, object]]] = {
     "matvec-32": manual_matvec,
     "vecmat-32": manual_vecmat,
@@ -1250,12 +1606,23 @@ MANUAL_IMPLEMENTATIONS: dict[str, Callable[[], dict[str, object]]] = {
     "fft-conv-32": manual_fft_conv1d,
     "jacobi-naive-32": lambda: manual_jacobi(recursive=False),
     "jacobi-recursive-32": lambda: manual_jacobi(recursive=True),
+    "stencil-time-naive-32-t4": lambda: manual_stencil_time_naive(32, 4),
+    "stencil-time-diamond-32-t4": lambda: manual_stencil_time_diamond(32, 4, 8),
     "regular-attention-32x4": manual_regular_attention,
     "naive-attention-32x2": lambda: manual_regular_attention(d=2),
     "flash-attention-32x4": manual_flash_attention,
     "flash-attention-32x2-b8": lambda: manual_flash_attention(d=2, bk=8),
+    "layernorm-unfused-1024": lambda: manual_layernorm_unfused(1024),
+    "layernorm-fused-1024": lambda: manual_layernorm_fused(1024),
+    "matrix-powers-naive-32-s4": lambda: manual_matrix_powers_naive(32, 4),
+    "matrix-powers-ca-32-s4": lambda: manual_matrix_powers_ca(32, 4, 4),
+    "spmv-csr-banded-64": lambda: manual_spmv_csr_banded(64, 3),
+    "spmv-csr-random-64": lambda: manual_spmv_csr_random(64, 7),
     "mergesort-64": manual_mergesort,
+    "bitonic-sort-64": lambda: manual_bitonic_sort(64),
     "lcs-dp-32x32": manual_lcs_dp,
+    "floyd-warshall-naive-32": lambda: manual_floyd_warshall_naive(32),
+    "floyd-warshall-recursive-32": lambda: manual_floyd_warshall_recursive(32, 8),
     "gaussian-elimination-24": manual_gaussian_elimination,
     "gauss-jordan-inverse-16": manual_gauss_jordan_inverse,
     "lu-no-pivot-24": manual_lu_no_pivot,
@@ -1265,6 +1632,7 @@ MANUAL_IMPLEMENTATIONS: dict[str, Callable[[], dict[str, object]]] = {
     "cholesky-24": manual_cholesky,
     "blocked-cholesky-24": lambda: manual_blocked_cholesky(24, 4),
     "recursive-cholesky-24": lambda: manual_recursive_cholesky(24, 6),
+    "cholesky-right-looking-24": lambda: manual_cholesky_right_looking(24),
     "householder-qr-48x12": manual_householder_qr,
     "blocked-qr-48x12": lambda: manual_blocked_qr(48, 12, 4),
     "tsqr-48x12": lambda: manual_tsqr(48, 12, 12),

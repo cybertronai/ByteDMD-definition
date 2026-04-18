@@ -107,6 +107,19 @@ def make_spd_matrix(n: int, offset: int = 0) -> list[list[float]]:
     return out
 
 
+def make_apsp_matrix(n: int, offset: int = 0) -> list[list[float]]:
+    """Create a deterministic weighted adjacency matrix with zero diagonal."""
+
+    out = [[0.0] * n for _ in range(n)]
+    for i in range(n):
+        for j in range(n):
+            if i == j:
+                out[i][j] = 0.0
+            else:
+                out[i][j] = float(((offset + 5 * i + 7 * j) % 17) + 1)
+    return out
+
+
 def zeros(n: int) -> list[list[int]]:
     return [[0] * n for _ in range(n)]
 
@@ -188,6 +201,10 @@ def _recorded_eq(a, b) -> bool:
 
 def _max_actual(a, b):
     return _copy_proxy(b) if _recorded_le(a, b) else _copy_proxy(a)
+
+
+def _min_actual(a, b):
+    return _copy_proxy(a) if _recorded_le(a, b) else _copy_proxy(b)
 
 
 def _max2(a, b):
@@ -731,6 +748,302 @@ def lcs_dp(seq_a, seq_b):
             else:
                 dp[i + 1][j + 1] = _max_actual(dp[i][j + 1], dp[i + 1][j])
     return dp[m][n]
+
+
+def stencil_time_naive(A, T=4):
+    """Run T full Jacobi sweeps with fresh buffers each pass."""
+
+    n = len(A)
+    cur = [[_copy_proxy(A[i][j]) for j in range(n)] for i in range(n)]
+    for _ in range(T):
+        nxt = [[_copy_proxy(cur[i][j]) for j in range(n)] for i in range(n)]
+        for i in range(1, n - 1):
+            for j in range(1, n - 1):
+                acc = cur[i][j] + cur[i - 1][j]
+                acc = acc + cur[i + 1][j]
+                acc = acc + cur[i][j - 1]
+                acc = acc + cur[i][j + 1]
+                nxt[i][j] = 0.2 * acc
+        cur = nxt
+    return cur
+
+
+def stencil_time_diamond(A, T=4, block=4):
+    """Space-time tiled Jacobi using per-tile halo buffers."""
+
+    n = len(A)
+    out = [[_copy_proxy(A[i][j]) for j in range(n)] for i in range(n)]
+    halo = T
+
+    for bi in range(0, n, block):
+        for bj in range(0, n, block):
+            r0 = max(0, bi - halo)
+            r1 = min(n, bi + block + halo)
+            c0 = max(0, bj - halo)
+            c1 = min(n, bj + block + halo)
+            local_cur = [[_copy_proxy(A[i][j]) for j in range(c0, c1)] for i in range(r0, r1)]
+
+            for _ in range(T):
+                rows = len(local_cur)
+                cols = len(local_cur[0])
+                local_nxt = [[_copy_proxy(local_cur[ii][jj]) for jj in range(cols)] for ii in range(rows)]
+                for ii in range(1, rows - 1):
+                    for jj in range(1, cols - 1):
+                        gi = r0 + ii
+                        gj = c0 + jj
+                        if gi == 0 or gj == 0 or gi == n - 1 or gj == n - 1:
+                            continue
+                        acc = local_cur[ii][jj] + local_cur[ii - 1][jj]
+                        acc = acc + local_cur[ii + 1][jj]
+                        acc = acc + local_cur[ii][jj - 1]
+                        acc = acc + local_cur[ii][jj + 1]
+                        local_nxt[ii][jj] = 0.2 * acc
+                local_cur = local_nxt
+
+            for i in range(bi, min(bi + block, n)):
+                for j in range(bj, min(bj + block, n)):
+                    out[i][j] = _copy_proxy(local_cur[i - r0][j - c0])
+    return out
+
+
+def floyd_warshall_naive(M):
+    """Standard Floyd-Warshall APSP with tracked min-plus updates."""
+
+    V = len(M)
+    D = [[_copy_proxy(M[i][j]) for j in range(V)] for i in range(V)]
+    for k in range(V):
+        for i in range(V):
+            for j in range(V):
+                candidate = D[i][k] + D[k][j]
+                D[i][j] = _min_actual(D[i][j], candidate)
+    return D
+
+
+def floyd_warshall_recursive(M, *, leaf: int = 8):
+    """Recursive spatial blocking for Floyd-Warshall with exact k-ordering."""
+
+    V = len(M)
+    D = [[_copy_proxy(M[i][j]) for j in range(V)] for i in range(V)]
+
+    def update_for_k(k: int, i0: int, i1: int, j0: int, j1: int) -> None:
+        i_span = i1 - i0
+        j_span = j1 - j0
+        if i_span <= leaf and j_span <= leaf:
+            for i in range(i0, i1):
+                for j in range(j0, j1):
+                    candidate = D[i][k] + D[k][j]
+                    D[i][j] = _min_actual(D[i][j], candidate)
+            return
+        if i_span >= j_span and i_span > leaf:
+            mid = (i0 + i1) // 2
+            update_for_k(k, i0, mid, j0, j1)
+            update_for_k(k, mid, i1, j0, j1)
+        else:
+            mid = (j0 + j1) // 2
+            update_for_k(k, i0, i1, j0, mid)
+            update_for_k(k, i0, i1, mid, j1)
+
+    def process_k_range(k0: int, k1: int) -> None:
+        if (k1 - k0) <= leaf:
+            for k in range(k0, k1):
+                update_for_k(k, 0, V, 0, V)
+            return
+        mid = (k0 + k1) // 2
+        process_k_range(k0, mid)
+        process_k_range(mid, k1)
+
+    process_k_range(0, V)
+    return D
+
+
+def layernorm_unfused(x):
+    """Three-pass layer norm with explicit mean / variance / normalize loops."""
+
+    N = len(x)
+    inv_n = _tracked_constant_like(x[0], 1.0 / N)
+    eps = _tracked_constant_like(x[0], 1e-5)
+
+    total = _copy_proxy(x[0])
+    for i in range(1, N):
+        total = total + x[i]
+    mean = total * inv_n
+
+    total_sq = (x[0] - mean) * (x[0] - mean)
+    for i in range(1, N):
+        centered = x[i] - mean
+        total_sq = total_sq + centered * centered
+    variance = total_sq * inv_n
+    inv_std = _reciprocal_actual(_sqrt_actual(variance + eps))
+
+    y = [None] * N
+    for i in range(N):
+        y[i] = (x[i] - mean) * inv_std
+    return y
+
+
+def layernorm_fused(x):
+    """Two-pass layer norm using Welford statistics in the first pass."""
+
+    N = len(x)
+    mean = _copy_proxy(x[0])
+    m2 = _tracked_constant_like(x[0], 0.0)
+
+    for i in range(1, N):
+        inv_count = _tracked_constant_like(x[0], 1.0 / (i + 1))
+        delta = x[i] - mean
+        mean = mean + delta * inv_count
+        delta2 = x[i] - mean
+        m2 = m2 + delta * delta2
+
+    inv_n = _tracked_constant_like(x[0], 1.0 / N)
+    eps = _tracked_constant_like(x[0], 1e-5)
+    variance = m2 * inv_n
+    inv_std = _reciprocal_actual(_sqrt_actual(variance + eps))
+
+    y = [None] * N
+    for i in range(N):
+        y[i] = (x[i] - mean) * inv_std
+    return y
+
+
+def matrix_powers_naive(A, x, s=4):
+    """Compute A^s x by chaining s dense matvecs."""
+
+    n = len(A)
+    cur = [_copy_proxy(x[i]) for i in range(n)]
+    for _ in range(s):
+        nxt = [None] * n
+        for i in range(n):
+            acc = A[i][0] * cur[0]
+            for j in range(1, n):
+                acc = acc + A[i][j] * cur[j]
+            nxt[i] = acc
+        cur = nxt
+    return cur
+
+
+def matrix_powers_ca(A, x, s=4, block=4):
+    """Block-local CA proxy for x, Ax, ..., A^s x with A reused across steps."""
+
+    n = len(A)
+    zero = _tracked_constant_like(x[0], 0.0)
+    states = [[_copy_proxy(x[i]) for i in range(n)]]
+    for _ in range(s):
+        states.append([_copy_proxy(zero) for _ in range(n)])
+
+    for bi in range(0, n, block):
+        rows = list(range(bi, min(bi + block, n)))
+        a_tile = [[_copy_proxy(A[i][j]) for j in range(n)] for i in rows]
+        for step in range(s):
+            cur = states[step]
+            nxt = states[step + 1]
+            for local_i, i in enumerate(rows):
+                acc = a_tile[local_i][0] * cur[0]
+                for j in range(1, n):
+                    acc = acc + a_tile[local_i][j] * cur[j]
+                nxt[i] = acc
+    return states[-1]
+
+
+def cholesky_right_looking(A):
+    """Right-looking Cholesky factorization."""
+
+    n = len(A)
+    work = _matrix_copy(A)
+    L = [[0.0] * n for _ in range(n)]
+
+    for k in range(n):
+        L[k][k] = _sqrt_actual(_copy_proxy(work[k][k]))
+        diag_inv = _reciprocal_actual(L[k][k])
+        for i in range(k + 1, n):
+            L[i][k] = work[i][k] * diag_inv
+        for i in range(k + 1, n):
+            for j in range(k + 1, i + 1):
+                work[i][j] = work[i][j] - L[i][k] * L[j][k]
+    return L
+
+
+def _spmv_csr(row_ptr, col_ind, vals, x):
+    """CSR sparse matrix-vector multiply with plain integer indices."""
+
+    n = len(row_ptr) - 1
+    y = [None] * n
+    zero = _tracked_constant_like(x[0], 0.0)
+    for i in range(n):
+        start = row_ptr[i]
+        end = row_ptr[i + 1]
+        if start == end:
+            y[i] = _copy_proxy(zero)
+            continue
+        acc = vals[start] * x[col_ind[start]]
+        for k in range(start + 1, end):
+            acc = acc + vals[k] * x[col_ind[k]]
+        y[i] = acc
+    return y
+
+
+def _banded_csr(n, bandwidth):
+    row_ptr, col_ind = [0], []
+    total = 0
+    for i in range(n):
+        for j in range(max(0, i - bandwidth), min(n, i + bandwidth + 1)):
+            col_ind.append(j)
+            total += 1
+        row_ptr.append(total)
+    return row_ptr, col_ind
+
+
+def _random_csr(n, nnz_per_row, seed=0xC0FFEE):
+    import random
+
+    rng = random.Random(seed)
+    row_ptr, col_ind = [0], []
+    total = 0
+    for _ in range(n):
+        cols = sorted(rng.sample(range(n), min(nnz_per_row, n)))
+        col_ind.extend(cols)
+        total += len(cols)
+        row_ptr.append(total)
+    return row_ptr, col_ind
+
+
+def spmv_csr_banded(x, vals, n=64, bandwidth=3):
+    row_ptr, col_ind = _banded_csr(n, bandwidth)
+    return _spmv_csr(row_ptr, col_ind, vals, x)
+
+
+def spmv_csr_random(x, vals, n=64, nnz_per_row=7):
+    row_ptr, col_ind = _random_csr(n, nnz_per_row)
+    return _spmv_csr(row_ptr, col_ind, vals, x)
+
+
+def bitonic_sort(arr):
+    """Data-oblivious bitonic sorting network."""
+
+    N = len(arr)
+    out = [_copy_proxy(arr[i]) for i in range(N)]
+    k = 2
+    while k <= N:
+        j = k // 2
+        while j > 0:
+            for i in range(N):
+                l = i ^ j
+                if l <= i:
+                    continue
+                ascending = (i & k) == 0
+                if ascending:
+                    if not _recorded_le(out[i], out[l]):
+                        tmp = _copy_proxy(out[i])
+                        out[i] = _copy_proxy(out[l])
+                        out[l] = tmp
+                else:
+                    if _recorded_le(out[i], out[l]):
+                        tmp = _copy_proxy(out[i])
+                        out[i] = _copy_proxy(out[l])
+                        out[l] = tmp
+            j //= 2
+        k *= 2
+    return out
 
 
 def gaussian_elimination(A, b):
@@ -1340,6 +1653,34 @@ def flash_attention_flops(n: int, d: int, bk: int) -> int:
     return total
 
 
+def stencil_time_flops(n: int, T: int) -> int:
+    interior = max(n - 2, 0) * max(n - 2, 0)
+    return 5 * interior * T
+
+
+def floyd_warshall_flops(n: int) -> int:
+    return 3 * n * n * n
+
+
+def layernorm_flops(n: int, *, passes: int) -> int:
+    return passes * 4 * n
+
+
+def matrix_powers_flops(n: int, s: int) -> int:
+    return 2 * s * n * n
+
+
+def spmv_flops(nnz: int) -> int:
+    return max(1, 2 * nnz)
+
+
+def bitonic_sort_flops(n: int) -> int:
+    if n <= 1:
+        return 0
+    levels = int(math.log2(n))
+    return (n // 2) * levels * (levels + 1) // 2
+
+
 @dataclass(frozen=True)
 class AlgorithmSpec:
     key: str
@@ -1757,5 +2098,119 @@ def build_algorithm_specs() -> list[AlgorithmSpec]:
             func=lcs_dp,
             args_factory=lambda: (make_vector(32), make_vector(32, offset=16)),
             flops=lcs_flops(32, 32),
+        ),
+        AlgorithmSpec(
+            key="layernorm-unfused-1024",
+            label="LayerNorm (Unfused)",
+            workload="N=1024",
+            notes="three full vector passes for mean, variance, and normalize",
+            func=layernorm_unfused,
+            args_factory=lambda: (make_vector(1024),),
+            flops=layernorm_flops(1024, passes=3),
+        ),
+        AlgorithmSpec(
+            key="layernorm-fused-1024",
+            label="LayerNorm (Fused)",
+            workload="N=1024",
+            notes="Welford statistics fused into two vector passes",
+            func=layernorm_fused,
+            args_factory=lambda: (make_vector(1024),),
+            flops=layernorm_flops(1024, passes=2),
+        ),
+        AlgorithmSpec(
+            key="matrix-powers-naive-32-s4",
+            label="Matrix Powers (Naive)",
+            workload="32x32, s=4",
+            notes="re-reads A for each successive dense matvec",
+            func=lambda A, x: matrix_powers_naive(A, x, s=4),
+            args_factory=lambda: (make_matrix(32, offset=6000), make_vector(32, offset=7000)),
+            flops=matrix_powers_flops(32, 4),
+        ),
+        AlgorithmSpec(
+            key="matrix-powers-ca-32-s4",
+            label="Matrix Powers (CA)",
+            workload="32x32, s=4, block=4",
+            notes="row-blocked communication-avoiding proxy for chained matvecs",
+            func=lambda A, x: matrix_powers_ca(A, x, s=4, block=4),
+            args_factory=lambda: (make_matrix(32, offset=6000), make_vector(32, offset=7000)),
+            flops=matrix_powers_flops(32, 4),
+        ),
+        AlgorithmSpec(
+            key="spmv-csr-banded-64",
+            label="SpMV CSR (Banded)",
+            workload="N=64, bandwidth=3",
+            notes="sparse matrix-vector multiply with clustered indirect reads",
+            func=lambda x, vals: spmv_csr_banded(x, vals, n=64, bandwidth=3),
+            args_factory=lambda: (
+                make_vector(64, offset=8000),
+                make_vector(len(_banded_csr(64, 3)[1]), offset=9000),
+            ),
+            flops=spmv_flops(len(_banded_csr(64, 3)[1])),
+        ),
+        AlgorithmSpec(
+            key="spmv-csr-random-64",
+            label="SpMV CSR (Random)",
+            workload="N=64, nnz/row=7",
+            notes="sparse matrix-vector multiply with randomized indirect reads",
+            func=lambda x, vals: spmv_csr_random(x, vals, n=64, nnz_per_row=7),
+            args_factory=lambda: (
+                make_vector(64, offset=8000),
+                make_vector(len(_random_csr(64, 7)[1]), offset=9000),
+            ),
+            flops=spmv_flops(len(_random_csr(64, 7)[1])),
+        ),
+        AlgorithmSpec(
+            key="stencil-time-naive-32-t4",
+            label="Stencil (Time-Naive)",
+            workload="32x32, T=4",
+            notes="four full Jacobi sweeps with fresh intermediate buffers",
+            func=lambda A: stencil_time_naive(A, T=4),
+            args_factory=lambda: (make_matrix(32),),
+            flops=stencil_time_flops(32, 4),
+        ),
+        AlgorithmSpec(
+            key="stencil-time-diamond-32-t4",
+            label="Stencil (Time-Diamond)",
+            workload="32x32, T=4, block=8",
+            notes="space-time tiled Jacobi proxy with per-tile halo reuse",
+            func=lambda A: stencil_time_diamond(A, T=4, block=8),
+            args_factory=lambda: (make_matrix(32),),
+            flops=stencil_time_flops(32, 4),
+        ),
+        AlgorithmSpec(
+            key="bitonic-sort-64",
+            label="Bitonic Sort",
+            workload="N=64",
+            notes="data-oblivious sorting network with butterfly compare-swaps",
+            func=bitonic_sort,
+            args_factory=lambda: (list(reversed(make_vector(64))),),
+            flops=bitonic_sort_flops(64),
+        ),
+        AlgorithmSpec(
+            key="floyd-warshall-naive-32",
+            label="Floyd-Warshall (Naive)",
+            workload="V=32",
+            notes="standard k-i-j all-pairs shortest paths",
+            func=floyd_warshall_naive,
+            args_factory=lambda: (make_apsp_matrix(32, offset=100),),
+            flops=floyd_warshall_flops(32),
+        ),
+        AlgorithmSpec(
+            key="floyd-warshall-recursive-32",
+            label="Floyd-Warshall (Recursive)",
+            workload="V=32, leaf=8",
+            notes="recursive blocked APSP over k/i/j ranges",
+            func=lambda M: floyd_warshall_recursive(M, leaf=8),
+            args_factory=lambda: (make_apsp_matrix(32, offset=100),),
+            flops=floyd_warshall_flops(32),
+        ),
+        AlgorithmSpec(
+            key="cholesky-right-looking-24",
+            label="Cholesky (Right-Looking)",
+            workload="N=24",
+            notes="eager trailing-update Cholesky for read/write asymmetry comparison",
+            func=cholesky_right_looking,
+            args_factory=lambda: (make_spd_matrix(24, offset=450),),
+            flops=cholesky_flops(24),
         ),
     ]

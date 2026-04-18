@@ -10,13 +10,13 @@
       "Manual-2D": 138486,
       "ByteDMD-classic": 178319,
       "cell_seconds": {
-        "SpaceDMD": 0.0442,
-        "ByteDMD-live": 0.092,
-        "Manual-2D": 0.0079,
-        "ByteDMD-classic": 0.2332
+        "SpaceDMD": 0.0416,
+        "ByteDMD-live": 0.0856,
+        "Manual-2D": 0.0074,
+        "ByteDMD-classic": 0.2116
       },
-      "max_cell_seconds": 0.2332,
-      "total_traced_seconds": 0.3772
+      "max_cell_seconds": 0.2116,
+      "total_traced_seconds": 0.3463
     },
     {
       "key": "tiled-matmul-16",
@@ -28,13 +28,13 @@
       "Manual-2D": 82574,
       "ByteDMD-classic": 141169,
       "cell_seconds": {
-        "SpaceDMD": 0.045,
-        "ByteDMD-live": 0.0607,
+        "SpaceDMD": 0.0452,
+        "ByteDMD-live": 0.0591,
         "Manual-2D": 0.0071,
-        "ByteDMD-classic": 0.1942
+        "ByteDMD-classic": 0.1812
       },
-      "max_cell_seconds": 0.1942,
-      "total_traced_seconds": 0.307
+      "max_cell_seconds": 0.1812,
+      "total_traced_seconds": 0.2926
     },
     {
       "key": "rmm-16",
@@ -46,13 +46,13 @@
       "Manual-2D": 102056,
       "ByteDMD-classic": 149081,
       "cell_seconds": {
-        "SpaceDMD": 0.0474,
-        "ByteDMD-live": 0.0687,
+        "SpaceDMD": 0.046,
+        "ByteDMD-live": 0.0666,
         "Manual-2D": 0.0049,
-        "ByteDMD-classic": 0.1987
+        "ByteDMD-classic": 0.1893
       },
-      "max_cell_seconds": 0.1987,
-      "total_traced_seconds": 0.3197
+      "max_cell_seconds": 0.1893,
+      "total_traced_seconds": 0.3069
     },
     {
       "key": "rmm-lex-16",
@@ -64,13 +64,13 @@
       "Manual-2D": 239777,
       "ByteDMD-classic": 131240,
       "cell_seconds": {
-        "SpaceDMD": 0.0485,
-        "ByteDMD-live": 0.0581,
+        "SpaceDMD": 0.0474,
+        "ByteDMD-live": 0.0575,
         "Manual-2D": 0.0081,
-        "ByteDMD-classic": 0.1447
+        "ByteDMD-classic": 0.1415
       },
-      "max_cell_seconds": 0.1447,
-      "total_traced_seconds": 0.2594
+      "max_cell_seconds": 0.1415,
+      "total_traced_seconds": 0.2545
     },
     {
       "key": "rmm-gray-16",
@@ -82,13 +82,13 @@
       "Manual-2D": 239777,
       "ByteDMD-classic": 124441,
       "cell_seconds": {
-        "SpaceDMD": 0.0478,
-        "ByteDMD-live": 0.055,
-        "Manual-2D": 0.0081,
-        "ByteDMD-classic": 0.1386
+        "SpaceDMD": 0.0469,
+        "ByteDMD-live": 0.0543,
+        "Manual-2D": 0.008,
+        "ByteDMD-classic": 0.1373
       },
-      "max_cell_seconds": 0.1386,
-      "total_traced_seconds": 0.2495
+      "max_cell_seconds": 0.1373,
+      "total_traced_seconds": 0.2465
     },
     {
       "key": "strassen-16",
@@ -100,13 +100,13 @@
       "Manual-2D": 210953,
       "ByteDMD-classic": 341157,
       "cell_seconds": {
-        "SpaceDMD": 0.0814,
-        "ByteDMD-live": 0.151,
+        "SpaceDMD": 0.0816,
+        "ByteDMD-live": 0.1493,
         "Manual-2D": 0.0101,
-        "ByteDMD-classic": 0.5471
+        "ByteDMD-classic": 0.5633
       },
-      "max_cell_seconds": 0.5471,
-      "total_traced_seconds": 0.7896
+      "max_cell_seconds": 0.5633,
+      "total_traced_seconds": 0.8043
     },
     {
       "key": "fused-strassen-16",
@@ -118,13 +118,13 @@
       "Manual-2D": 147360,
       "ByteDMD-classic": 310614,
       "cell_seconds": {
-        "SpaceDMD": 0.0736,
-        "ByteDMD-live": 0.1337,
-        "Manual-2D": 0.0056,
-        "ByteDMD-classic": 0.4993
+        "SpaceDMD": 0.0739,
+        "ByteDMD-live": 0.1317,
+        "Manual-2D": 0.0055,
+        "ByteDMD-classic": 0.4879
       },
-      "max_cell_seconds": 0.4993,
-      "total_traced_seconds": 0.7122
+      "max_cell_seconds": 0.4879,
+      "total_traced_seconds": 0.699
     },
     {
       "key": "naive-attention-32x2",
@@ -136,13 +136,13 @@
       "Manual-2D": 419566,
       "ByteDMD-classic": 273037,
       "cell_seconds": {
-        "SpaceDMD": 0.0591,
-        "ByteDMD-live": 0.2837,
-        "Manual-2D": 0.0076,
-        "ByteDMD-classic": 0.5383
+        "SpaceDMD": 0.0626,
+        "ByteDMD-live": 0.263,
+        "Manual-2D": 0.0075,
+        "ByteDMD-classic": 0.5284
       },
-      "max_cell_seconds": 0.5383,
-      "total_traced_seconds": 0.8887
+      "max_cell_seconds": 0.5284,
+      "total_traced_seconds": 0.8615
     },
     {
       "key": "flash-attention-32x2-b8",
@@ -154,13 +154,13 @@
       "Manual-2D": 117651,
       "ByteDMD-classic": 143791,
       "cell_seconds": {
-        "SpaceDMD": 0.0656,
-        "ByteDMD-live": 0.0601,
-        "Manual-2D": 0.0084,
-        "ByteDMD-classic": 0.172
+        "SpaceDMD": 0.0639,
+        "ByteDMD-live": 0.056,
+        "Manual-2D": 0.0072,
+        "ByteDMD-classic": 0.1461
       },
-      "max_cell_seconds": 0.172,
-      "total_traced_seconds": 0.306
+      "max_cell_seconds": 0.1461,
+      "total_traced_seconds": 0.2732
     },
     {
       "key": "regular-attention-32x4",
@@ -172,13 +172,13 @@
       "Manual-2D": 804056,
       "ByteDMD-classic": 462791,
       "cell_seconds": {
-        "SpaceDMD": 0.1091,
-        "ByteDMD-live": 0.3807,
-        "Manual-2D": 0.0164,
-        "ByteDMD-classic": 0.9111
+        "SpaceDMD": 0.0982,
+        "ByteDMD-live": 0.356,
+        "Manual-2D": 0.0138,
+        "ByteDMD-classic": 0.886
       },
-      "max_cell_seconds": 0.9111,
-      "total_traced_seconds": 1.4174
+      "max_cell_seconds": 0.886,
+      "total_traced_seconds": 1.354
     },
     {
       "key": "flash-attention-32x4",
@@ -190,13 +190,49 @@
       "Manual-2D": 286628,
       "ByteDMD-classic": 317851,
       "cell_seconds": {
-        "SpaceDMD": 0.1231,
-        "ByteDMD-live": 0.1853,
-        "Manual-2D": 0.0168,
-        "ByteDMD-classic": 0.498
+        "SpaceDMD": 0.1107,
+        "ByteDMD-live": 0.1324,
+        "Manual-2D": 0.0143,
+        "ByteDMD-classic": 0.4369
       },
-      "max_cell_seconds": 0.498,
-      "total_traced_seconds": 0.8232
+      "max_cell_seconds": 0.4369,
+      "total_traced_seconds": 0.6942
+    },
+    {
+      "key": "layernorm-unfused-1024",
+      "algorithm": "LayerNorm (Unfused)",
+      "workload": "N=1024",
+      "notes": "three full vector passes for mean, variance, and normalize",
+      "SpaceDMD": 81500,
+      "ByteDMD-live": 153618,
+      "Manual-2D": 122384,
+      "ByteDMD-classic": 206144,
+      "cell_seconds": {
+        "SpaceDMD": 0.05,
+        "ByteDMD-live": 0.2106,
+        "Manual-2D": 0.0085,
+        "ByteDMD-classic": 0.4331
+      },
+      "max_cell_seconds": 0.4331,
+      "total_traced_seconds": 0.7022
+    },
+    {
+      "key": "layernorm-fused-1024",
+      "algorithm": "LayerNorm (Fused)",
+      "workload": "N=1024",
+      "notes": "Welford statistics fused into two vector passes",
+      "SpaceDMD": 95319,
+      "ByteDMD-live": 134068,
+      "Manual-2D": 123398,
+      "ByteDMD-classic": 178185,
+      "cell_seconds": {
+        "SpaceDMD": 0.0616,
+        "ByteDMD-live": 0.1813,
+        "Manual-2D": 0.0074,
+        "ByteDMD-classic": 0.3792
+      },
+      "max_cell_seconds": 0.3792,
+      "total_traced_seconds": 0.6295
     },
     {
       "key": "matvec-32",
@@ -208,13 +244,13 @@
       "Manual-2D": 29890,
       "ByteDMD-classic": 39572,
       "cell_seconds": {
-        "SpaceDMD": 0.0297,
-        "ByteDMD-live": 0.0283,
+        "SpaceDMD": 0.03,
+        "ByteDMD-live": 0.0281,
         "Manual-2D": 0.0019,
         "ByteDMD-classic": 0.0317
       },
       "max_cell_seconds": 0.0317,
-      "total_traced_seconds": 0.0916
+      "total_traced_seconds": 0.0918
     },
     {
       "key": "vecmat-32",
@@ -226,13 +262,13 @@
       "Manual-2D": 29890,
       "ByteDMD-classic": 32856,
       "cell_seconds": {
-        "SpaceDMD": 0.0202,
-        "ByteDMD-live": 0.031,
-        "Manual-2D": 0.0019,
+        "SpaceDMD": 0.0199,
+        "ByteDMD-live": 0.0306,
+        "Manual-2D": 0.0018,
         "ByteDMD-classic": 0.0236
       },
-      "max_cell_seconds": 0.031,
-      "total_traced_seconds": 0.0768
+      "max_cell_seconds": 0.0306,
+      "total_traced_seconds": 0.076
     },
     {
       "key": "matvec-row-64",
@@ -244,13 +280,13 @@
       "Manual-2D": 213156,
       "ByteDMD-classic": 262597,
       "cell_seconds": {
-        "SpaceDMD": 0.345,
-        "ByteDMD-live": 0.3519,
-        "Manual-2D": 0.0087,
-        "ByteDMD-classic": 0.386
+        "SpaceDMD": 0.3414,
+        "ByteDMD-live": 0.3472,
+        "Manual-2D": 0.0072,
+        "ByteDMD-classic": 0.3787
       },
-      "max_cell_seconds": 0.386,
-      "total_traced_seconds": 1.0916
+      "max_cell_seconds": 0.3787,
+      "total_traced_seconds": 1.0746
     },
     {
       "key": "matvec-col-64",
@@ -262,13 +298,85 @@
       "Manual-2D": 213156,
       "ByteDMD-classic": 206721,
       "cell_seconds": {
-        "SpaceDMD": 0.2069,
-        "ByteDMD-live": 0.3958,
-        "Manual-2D": 0.0074,
-        "ByteDMD-classic": 0.248
+        "SpaceDMD": 0.2032,
+        "ByteDMD-live": 0.3957,
+        "Manual-2D": 0.0073,
+        "ByteDMD-classic": 0.2451
       },
-      "max_cell_seconds": 0.3958,
-      "total_traced_seconds": 0.858
+      "max_cell_seconds": 0.3957,
+      "total_traced_seconds": 0.8514
+    },
+    {
+      "key": "matrix-powers-naive-32-s4",
+      "algorithm": "Matrix Powers (Naive)",
+      "workload": "32x32, s=4",
+      "notes": "re-reads A for each successive dense matvec",
+      "SpaceDMD": 107592,
+      "ByteDMD-live": 178637,
+      "Manual-2D": 237120,
+      "ByteDMD-classic": 263206,
+      "cell_seconds": {
+        "SpaceDMD": 0.0573,
+        "ByteDMD-live": 0.1955,
+        "Manual-2D": 0.0071,
+        "ByteDMD-classic": 0.4742
+      },
+      "max_cell_seconds": 0.4742,
+      "total_traced_seconds": 0.7341
+    },
+    {
+      "key": "matrix-powers-ca-32-s4",
+      "algorithm": "Matrix Powers (CA)",
+      "workload": "32x32, s=4, block=4",
+      "notes": "row-blocked communication-avoiding proxy for chained matvecs",
+      "SpaceDMD": 116600,
+      "ByteDMD-live": 144919,
+      "Manual-2D": 211932,
+      "ByteDMD-classic": 197497,
+      "cell_seconds": {
+        "SpaceDMD": 0.062,
+        "ByteDMD-live": 0.1359,
+        "Manual-2D": 0.0078,
+        "ByteDMD-classic": 0.1883
+      },
+      "max_cell_seconds": 0.1883,
+      "total_traced_seconds": 0.394
+    },
+    {
+      "key": "spmv-csr-banded-64",
+      "algorithm": "SpMV CSR (Banded)",
+      "workload": "N=64, bandwidth=3",
+      "notes": "sparse matrix-vector multiply with clustered indirect reads",
+      "SpaceDMD": 9602,
+      "ByteDMD-live": 11410,
+      "Manual-2D": 17869,
+      "ByteDMD-classic": 12270,
+      "cell_seconds": {
+        "SpaceDMD": 0.0104,
+        "ByteDMD-live": 0.0106,
+        "Manual-2D": 0.0009,
+        "ByteDMD-classic": 0.01
+      },
+      "max_cell_seconds": 0.0106,
+      "total_traced_seconds": 0.0319
+    },
+    {
+      "key": "spmv-csr-random-64",
+      "algorithm": "SpMV CSR (Random)",
+      "workload": "N=64, nnz/row=7",
+      "notes": "sparse matrix-vector multiply with randomized indirect reads",
+      "SpaceDMD": 11005,
+      "ByteDMD-live": 14116,
+      "Manual-2D": 18518,
+      "ByteDMD-classic": 15979,
+      "cell_seconds": {
+        "SpaceDMD": 0.0103,
+        "ByteDMD-live": 0.0165,
+        "Manual-2D": 0.0013,
+        "ByteDMD-classic": 0.0164
+      },
+      "max_cell_seconds": 0.0165,
+      "total_traced_seconds": 0.0445
     },
     {
       "key": "scan-row-64",
@@ -280,13 +388,13 @@
       "Manual-2D": 180960,
       "ByteDMD-classic": 180896,
       "cell_seconds": {
-        "SpaceDMD": 0.3216,
-        "ByteDMD-live": 0.3131,
-        "Manual-2D": 0.005,
-        "ByteDMD-classic": 0.3162
+        "SpaceDMD": 0.3212,
+        "ByteDMD-live": 0.3072,
+        "Manual-2D": 0.0049,
+        "ByteDMD-classic": 0.3128
       },
-      "max_cell_seconds": 0.3216,
-      "total_traced_seconds": 0.9559
+      "max_cell_seconds": 0.3212,
+      "total_traced_seconds": 0.9461
     },
     {
       "key": "scan-column-64",
@@ -298,13 +406,13 @@
       "Manual-2D": 180960,
       "ByteDMD-classic": 125024,
       "cell_seconds": {
-        "SpaceDMD": 0.1808,
-        "ByteDMD-live": 0.3627,
-        "Manual-2D": 0.0049,
-        "ByteDMD-classic": 0.1745
+        "SpaceDMD": 0.1792,
+        "ByteDMD-live": 0.3507,
+        "Manual-2D": 0.0048,
+        "ByteDMD-classic": 0.1729
       },
-      "max_cell_seconds": 0.3627,
-      "total_traced_seconds": 0.723
+      "max_cell_seconds": 0.3507,
+      "total_traced_seconds": 0.7076
     },
     {
       "key": "transpose-naive-32",
@@ -316,13 +424,13 @@
       "Manual-2D": 62813,
       "ByteDMD-classic": 58989,
       "cell_seconds": {
-        "SpaceDMD": 0.0252,
-        "ByteDMD-live": 0.0794,
-        "Manual-2D": 0.0012,
-        "ByteDMD-classic": 0.079
+        "SpaceDMD": 0.0251,
+        "ByteDMD-live": 0.078,
+        "Manual-2D": 0.0013,
+        "ByteDMD-classic": 0.0816
       },
-      "max_cell_seconds": 0.0794,
-      "total_traced_seconds": 0.1849
+      "max_cell_seconds": 0.0816,
+      "total_traced_seconds": 0.1861
     },
     {
       "key": "transpose-blocked-32",
@@ -334,13 +442,13 @@
       "Manual-2D": 62813,
       "ByteDMD-classic": 58522,
       "cell_seconds": {
-        "SpaceDMD": 0.0233,
-        "ByteDMD-live": 0.082,
+        "SpaceDMD": 0.0222,
+        "ByteDMD-live": 0.0805,
         "Manual-2D": 0.0012,
-        "ByteDMD-classic": 0.0797
+        "ByteDMD-classic": 0.0786
       },
-      "max_cell_seconds": 0.082,
-      "total_traced_seconds": 0.1862
+      "max_cell_seconds": 0.0805,
+      "total_traced_seconds": 0.1826
     },
     {
       "key": "transpose-recursive-32",
@@ -352,13 +460,13 @@
       "Manual-2D": 62813,
       "ByteDMD-classic": 58464,
       "cell_seconds": {
-        "SpaceDMD": 0.0222,
-        "ByteDMD-live": 0.0825,
+        "SpaceDMD": 0.0218,
+        "ByteDMD-live": 0.0817,
         "Manual-2D": 0.0012,
-        "ByteDMD-classic": 0.0804
+        "ByteDMD-classic": 0.0788
       },
-      "max_cell_seconds": 0.0825,
-      "total_traced_seconds": 0.1864
+      "max_cell_seconds": 0.0817,
+      "total_traced_seconds": 0.1835
     },
     {
       "key": "fft-iterative-1024",
@@ -370,13 +478,13 @@
       "Manual-2D": 467423,
       "ByteDMD-classic": 602976,
       "cell_seconds": {
-        "SpaceDMD": 0.0866,
-        "ByteDMD-live": 0.5625,
-        "Manual-2D": 0.0081,
-        "ByteDMD-classic": 1.344
+        "SpaceDMD": 0.0843,
+        "ByteDMD-live": 0.5594,
+        "Manual-2D": 0.0082,
+        "ByteDMD-classic": 1.2337
       },
-      "max_cell_seconds": 1.344,
-      "total_traced_seconds": 2.0012
+      "max_cell_seconds": 1.2337,
+      "total_traced_seconds": 1.8857
     },
     {
       "key": "fft-recursive-1024",
@@ -388,13 +496,13 @@
       "Manual-2D": 467423,
       "ByteDMD-classic": 311419,
       "cell_seconds": {
-        "SpaceDMD": 0.0854,
-        "ByteDMD-live": 0.3213,
-        "Manual-2D": 0.0092,
-        "ByteDMD-classic": 0.5961
+        "SpaceDMD": 0.0912,
+        "ByteDMD-live": 0.3162,
+        "Manual-2D": 0.0094,
+        "ByteDMD-classic": 0.596
       },
-      "max_cell_seconds": 0.5961,
-      "total_traced_seconds": 1.012
+      "max_cell_seconds": 0.596,
+      "total_traced_seconds": 1.0129
     },
     {
       "key": "jacobi-naive-32",
@@ -406,13 +514,13 @@
       "Manual-2D": 142215,
       "ByteDMD-classic": 118313,
       "cell_seconds": {
-        "SpaceDMD": 0.0447,
-        "ByteDMD-live": 0.1125,
-        "Manual-2D": 0.0037,
-        "ByteDMD-classic": 0.2014
+        "SpaceDMD": 0.0418,
+        "ByteDMD-live": 0.1091,
+        "Manual-2D": 0.0033,
+        "ByteDMD-classic": 0.196
       },
-      "max_cell_seconds": 0.2014,
-      "total_traced_seconds": 0.3623
+      "max_cell_seconds": 0.196,
+      "total_traced_seconds": 0.3503
     },
     {
       "key": "jacobi-recursive-32",
@@ -424,13 +532,49 @@
       "Manual-2D": 142215,
       "ByteDMD-classic": 108221,
       "cell_seconds": {
-        "SpaceDMD": 0.0409,
-        "ByteDMD-live": 0.1671,
-        "Manual-2D": 0.0034,
-        "ByteDMD-classic": 0.1929
+        "SpaceDMD": 0.0403,
+        "ByteDMD-live": 0.1783,
+        "Manual-2D": 0.0035,
+        "ByteDMD-classic": 0.1952
       },
-      "max_cell_seconds": 0.1929,
-      "total_traced_seconds": 0.4042
+      "max_cell_seconds": 0.1952,
+      "total_traced_seconds": 0.4173
+    },
+    {
+      "key": "stencil-time-naive-32-t4",
+      "algorithm": "Stencil (Time-Naive)",
+      "workload": "32x32, T=4",
+      "notes": "four full Jacobi sweeps with fresh intermediate buffers",
+      "SpaceDMD": 290346,
+      "ByteDMD-live": 512219,
+      "Manual-2D": 877793,
+      "ByteDMD-classic": 719588,
+      "cell_seconds": {
+        "SpaceDMD": 0.1413,
+        "ByteDMD-live": 1.1943,
+        "Manual-2D": 0.0127,
+        "ByteDMD-classic": 1.5759
+      },
+      "max_cell_seconds": 1.5759,
+      "total_traced_seconds": 2.9242
+    },
+    {
+      "key": "stencil-time-diamond-32-t4",
+      "algorithm": "Stencil (Time-Diamond)",
+      "workload": "32x32, T=4, block=8",
+      "notes": "space-time tiled Jacobi proxy with per-tile halo reuse",
+      "SpaceDMD": 510495,
+      "ByteDMD-live": 854037,
+      "Manual-2D": 2442625,
+      "ByteDMD-classic": 1441257,
+      "cell_seconds": {
+        "SpaceDMD": 0.325,
+        "ByteDMD-live": 1.3081,
+        "Manual-2D": 0.0347,
+        "ByteDMD-classic": 4.1083
+      },
+      "max_cell_seconds": 4.1083,
+      "total_traced_seconds": 5.776
     },
     {
       "key": "conv2d-spatial-16x16-k5",
@@ -442,13 +586,13 @@
       "Manual-2D": 165557,
       "ByteDMD-classic": 162940,
       "cell_seconds": {
-        "SpaceDMD": 0.0526,
-        "ByteDMD-live": 0.0562,
-        "Manual-2D": 0.0102,
-        "ByteDMD-classic": 0.1516
+        "SpaceDMD": 0.0512,
+        "ByteDMD-live": 0.0559,
+        "Manual-2D": 0.0101,
+        "ByteDMD-classic": 0.1504
       },
-      "max_cell_seconds": 0.1516,
-      "total_traced_seconds": 0.2706
+      "max_cell_seconds": 0.1504,
+      "total_traced_seconds": 0.2676
     },
     {
       "key": "spatial-conv-32x32-k5",
@@ -461,12 +605,12 @@
       "ByteDMD-classic": 849599,
       "cell_seconds": {
         "SpaceDMD": 0.2573,
-        "ByteDMD-live": 0.3408,
+        "ByteDMD-live": 0.3689,
         "Manual-2D": 0.0479,
-        "ByteDMD-classic": 1.6732
+        "ByteDMD-classic": 1.6298
       },
-      "max_cell_seconds": 1.6732,
-      "total_traced_seconds": 2.3193
+      "max_cell_seconds": 1.6298,
+      "total_traced_seconds": 2.3039
     },
     {
       "key": "regular-conv-16x16-k3-c4",
@@ -478,13 +622,13 @@
       "Manual-2D": 1958775,
       "ByteDMD-classic": 1548723,
       "cell_seconds": {
-        "SpaceDMD": 0.3607,
-        "ByteDMD-live": 0.7156,
-        "Manual-2D": 0.0769,
-        "ByteDMD-classic": 2.9797
+        "SpaceDMD": 0.3852,
+        "ByteDMD-live": 0.6858,
+        "Manual-2D": 0.0839,
+        "ByteDMD-classic": 3.08
       },
-      "max_cell_seconds": 2.9797,
-      "total_traced_seconds": 4.1328
+      "max_cell_seconds": 3.08,
+      "total_traced_seconds": 4.235
     },
     {
       "key": "fft-conv-32",
@@ -496,13 +640,13 @@
       "Manual-2D": 5924,
       "ByteDMD-classic": 6263,
       "cell_seconds": {
-        "SpaceDMD": 0.0054,
-        "ByteDMD-live": 0.0039,
+        "SpaceDMD": 0.0053,
+        "ByteDMD-live": 0.0034,
         "Manual-2D": 0.0008,
-        "ByteDMD-classic": 0.005
+        "ByteDMD-classic": 0.0045
       },
-      "max_cell_seconds": 0.0054,
-      "total_traced_seconds": 0.015
+      "max_cell_seconds": 0.0053,
+      "total_traced_seconds": 0.0141
     },
     {
       "key": "conv2d-fft-16x16-k5",
@@ -514,13 +658,13 @@
       "Manual-2D": 2812578,
       "ByteDMD-classic": 644543,
       "cell_seconds": {
-        "SpaceDMD": 0.1887,
-        "ByteDMD-live": 0.8733,
-        "Manual-2D": 0.039,
-        "ByteDMD-classic": 1.9994
+        "SpaceDMD": 0.1931,
+        "ByteDMD-live": 0.8513,
+        "Manual-2D": 0.0379,
+        "ByteDMD-classic": 1.9487
       },
-      "max_cell_seconds": 1.9994,
-      "total_traced_seconds": 3.1003
+      "max_cell_seconds": 1.9487,
+      "total_traced_seconds": 3.0311
     },
     {
       "key": "mergesort-64",
@@ -532,13 +676,31 @@
       "Manual-2D": 8574,
       "ByteDMD-classic": 3977,
       "cell_seconds": {
-        "SpaceDMD": 0.0038,
-        "ByteDMD-live": 0.0025,
+        "SpaceDMD": 0.0032,
+        "ByteDMD-live": 0.0026,
         "Manual-2D": 0.0006,
-        "ByteDMD-classic": 0.0032
+        "ByteDMD-classic": 0.0034
       },
-      "max_cell_seconds": 0.0038,
-      "total_traced_seconds": 0.0101
+      "max_cell_seconds": 0.0034,
+      "total_traced_seconds": 0.0098
+    },
+    {
+      "key": "bitonic-sort-64",
+      "algorithm": "Bitonic Sort",
+      "workload": "N=64",
+      "notes": "data-oblivious sorting network with butterfly compare-swaps",
+      "SpaceDMD": 10283,
+      "ByteDMD-live": 13095,
+      "Manual-2D": 8842,
+      "ByteDMD-classic": 15899,
+      "cell_seconds": {
+        "SpaceDMD": 0.0067,
+        "ByteDMD-live": 0.0065,
+        "Manual-2D": 0.0011,
+        "ByteDMD-classic": 0.0092
+      },
+      "max_cell_seconds": 0.0092,
+      "total_traced_seconds": 0.0235
     },
     {
       "key": "lcs-dp-32x32",
@@ -550,13 +712,49 @@
       "Manual-2D": 138668,
       "ByteDMD-classic": 30392,
       "cell_seconds": {
-        "SpaceDMD": 0.0144,
-        "ByteDMD-live": 0.0736,
+        "SpaceDMD": 0.0143,
+        "ByteDMD-live": 0.0748,
         "Manual-2D": 0.003,
-        "ByteDMD-classic": 0.0188
+        "ByteDMD-classic": 0.0192
       },
-      "max_cell_seconds": 0.0736,
-      "total_traced_seconds": 0.1098
+      "max_cell_seconds": 0.0748,
+      "total_traced_seconds": 0.1114
+    },
+    {
+      "key": "floyd-warshall-naive-32",
+      "algorithm": "Floyd-Warshall (Naive)",
+      "workload": "V=32",
+      "notes": "standard k-i-j all-pairs shortest paths",
+      "SpaceDMD": 1296932,
+      "ByteDMD-live": 1600250,
+      "Manual-2D": 2208605,
+      "ByteDMD-classic": 2467170,
+      "cell_seconds": {
+        "SpaceDMD": 0.4864,
+        "ByteDMD-live": 1.8079,
+        "Manual-2D": 0.0696,
+        "ByteDMD-classic": 4.6285
+      },
+      "max_cell_seconds": 4.6285,
+      "total_traced_seconds": 6.9925
+    },
+    {
+      "key": "floyd-warshall-recursive-32",
+      "algorithm": "Floyd-Warshall (Recursive)",
+      "workload": "V=32, leaf=8",
+      "notes": "recursive blocked APSP over k/i/j ranges",
+      "SpaceDMD": 1289599,
+      "ByteDMD-live": 1528176,
+      "Manual-2D": 2208605,
+      "ByteDMD-classic": 2371997,
+      "cell_seconds": {
+        "SpaceDMD": 0.4864,
+        "ByteDMD-live": 2.0005,
+        "Manual-2D": 0.0747,
+        "ByteDMD-classic": 4.9674
+      },
+      "max_cell_seconds": 4.9674,
+      "total_traced_seconds": 7.529
     },
     {
       "key": "gaussian-elimination-24",
@@ -568,13 +766,13 @@
       "Manual-2D": 149098,
       "ByteDMD-classic": 264399,
       "cell_seconds": {
-        "SpaceDMD": 0.0566,
-        "ByteDMD-live": 0.152,
-        "Manual-2D": 0.0094,
-        "ByteDMD-classic": 0.3491
+        "SpaceDMD": 0.0551,
+        "ByteDMD-live": 0.1515,
+        "Manual-2D": 0.0092,
+        "ByteDMD-classic": 0.3451
       },
-      "max_cell_seconds": 0.3491,
-      "total_traced_seconds": 0.567
+      "max_cell_seconds": 0.3451,
+      "total_traced_seconds": 0.5609
     },
     {
       "key": "gauss-jordan-inverse-16",
@@ -586,13 +784,13 @@
       "Manual-2D": 197639,
       "ByteDMD-classic": 447568,
       "cell_seconds": {
-        "SpaceDMD": 0.0794,
-        "ByteDMD-live": 0.2474,
-        "Manual-2D": 0.0157,
-        "ByteDMD-classic": 0.6088
+        "SpaceDMD": 0.0799,
+        "ByteDMD-live": 0.2479,
+        "Manual-2D": 0.0168,
+        "ByteDMD-classic": 0.5853
       },
-      "max_cell_seconds": 0.6088,
-      "total_traced_seconds": 0.9514
+      "max_cell_seconds": 0.5853,
+      "total_traced_seconds": 0.9299
     },
     {
       "key": "lu-no-pivot-24",
@@ -604,13 +802,13 @@
       "Manual-2D": 152609,
       "ByteDMD-classic": 285388,
       "cell_seconds": {
-        "SpaceDMD": 0.0572,
-        "ByteDMD-live": 0.1632,
-        "Manual-2D": 0.0097,
-        "ByteDMD-classic": 0.4403
+        "SpaceDMD": 0.057,
+        "ByteDMD-live": 0.1661,
+        "Manual-2D": 0.0101,
+        "ByteDMD-classic": 0.4626
       },
-      "max_cell_seconds": 0.4403,
-      "total_traced_seconds": 0.6704
+      "max_cell_seconds": 0.4626,
+      "total_traced_seconds": 0.6958
     },
     {
       "key": "blocked-lu-24",
@@ -622,13 +820,13 @@
       "Manual-2D": 152320,
       "ByteDMD-classic": 292112,
       "cell_seconds": {
-        "SpaceDMD": 0.0601,
-        "ByteDMD-live": 0.3095,
-        "Manual-2D": 0.0074,
-        "ByteDMD-classic": 0.4636
+        "SpaceDMD": 0.0619,
+        "ByteDMD-live": 0.3067,
+        "Manual-2D": 0.0078,
+        "ByteDMD-classic": 0.4676
       },
-      "max_cell_seconds": 0.4636,
-      "total_traced_seconds": 0.8407
+      "max_cell_seconds": 0.4676,
+      "total_traced_seconds": 0.844
     },
     {
       "key": "recursive-lu-24",
@@ -640,13 +838,13 @@
       "Manual-2D": 170273,
       "ByteDMD-classic": 242879,
       "cell_seconds": {
-        "SpaceDMD": 0.0541,
-        "ByteDMD-live": 0.1523,
+        "SpaceDMD": 0.0546,
+        "ByteDMD-live": 0.1507,
         "Manual-2D": 0.0067,
-        "ByteDMD-classic": 0.3916
+        "ByteDMD-classic": 0.3811
       },
-      "max_cell_seconds": 0.3916,
-      "total_traced_seconds": 0.6047
+      "max_cell_seconds": 0.3811,
+      "total_traced_seconds": 0.5931
     },
     {
       "key": "lu-partial-pivot-24",
@@ -658,13 +856,13 @@
       "Manual-2D": 196063,
       "ByteDMD-classic": 333458,
       "cell_seconds": {
-        "SpaceDMD": 0.0615,
-        "ByteDMD-live": 0.2104,
-        "Manual-2D": 0.0102,
-        "ByteDMD-classic": 0.5257
+        "SpaceDMD": 0.0616,
+        "ByteDMD-live": 0.1873,
+        "Manual-2D": 0.0101,
+        "ByteDMD-classic": 0.5163
       },
-      "max_cell_seconds": 0.5257,
-      "total_traced_seconds": 0.8078
+      "max_cell_seconds": 0.5163,
+      "total_traced_seconds": 0.7753
     },
     {
       "key": "cholesky-24",
@@ -676,13 +874,13 @@
       "Manual-2D": 103898,
       "ByteDMD-classic": 87161,
       "cell_seconds": {
-        "SpaceDMD": 0.0291,
-        "ByteDMD-live": 0.0406,
-        "Manual-2D": 0.0047,
-        "ByteDMD-classic": 0.0882
+        "SpaceDMD": 0.0274,
+        "ByteDMD-live": 0.0389,
+        "Manual-2D": 0.0036,
+        "ByteDMD-classic": 0.0811
       },
-      "max_cell_seconds": 0.0882,
-      "total_traced_seconds": 0.1626
+      "max_cell_seconds": 0.0811,
+      "total_traced_seconds": 0.151
     },
     {
       "key": "blocked-cholesky-24",
@@ -694,13 +892,13 @@
       "Manual-2D": 113956,
       "ByteDMD-classic": 99660,
       "cell_seconds": {
-        "SpaceDMD": 0.0367,
-        "ByteDMD-live": 0.0615,
-        "Manual-2D": 0.004,
-        "ByteDMD-classic": 0.1196
+        "SpaceDMD": 0.0348,
+        "ByteDMD-live": 0.0581,
+        "Manual-2D": 0.0039,
+        "ByteDMD-classic": 0.113
       },
-      "max_cell_seconds": 0.1196,
-      "total_traced_seconds": 0.2218
+      "max_cell_seconds": 0.113,
+      "total_traced_seconds": 0.2098
     },
     {
       "key": "recursive-cholesky-24",
@@ -712,13 +910,31 @@
       "Manual-2D": 106249,
       "ByteDMD-classic": 149742,
       "cell_seconds": {
-        "SpaceDMD": 0.0436,
-        "ByteDMD-live": 0.0844,
-        "Manual-2D": 0.0047,
-        "ByteDMD-classic": 0.1917
+        "SpaceDMD": 0.0406,
+        "ByteDMD-live": 0.082,
+        "Manual-2D": 0.0038,
+        "ByteDMD-classic": 0.1868
       },
-      "max_cell_seconds": 0.1917,
-      "total_traced_seconds": 0.3245
+      "max_cell_seconds": 0.1868,
+      "total_traced_seconds": 0.3131
+    },
+    {
+      "key": "cholesky-right-looking-24",
+      "algorithm": "Cholesky (Right-Looking)",
+      "workload": "N=24",
+      "notes": "eager trailing-update Cholesky for read/write asymmetry comparison",
+      "SpaceDMD": 70155,
+      "ByteDMD-live": 76858,
+      "Manual-2D": 246125,
+      "ByteDMD-classic": 111975,
+      "cell_seconds": {
+        "SpaceDMD": 0.0352,
+        "ByteDMD-live": 0.0709,
+        "Manual-2D": 0.0059,
+        "ByteDMD-classic": 0.1188
+      },
+      "max_cell_seconds": 0.1188,
+      "total_traced_seconds": 0.2307
     },
     {
       "key": "householder-qr-48x12",
@@ -730,13 +946,13 @@
       "Manual-2D": 210511,
       "ByteDMD-classic": 372359,
       "cell_seconds": {
-        "SpaceDMD": 0.0882,
-        "ByteDMD-live": 0.1732,
-        "Manual-2D": 0.0122,
-        "ByteDMD-classic": 0.4781
+        "SpaceDMD": 0.0847,
+        "ByteDMD-live": 0.1727,
+        "Manual-2D": 0.012,
+        "ByteDMD-classic": 0.4726
       },
-      "max_cell_seconds": 0.4781,
-      "total_traced_seconds": 0.7517
+      "max_cell_seconds": 0.4726,
+      "total_traced_seconds": 0.7419
     },
     {
       "key": "blocked-qr-48x12",
@@ -748,13 +964,13 @@
       "Manual-2D": 210847,
       "ByteDMD-classic": 370913,
       "cell_seconds": {
-        "SpaceDMD": 0.0868,
-        "ByteDMD-live": 0.1707,
-        "Manual-2D": 0.0123,
-        "ByteDMD-classic": 0.5033
+        "SpaceDMD": 0.0855,
+        "ByteDMD-live": 0.1682,
+        "Manual-2D": 0.0125,
+        "ByteDMD-classic": 0.4931
       },
-      "max_cell_seconds": 0.5033,
-      "total_traced_seconds": 0.7732
+      "max_cell_seconds": 0.4931,
+      "total_traced_seconds": 0.7592
     },
     {
       "key": "tsqr-48x12",
@@ -766,33 +982,33 @@
       "Manual-2D": 308395,
       "ByteDMD-classic": 393651,
       "cell_seconds": {
-        "SpaceDMD": 0.1153,
-        "ByteDMD-live": 0.1582,
+        "SpaceDMD": 0.1151,
+        "ByteDMD-live": 0.1571,
         "Manual-2D": 0.0154,
-        "ByteDMD-classic": 0.4374
+        "ByteDMD-classic": 0.4342
       },
-      "max_cell_seconds": 0.4374,
-      "total_traced_seconds": 0.7263
+      "max_cell_seconds": 0.4342,
+      "total_traced_seconds": 0.7218
     }
   ],
   "ranking": [
     {
       "metric": "SpaceDMD",
-      "spearman_rho": 0.8243070306136642,
-      "scale_fit": 2.30332739739367,
-      "scaled_mape": 0.6679695404069252
+      "spearman_rho": 0.8481841802266235,
+      "scale_fit": 2.0653612443416764,
+      "scaled_mape": 0.5135143757647928
     },
     {
       "metric": "ByteDMD-live",
-      "spearman_rho": 0.8435683054974252,
-      "scale_fit": 2.0327947533594624,
-      "scaled_mape": 0.7726326775626986
+      "spearman_rho": 0.8529470300921917,
+      "scale_fit": 1.7291731316866643,
+      "scaled_mape": 0.5568869643891828
     },
     {
       "metric": "ByteDMD-classic",
-      "spearman_rho": 0.8288390952921962,
-      "scale_fit": 1.3480628882999297,
-      "scaled_mape": 0.6674686728852665
+      "spearman_rho": 0.8464883170169135,
+      "scale_fit": 1.127328658799359,
+      "scaled_mape": 0.4631784599099796
     }
   ],
   "metric_columns": [
@@ -807,5 +1023,5 @@
     "Manual-2D",
     "ByteDMD-classic"
   ],
-  "overall_max_cell_seconds": 2.9797
+  "overall_max_cell_seconds": 4.9674
 }
