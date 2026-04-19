@@ -15,7 +15,7 @@ def myfunc(a, b, c, d, e):
     return a*b + c*d + e
 
 assert myfunc(1, 2, 3, 4, 5) == 19
-assert bytedmd(myfunc, (1, 2, 3, 4, 5)) == 14
+assert bytedmd(myfunc, (1, 2, 3, 4, 5)) == 15
 ```
 
 ## Motivation
@@ -115,7 +115,14 @@ A **mixed read**: `p₂` is on the geometric stack (depth 1), `e` is a first rea
 
 $$C(p_2) + C(e) = \lceil\sqrt{1}\rceil + \lceil\sqrt{5}\rceil = 1 + 3 = 4$$
 
-**Total cost:** $3 + 4 + 3 + 4 = 14$. Trace: `[1, 2, 3, 4, 2, 1, 1, 5]`.
+`p₂`, `e` die; the fresh sum `p₃` is pushed to geom depth 1.
+
+**6. Output epilogue**
+The caller pulls the return value back, so `p₃` is read once more from geom depth 1:
+
+$$C_{\text{epilogue}} = \lceil\sqrt{1}\rceil = 1$$
+
+**Total cost:** $3 + 4 + 3 + 4 + 1 = 15$. Trace: `[1, 2, 3, 4, 2, 1, 1, 5, 1]`.
 
 
 ## Inspecting the IR
@@ -161,8 +168,9 @@ STORE v8                                 # p2 replaces p0/p1 on geom
   READ v8@geom=1  cost=1                # p2 on geom
   READ v5@arg=5  cost=3                 # e first read (still unpromoted!)
 OP    add(v8@1, v5@5)  cost=4           # mixed: one geom + one arg
-STORE v9
-# total cost = 14
+STORE v9                                 # p3 = p2 + e on geom
+  READ v9@geom=1  cost=1                # output epilogue: caller reads p3
+# total cost = 15
 ```
 
 Two-stack structure on display across four ops:

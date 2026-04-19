@@ -276,6 +276,22 @@ def _pass2(ctx, res):
             depths = [last_depths_map.get(k, 0) for k in valid_keys]
             ir.append(('OP', name, valid_keys, depths, out_key))
 
+    # --- Output epilogue ---
+    # Every cell of the return value is read once more at the end, modelling
+    # the caller pulling the result into its own scope. Pristine arguments
+    # that are returned as-is are priced at their static arg depth; anything
+    # on the geom stack is priced at its final geom depth.
+    L = len(stack)
+    for k in names:
+        if k in arg_depth and k not in promoted:
+            depth = arg_depth[k]
+            origin = 'arg'
+        else:
+            depth = (L - stack.index(k)) if k in stack else 1
+            origin = 'geom'
+        trace.append(depth)
+        ir.append(('READ', k, depth, origin))
+
     ctx.trace = trace
     ctx.ir = ir
     ctx.last_use = last_use
@@ -320,9 +336,18 @@ def format_ir(ir):
     STORE (intermediate pushed onto the geom stack), READ (priced against
     whichever stack holds the operand — `arg=` or `geom=`), OP (summary
     of preceding reads). Output follows a consistent format suitable for
-    inspection in tests and docs."""
+    inspection in tests and docs.
+
+    Cost accounting: reads charged inside an op are attributed to that
+    op's summary line; reads that aren't followed by an op (i.e., the
+    output-epilogue reads) are added to `total` directly so the final
+    line matches `bytedmd(...)`."""
     out, total = [], 0
-    for ev in ir:
+    # Reads after the final OP are the output-epilogue reads; they
+    # aren't absorbed by an op summary, so we price them directly.
+    last_op_idx = max((i for i, e in enumerate(ir) if e[0] == 'OP'),
+                      default=-1)
+    for idx, ev in enumerate(ir):
         if ev[0] == 'ARG':
             out.append(f"ARG   v{ev[1]} @ arg={ev[2]}")
         elif ev[0] == 'STORE':
@@ -332,6 +357,9 @@ def format_ir(ir):
             origin = ev[3] if len(ev) > 3 else 'geom'
             cost = math.isqrt(depth - 1) + 1
             out.append(f"  READ v{key}@{origin}={depth}  cost={cost}")
+            # Charge the epilogue reads (those that come after the last OP).
+            if idx > last_op_idx:
+                total += cost
         else:
             _, name, keys, depths, _ok = ev
             cost = sum(math.isqrt(d - 1) + 1 for d in depths)
