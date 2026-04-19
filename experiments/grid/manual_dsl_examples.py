@@ -647,6 +647,89 @@ def manual_fft_recursive_dsl(N: int) -> int:
 # heapsort — compare-swap bodies expressed as (read, read, write) pairs.
 # ---------------------------------------------------------------------------
 
+# ---------------------------------------------------------------------------
+# spmv (CSR) — row-wise MAC with arg-stack vals + x, scratch acc.
+# ---------------------------------------------------------------------------
+
+def _manual_spmv_dsl(n: int, row_ptr, col_ind) -> int:
+    sch = Sched()
+    vals = sch.arg_buffer(len(col_ind))
+    x = sch.arg_buffer(n)
+    acc = sch.scalar(); tmp = sch.scalar()
+    y = sch.output_buffer(n)
+    for i in range(n):
+        start = row_ptr[i]; end = row_ptr[i + 1]
+        if start == end:
+            sch.assign(x[0], y[i])
+            continue
+        sch.mul(vals[start], x[col_ind[start]], acc)
+        for k in range(start + 1, end):
+            sch.mac(acc, vals[k], x[col_ind[k]], tmp)
+        sch.assign(acc, y[i])
+    return sch.finalize()
+
+
+def manual_spmv_csr_banded_dsl(n: int, bandwidth: int = 3) -> int:
+    row_ptr, col_ind = [0], []
+    total = 0
+    for i in range(n):
+        for j in range(max(0, i - bandwidth), min(n, i + bandwidth + 1)):
+            col_ind.append(j); total += 1
+        row_ptr.append(total)
+    return _manual_spmv_dsl(n, row_ptr, col_ind)
+
+
+def manual_spmv_csr_random_dsl(n: int, nnz_per_row: int = 7,
+                               seed: int = 0xC0FFEE) -> int:
+    import random
+    rng = random.Random(seed)
+    row_ptr, col_ind = [0], []
+    total = 0
+    for i in range(n):
+        cols = sorted(rng.sample(range(n), min(nnz_per_row, n)))
+        for j in cols:
+            col_ind.append(j); total += 1
+        row_ptr.append(total)
+    return _manual_spmv_dsl(n, row_ptr, col_ind)
+
+
+# ---------------------------------------------------------------------------
+# stencil_naive — rolling 3-row buffer, 5-point Jacobi sweep.
+# ---------------------------------------------------------------------------
+
+def manual_stencil_naive_dsl(n: int) -> int:
+    sch = Sched()
+    A = sch.arg_buffer(n * n)
+    r0 = sch.buffer(n); r1 = sch.buffer(n); r2 = sch.buffer(n)
+    rows = [r0, r1, r2]
+    B = sch.output_buffer(n * n)
+
+    # Preload rows 0, 1, 2.
+    for row in range(min(3, n)):
+        slot = rows[row % 3]
+        for j in range(n):
+            sch.assign(A[row * n + j], slot[j])
+
+    for i in range(1, n - 1):
+        up = rows[(i - 1) % 3]
+        cur = rows[i % 3]
+        down = rows[(i + 1) % 3]
+        for j in range(1, n - 1):
+            # 5 stencil reads, 1 write (fused multi-operand op).
+            sch.read(cur[j])
+            sch.read(up[j])
+            sch.read(down[j])
+            sch.read(cur[j - 1])
+            sch.read(cur[j + 1])
+            sch.write(B[i * n + j])
+        # Stream next A-row into the stale slot.
+        if i + 2 < n:
+            replace = rows[(i - 1) % 3]
+            for j in range(n):
+                sch.assign(A[(i + 2) * n + j], replace[j])
+    return sch.finalize()
+
+
 def manual_heapsort_dsl(N: int) -> int:
     sch = Sched()
     arr_in = sch.arg_buffer(N)

@@ -39,6 +39,9 @@ from manual_dsl_examples import (
     manual_heapsort_dsl,
     manual_mergesort_dsl,
     manual_layernorm_fused_dsl,
+    manual_spmv_csr_banded_dsl,
+    manual_spmv_csr_random_dsl,
+    manual_stencil_naive_dsl,
 )
 
 
@@ -208,6 +211,21 @@ def test_dsl_matches_fft_recursive() -> None:
 def test_dsl_matches_heapsort() -> None:
     _within_tolerance(manual_heapsort_dsl(64),
                       man.manual_heapsort(64))
+
+
+def test_dsl_matches_spmv_csr_banded() -> None:
+    _within_tolerance(manual_spmv_csr_banded_dsl(64, 3),
+                      man.manual_spmv_csr_banded(64, 3))
+
+
+def test_dsl_matches_spmv_csr_random() -> None:
+    _within_tolerance(manual_spmv_csr_random_dsl(64, 7),
+                      man.manual_spmv_csr_random(64, 7))
+
+
+def test_dsl_matches_stencil_naive() -> None:
+    _within_tolerance(manual_stencil_naive_dsl(32),
+                      man.manual_stencil_naive(32))
 
 
 def test_dsl_matches_layernorm_fused() -> None:
