@@ -22,6 +22,7 @@ import check_parity
 import manual as man
 from manual_dsl_examples import (
     manual_naive_matmul_dsl,
+    manual_naive_matmul_cached_dsl,
     manual_fft_iterative_dsl,
     manual_fft_recursive_dsl,
     manual_bitonic_sort_dsl,
@@ -99,11 +100,20 @@ def test_parity() -> None:
 # ---------------------------------------------------------------------------
 
 def test_dsl_matches_naive_matmul() -> None:
+    dsl_cost = manual_naive_matmul_dsl(16)
+    hand_cost = man.manual_naive_matmul(16)
+    ratio = dsl_cost / hand_cost
+    assert 0.95 <= ratio <= 1.05, (
+        f"dsl={dsl_cost}  hand={hand_cost}  ratio={ratio:.3f}"
+    )
+
+
+def test_dsl_matches_naive_matmul_cached() -> None:
     # DSL may differ slightly from hand-rolled (arg promotion allocates
     # tmp slots whose exact addresses differ from the hand-rolled layout).
     # Within 5% is acceptable.
-    dsl_cost = manual_naive_matmul_dsl(16)
-    hand_cost = man.manual_naive_matmul(16)
+    dsl_cost = manual_naive_matmul_cached_dsl(16)
+    hand_cost = man.manual_naive_matmul_cached(16)
     ratio = dsl_cost / hand_cost
     assert 0.95 <= ratio <= 1.05, (
         f"dsl={dsl_cost}  hand={hand_cost}  ratio={ratio:.3f}"

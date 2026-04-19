@@ -20,6 +20,24 @@ from manual_dsl import Sched
 # ---------------------------------------------------------------------------
 
 def manual_naive_matmul_dsl(n: int) -> int:
+    """Truly naive matmul: no scratchpad caching. Accumulator is
+    C[i][j] itself, tmp is the only scratch slot."""
+    s = Sched()
+    A = s.arg_buffer(n * n)
+    B = s.arg_buffer(n * n)
+    tmp = s.scalar()
+    C = s.output_buffer(n * n)
+    for i in range(n):
+        for j in range(n):
+            # First MAC: C[i][j] = A[i][0] * B[j][0]  (write directly to C).
+            s.mul(A[i * n + 0], B[j * n + 0], C[i * n + j])
+            for k in range(1, n):
+                s.mac(C[i * n + j], A[i * n + k], B[j * n + k], tmp)
+    return s.finalize()
+
+
+def manual_naive_matmul_cached_dsl(n: int) -> int:
+    """Naive matmul with A-row hoist (c_A_row) and a hot accumulator."""
     s = Sched()
     A = s.arg_buffer(n * n)
     B = s.arg_buffer(n * n)

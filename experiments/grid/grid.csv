@@ -1,5 +1,6 @@
 algorithm,space_dmd,bytedmd_live,manual,bytedmd_classic
-naive_matmul(n=16),79044,109217,114838,181258
+naive_matmul(n=16),79044,109217,177744,181258
+naive_matmul_cached(n=16),79044,109217,114838,181258
 tiled_matmul(n=16),93369,78708,68270,143812
 "tiled_matmul_explicit(n=16,T=4)",73927,99006,68270,201547
 rmm(n=16),107058,83196,106835,151375

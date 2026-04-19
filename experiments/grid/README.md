@@ -59,7 +59,8 @@ DAGs are identical, so `bytedmd_live` / `bytedmd_classic` match — only
 
 | algorithm                                                            | space_dmd | bytedmd_live | manual      | bytedmd_classic |
 |-----------------------------------------------------------------------|----------:|-------------:|------------:|----------------:|
-| [naive_matmul(n=16)](#naive_matmul)                                   |    79,044 |      109,217 |     114,838 |         181,258 |
+| [naive_matmul(n=16)](#naive_matmul)                                   |    79,044 |      109,217 |     177,744 |         181,258 |
+| [naive_matmul_cached(n=16)](#naive_matmul_cached)                     |    79,044 |      109,217 |     114,838 |         181,258 |
 | [tiled_matmul(n=16)](#tiled_matmul)                                   |    93,369 |       78,708 |      68,270 |         143,812 |
 | [tiled_matmul_explicit(n=16,T=4)](#tiled_matmul_explicit)             |    73,927 |       99,006 |      68,270 |         201,547 |
 | [rmm(n=16)](#rmm)                                                     |   107,058 |       83,196 |     106,835 |         151,375 |
@@ -154,6 +155,38 @@ DAGs are identical, so `bytedmd_live` / `bytedmd_classic` match — only
 (contiguous) in the inner k-loop — the symmetric, cache-friendly twin
 of the standard AB variant.
 
+**Manual placement (truly naive).** No scratchpad caching. The only
+scratch slot is a multiply-intermediate `tmp`; the accumulator is
+C[i][j] itself (read-modify-write per inner k). A and B stay on the
+arg stack for every access.
+
+  `tmp` (addr 1)            — multiply intermediate (only scratchpad)
+  `C`   (addrs 2..n²+1)     — output, accumulated in place
+
+Manual 177,744 — **worse** than every heuristic including
+`bytedmd_classic` (181,258) in the same ballpark. This row is meant
+to show how much caching is worth: see `naive_matmul_cached` for the
+with-scratchpad variant that drops 35 % off this baseline.
+
+![](traces/naive_matmul_n_16.png)
+
+**Working-set size over time** (peak = 512).
+
+![](traces/naive_matmul_n_16_liveset.png)
+
+**Reuse distance per load** (max = 512).
+
+![](traces/naive_matmul_n_16_reuse_distance.png)
+
+**Working-set size over a τ = 100-event window** (max = 100).
+
+![](traces/naive_matmul_n_16_wss.png)
+
+---
+
+## naive_matmul_cached [(code)](scripts/naive_matmul_cached_n_16.py)
+`n=16`. **Algorithm.** Same triple-nested-loop as `naive_matmul`.
+
 **Manual placement.** A[i][*] is reused across all n values of j for
 fixed outer i — preloading it once per i into `c_A_row` cuts n−1
 redundant arg reads per A cell:
@@ -163,36 +196,24 @@ redundant arg reads per A cell:
   `C`       (addrs n+2..n+n²+1) — output
 
 B[j][*] isn't cached (would need reload for every i, wiping the win).
-Drops manual from 130,824 to **102,026** (−22%). Still above
-`space_dmd` (79,044) because the fully-tiled variant (`tiled_matmul`,
-which caches both tiles) is what closes the gap further.
+Drops manual **177,744 → 114,838** (−35 %) relative to the truly
+naive variant. Still above `space_dmd` (79,044) because the
+fully-tiled variant (`tiled_matmul`, which caches both tiles) is
+what closes the gap further.
 
-![](traces/naive_matmul_n_16.png)
+![](traces/naive_matmul_cached_n_16.png)
 
-**Working-set size over time** (under ByteDMD-live compaction + two-stack
-argument promotion). Each point counts how many variables currently live
-on the geometric stack. The trace climbs as B elements are promoted once
-and remain live across every outer-i sweep, and as each final `s` gets
-pushed and waits for the output epilogue. Peak is 512 — roughly 256 B
-entries + 256 output scalars stacked up by the time the last row is
-computed. (Produced by `active_set_naive_matmul.py`.)
+**Working-set size over time** (peak = 512).
 
-![](traces/naive_matmul_n_16_liveset.png)
+![](traces/naive_matmul_cached_n_16_liveset.png)
 
-**Reuse distance per load.** The LRU depth at which each L2Load finds
-its variable — exactly the `d` in the per-access `⌈√d⌉` cost. First
-reads of inputs are priced against the arg-stack position, so they
-spread uniformly from depth 1 up to depth 512 (arg-stack size). Once an
-input is promoted, subsequent reads of it hit the geom stack: the
-accumulator `s` and the multiplied-tmp sit near the top (depth 1-2),
-while A/B elements re-surfaced from the bottom show up as a broad band.
-Median depth is 25, max is 512.
+**Reuse distance per load** (max = 512).
 
-![](traces/naive_matmul_n_16_reuse_distance.png)
+![](traces/naive_matmul_cached_n_16_reuse_distance.png)
 
-**Working-set size over a τ = 289-event window** (max = 272).
+**Working-set size over a τ = 100-event window** (max = 100).
 
-![](traces/naive_matmul_n_16_wss.png)
+![](traces/naive_matmul_cached_n_16_wss.png)
 
 ---
 

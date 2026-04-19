@@ -133,6 +133,40 @@ def _alloc() -> Allocator:
 # ============================================================================
 
 def manual_naive_matmul(n: int) -> int:
+    """Truly naive triple loop C[i][j] = Σₖ A[i][k] · B[j][k] with NO
+    scratchpad caching at all. A and B stay on the arg stack; the
+    accumulator is C[i][j] itself (no scalar hoist). The inner MAC
+    prices (mul's tmp intermediate + per-k C re-read):
+
+      tmp     (addr 1)        — multiply intermediate (only scratchpad)
+      C       (addrs 2..)     — output, accumulator-in-place
+
+    Use this as a "what does no caching cost?" baseline; compare with
+    `manual_naive_matmul_cached` (A-row hoisted)."""
+    a = _alloc()
+    A = a.alloc_arg(n * n); B = a.alloc_arg(n * n)
+    tmp = a.alloc(1)
+    C = a.alloc(n * n)
+    a.set_output_range(C, C + n * n)
+    for i in range(n):
+        for j in range(n):
+            for k in range(n):
+                # mul: tmp = A[i][k] * B[j][k]   (2 arg reads, free write)
+                a.touch_arg(A + i * n + k)
+                a.touch_arg(B + j * n + k)
+                a.write(tmp)
+                if k == 0:
+                    # first MAC: C[i][j] = tmp
+                    a.touch(tmp); a.write(C + i * n + j)
+                else:
+                    # accumulate: C[i][j] += tmp
+                    a.touch(C + i * n + j); a.touch(tmp)
+                    a.write(C + i * n + j)
+    a.read_output()
+    return a.cost
+
+
+def manual_naive_matmul_cached(n: int) -> int:
     """Naive triple loop C[i][j] = Σₖ A[i][k] · B[j][k], with the
     current A-row hoisted into a hot scratchpad.
 

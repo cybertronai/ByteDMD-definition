@@ -1,5 +1,6 @@
 name	slug	peak_live	max_reuse	median_reuse	wss_window	wss_max
 naive_matmul(n=16)	naive_matmul_n_16	512	512	25	100	100
+naive_matmul_cached(n=16)	naive_matmul_cached_n_16	512	512	25	100	100
 tiled_matmul(n=16)	tiled_matmul_n_16	500	512	10	100	100
 tiled_matmul_explicit(n=16,T=4)	tiled_matmul_explicit_n_16_t_4	609	576	10	100	100
 rmm(n=16)	rmm_n_16	554	522	9	100	100

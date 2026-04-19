@@ -522,36 +522,49 @@ def matmul_naive_abt(A, B):
 # ===========================================================================
 
 def manual_naive_matmul(n: int) -> int:
-    """Truly naive triple loop C[i][j] = Σₖ A[i][k] · B[j][k] with NO
-    scratchpad caching. A and B stay on the arg stack; the accumulator
-    is C[i][j] itself (no scalar hoist).
+    """Naive triple loop C[i][j] = Σₖ A[i][k] · B[j][k], with the
+    current A-row hoisted into a hot scratchpad.
 
-      tmp   (addr 1)        — multiply intermediate (only scratchpad)
-      C     (addrs 2..)     — output, accumulator-in-place"""
+    Because A[i][*] is reused across all n values of j (for fixed i),
+    preloading it into `c_A_row` once per outer i iteration cuts n−1
+    redundant arg-stack reads per A cell down to zero. B[j][*] isn't
+    cached (it would need to be reloaded for each i, wiping the win).
+
+      s       (addr 1)         — accumulator
+      c_A_row (addrs 2..n+1)   — hot A[i][*] row buffer
+      C       (addrs n+2..)    — output"""
     a = _alloc()
     A = a.alloc_arg(n * n); B = a.alloc_arg(n * n)
-    tmp = a.alloc(1)
+    tmp = a.alloc(1); s = a.alloc(1)
+    c_A_row = a.alloc(n)
     C = a.alloc(n * n)
     a.set_output_range(C, C + n * n)
     for i in range(n):
+        # Load A[i][*] into c_A_row once per outer i.
+        for k in range(n):
+            a.touch_arg(A + i * n + k); a.write(c_A_row + k)
         for j in range(n):
+            # MAC with priced intermediates: every k reads tmp and s.
             for k in range(n):
-                a.touch_arg(A + i * n + k)
+                a.touch(c_A_row + k)
                 a.touch_arg(B + j * n + k)
                 a.write(tmp)
                 if k == 0:
-                    a.touch(tmp); a.write(C + i * n + j)
+                    a.touch(tmp)
+                    a.write(s)
                 else:
-                    a.touch(C + i * n + j); a.touch(tmp)
-                    a.write(C + i * n + j)
+                    a.touch(s); a.touch(tmp)
+                    a.write(s)
+            a.touch(s)
+            a.write(C + i * n + j)
     a.read_output()
     return a.cost
 # ===========================================================================
 # Driver — run under this script's specific algorithm.
 # ===========================================================================
 
-NAME   = 'naive_matmul(n=16)'
-SLUG   = 'naive_matmul_n_16'
+NAME   = 'naive_matmul_cached(n=16)'
+SLUG   = 'naive_matmul_cached_n_16'
 FN     = matmul_naive_abt
 ARGS   = (mat(N_MM), mat(N_MM))
 MANUAL = lambda: manual_naive_matmul(N_MM)
