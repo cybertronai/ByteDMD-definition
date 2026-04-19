@@ -23,6 +23,7 @@ import manual as man
 from manual_dsl_examples import (
     manual_naive_matmul_dsl,
     manual_fft_iterative_dsl,
+    manual_fft_recursive_dsl,
     manual_bitonic_sort_dsl,
     manual_matvec_row_dsl,
     manual_matvec_col_dsl,
@@ -35,6 +36,7 @@ from manual_dsl_examples import (
     manual_spatial_convolution_dsl,
     manual_lcs_dp_dsl,
     manual_quicksort_dsl,
+    manual_heapsort_dsl,
     manual_mergesort_dsl,
     manual_layernorm_fused_dsl,
 )
@@ -190,6 +192,22 @@ def test_dsl_matches_quicksort() -> None:
 def test_dsl_matches_mergesort() -> None:
     _within_tolerance(manual_mergesort_dsl(64),
                       man.manual_mergesort(64))
+
+
+def test_dsl_matches_fft_recursive() -> None:
+    # Recursion structure matches hand-rolled exactly; butterflies
+    # priced identically via Sched.butterfly.
+    dsl_cost = manual_fft_recursive_dsl(256)
+    hand_cost = man.manual_fft_recursive(256)
+    ratio = dsl_cost / hand_cost
+    assert 0.95 <= ratio <= 1.05, (
+        f"dsl={dsl_cost}  hand={hand_cost}  ratio={ratio:.3f}"
+    )
+
+
+def test_dsl_matches_heapsort() -> None:
+    _within_tolerance(manual_heapsort_dsl(64),
+                      man.manual_heapsort(64))
 
 
 def test_dsl_matches_layernorm_fused() -> None:

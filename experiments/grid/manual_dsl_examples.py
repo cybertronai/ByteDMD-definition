@@ -618,3 +618,63 @@ def manual_tiled_matmul_dsl(n: int, T: int | None = None) -> int:
                             sC[local_bi * T * T + ii * T + jj],
                             C[(bi + ii) * n + (bj + jj)])
     return sch.finalize()
+
+
+# ---------------------------------------------------------------------------
+# fft_recursive — radix-2 Cooley-Tukey, priced butterflies at the merge.
+# ---------------------------------------------------------------------------
+
+def manual_fft_recursive_dsl(N: int) -> int:
+    sch = Sched()
+    x_in = sch.arg_buffer(N)
+    tmp = sch.scalar()
+    x = sch.output_buffer(N)
+
+    def rec(base: int, sz: int, stride: int, offset: int) -> None:
+        if sz == 1:
+            sch.assign(x_in[offset], x[base])
+            return
+        rec(base, sz // 2, stride * 2, offset)
+        rec(base + sz // 2, sz // 2, stride * 2, offset + stride)
+        for k in range(sz // 2):
+            sch.butterfly(x[base + k], x[base + sz // 2 + k], tmp)
+
+    rec(0, N, 1, 0)
+    return sch.finalize()
+
+
+# ---------------------------------------------------------------------------
+# heapsort — compare-swap bodies expressed as (read, read, write) pairs.
+# ---------------------------------------------------------------------------
+
+def manual_heapsort_dsl(N: int) -> int:
+    sch = Sched()
+    arr_in = sch.arg_buffer(N)
+    arr = sch.output_buffer(N)
+    for i in range(N):
+        sch.assign(arr_in[i], arr[i])
+
+    def sift_down(j: int, heap_size: int) -> None:
+        while 2 * j + 1 < heap_size:
+            child = 2 * j + 1
+            if child + 1 < heap_size:
+                # Compare arr[child] vs arr[child+1]; pick larger (in-place).
+                sch.read(arr[child])
+                sch.read(arr[child + 1])
+                sch.write(arr[child])
+            # Swap-or-keep arr[j] with arr[child].
+            sch.read(arr[j])
+            sch.read(arr[child])
+            sch.write(arr[j])
+            sch.write(arr[child])
+            j = child
+
+    for i in range(N // 2 - 1, -1, -1):
+        sift_down(i, N)
+    for k in range(N - 1, 0, -1):
+        sch.read(arr[k])
+        sch.read(arr[0])
+        sch.write(arr[k])
+        sch.write(arr[0])
+        sift_down(0, k)
+    return sch.finalize()
