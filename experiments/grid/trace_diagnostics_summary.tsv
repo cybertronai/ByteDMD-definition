@@ -5,8 +5,8 @@ tiled_matmul_explicit(n=16,T=4)	tiled_matmul_explicit_n_16_t_4	609	576	10	100	10
 rmm(n=16)	rmm_n_16	554	522	9	100	100
 naive_strassen(n=16)	naive_strassen_n_16	937	768	10	100	100
 fused_strassen(n=16)	fused_strassen_n_16	937	768	10	100	100
-naive_attn(N=32,d=2)	naive_attn_n_32_d_2	1060	1059	4	100	82
-flash_attn(N=32,d=2,Bk=8)	flash_attn_n_32_d_2_bk_8	206	192	4	100	78
+naive_attn(N=64,d=2)	naive_attn_n_64_d_2	4164	4163	4	100	100
+flash_attn(N=64,d=2,Bk=8)	flash_attn_n_64_d_2_bk_8	398	384	4	100	100
 matvec_row(n=64)	matvec_row_n_64	128	4160	33	100	82
 matvec_col(n=64)	matvec_col_n_64	66	4160	49	100	80
 matvec_blocked(n=64,B=4)	matvec_blocked_n_64_b_4	129	4160	5	100	82

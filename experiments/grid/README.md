@@ -65,8 +65,8 @@ DAGs are identical, so `bytedmd_live` / `bytedmd_classic` match — only
 | [rmm(n=16)](#rmm)                                                     |   107,058 |       83,196 |     106,835 |         151,375 |
 | [naive_strassen(n=16)](#naive_strassen)                               |   135,273 |      175,157 |     251,486 |         343,737 |
 | [fused_strassen(n=16)](#fused_strassen)                               |   135,273 |      175,157 |     135,740 |         343,737 |
-| [naive_attn(N=32,d=2)](#naive_attn)                                   |   127,674 |      144,851 |     106,026 |         281,164 |
-| [flash_attn(N=32,d=2,Bk=8)](#flash_attn)                              |    75,992 |       98,273 |     127,782 |         167,393 |
+| [naive_attn(N=64,d=2)](#naive_attn)                                   |   816,325 |      898,030 |     532,805 |       1,873,534 |
+| [flash_attn(N=64,d=2,Bk=8)](#flash_attn)                              |   353,721 |      476,067 |     610,154 |         842,854 |
 | [matvec_row(n=64)](#matvec_row)                                       |   217,053 |      229,527 |     218,552 |         266,353 |
 | [matvec_col(n=64)](#matvec_col)                                       |   197,719 |      229,716 |     217,952 |         270,193 |
 | [matvec_blocked(n=64,B=4)](#matvec_blocked)                           |   208,307 |      215,668 |     275,535 |         256,422 |
@@ -375,8 +375,8 @@ matrices — the ZAFS win shows up entirely here in manual (140,526 vs
 
 ---
 
-## naive_attn [(code)](scripts/naive_attn_n_32_d_2.py)
-`N=32, d=2`. **Algorithm.** Standard attention: compute full N×N
+## naive_attn [(code)](scripts/naive_attn_n_64_d_2.py)
+`N=64, d=2`. **Algorithm.** Standard attention: compute full N×N
 score matrix `S = Q·Kᵀ/√d`, row-wise softmax into `P`, then `O = P·V`.
 The whole N×N matrix is materialized in memory.
 
@@ -385,24 +385,24 @@ at addrs 1..5; bulk Q, K, V (N·d each); the N² score/probability matrix
 S (reused as P in-place); output O. The bulk S matrix dominates the
 cost — every access pays `⌈√(addr ≈ N²)⌉`.
 
-![](traces/naive_attn_n_32_d_2.png)
+![](traces/naive_attn_n_64_d_2.png)
 
-**Working-set size over time** (peak = 1,060).
+**Working-set size over time** (peak = 4,164).
 
-![](traces/naive_attn_n_32_d_2_liveset.png)
+![](traces/naive_attn_n_64_d_2_liveset.png)
 
-**Reuse distance per load** (max = 1,059).
+**Reuse distance per load** (max = 4,163).
 
-![](traces/naive_attn_n_32_d_2_reuse_distance.png)
+![](traces/naive_attn_n_64_d_2_reuse_distance.png)
 
-**Working-set size over a τ = 99-event window** (max = 82).
+**Working-set size over a τ = 100-event window** (max = 100).
 
-![](traces/naive_attn_n_32_d_2_wss.png)
+![](traces/naive_attn_n_64_d_2_wss.png)
 
 ---
 
-## flash_attn [(code)](scripts/flash_attn_n_32_d_2_bk_8.py)
-`N=32, d=2, Bk=8`. **Algorithm.** Flash attention with online softmax
+## flash_attn [(code)](scripts/flash_attn_n_64_d_2_bk_8.py)
+`N=64, d=2, Bk=8`. **Algorithm.** Flash attention with online softmax
 over K/V blocks of size Bk: for each query row, stream blocks of K and
 V, compute block scores, update running `(m, l)` softmax stats, and
 accumulate block contribution into `o_acc`. Never materializes the N×N
@@ -410,23 +410,31 @@ score matrix.
 
 **Manual placement.** Bk-sized scratch blocks `s_block, p_block` and a
 d-sized `o_acc` at low addrs; running `m_i, l_i` registers; merge
-scalars `m_block, l_block, m_new, α, β, inv_l, tmp` also hot. Only Q,
-K, V, O live in main memory — the saved N² footprint drops manual from
-naive's 242k to 137k.
+scalars `m_block, l_block, m_new, α, β, inv_l, tmp` also hot. At this
+narrow head-dim (d=2), the manual naive schedule (532,805) beats the
+manual flash schedule (610,154) by 15 %: the full N² S matrix is
+small enough (4,096 cells) that it still sits within the cheap
+sqrt(addr) region, so flash's avoided-materialization win cannot
+pay for its extra softmax-merge bookkeeping. The heuristics see the
+flash win clearly — `space_dmd` 354k vs 816k, `bytedmd_live` 476k vs
+898k — so flash *would* win with a better hand-placement; the
+current manual is the outlier, not the algorithm
+([gemini/flash-attention-no-benefit.md](../../gemini/flash-attention-no-benefit.md),
+[gemini/naive-attention-surprise.md](../../gemini/naive-attention-surprise.md)).
 
-![](traces/flash_attn_n_32_d_2_bk_8.png)
+![](traces/flash_attn_n_64_d_2_bk_8.png)
 
-**Working-set size over time** (peak = 206).
+**Working-set size over time** (peak = 398).
 
-![](traces/flash_attn_n_32_d_2_bk_8_liveset.png)
+![](traces/flash_attn_n_64_d_2_bk_8_liveset.png)
 
-**Reuse distance per load** (max = 192).
+**Reuse distance per load** (max = 384).
 
-![](traces/flash_attn_n_32_d_2_bk_8_reuse_distance.png)
+![](traces/flash_attn_n_64_d_2_bk_8_reuse_distance.png)
 
-**Working-set size over a τ = 140-event window** (max = 91).
+**Working-set size over a τ = 100-event window** (max = 100).
 
-![](traces/flash_attn_n_32_d_2_bk_8_wss.png)
+![](traces/flash_attn_n_64_d_2_bk_8_wss.png)
 
 ---
 

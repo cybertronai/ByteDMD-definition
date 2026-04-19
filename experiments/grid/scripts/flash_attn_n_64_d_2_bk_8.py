@@ -3,7 +3,7 @@
 # requires-python = ">=3.9"
 # dependencies = ["matplotlib", "numpy"]
 # ///
-"""Self-contained reproducer for flash_attn(N=32,d=2,Bk=8).
+"""Self-contained reproducer for flash_attn(N=64,d=2,Bk=8).
 
 SELF-CONTAINED: this file imports nothing from ByteDMD; it inlines the
 L2 IR, tracer, cost heuristics (space_dmd, bytedmd_live,
@@ -11,7 +11,7 @@ bytedmd_classic), two-stack Allocator, plot helpers, and the closure
 of algorithm-specific code it needs. Hand this single file to a
 collaborator and they can run it directly:
 
-    uv run --script flash_attn_n_32_d_2_bk_8.py
+    uv run --script flash_attn_n_64_d_2_bk_8.py
 
 Produces three PNGs (into ../traces/ if that directory exists, else
 alongside the script) and prints a summary table of all four costs
@@ -498,7 +498,7 @@ def tensor4(d0, d1, d2, d3, val=1.0):
 
 BK = 8
 D_ATT = 2
-N_ATT = 32
+N_ATT = 64
 
 # ===========================================================================
 # Algorithm definitions (closure of what the Python impl needs).
@@ -634,7 +634,7 @@ def manual_flash_attention(N: int, d: int, Bk: int) -> int:
 # Driver — run under this script's specific algorithm.
 # ===========================================================================
 
-NAME   = 'flash_attn(N=32,d=2,Bk=8)'
+NAME   = 'flash_attn(N=64,d=2,Bk=8)'
 SLUG   = 'flash_attn_n_32_d_2_bk_8'
 FN     = lambda Q, K, V: flash_attention(Q, K, V, Bk=BK)
 ARGS   = (rect(N_ATT, D_ATT), rect(N_ATT, D_ATT), rect(N_ATT, D_ATT))
