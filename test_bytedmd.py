@@ -11,15 +11,16 @@ def test_my_add():
     cost = bytedmd(my_add, (1, 2, 3))
     assert cost == 6
 
-    # Stack starts as [c, b, a] (a at top, depth 1). a+b reads a@1, b@2.
-    # After compaction: [c, t]. t+c reads t@1, c@2. Total: 6.
+    # Two-stack model: arg stack [a@1, b@2, c@3], geom empty.
+    # a+b: reads a@arg=1, b@arg=2 (cost 1+2=3); promote & die; push t.
+    # t+c: reads t@geom=1, c@arg=3 (cost 1+2=3). Total: 6.
     trace, _ = traced_eval(my_add, (1, 2, 3))
-    assert trace == [1, 2, 1, 2]
+    assert trace == [1, 2, 1, 3]
 
     assert trace_to_bytedmd(trace, bytes_per_element=1) == 6
-    assert trace_to_bytedmd(trace, bytes_per_element=2) == 14
+    assert trace_to_bytedmd(trace, bytes_per_element=2) == 16
 
-    assert bytedmd(my_add, (1, 2, 3), bytes_per_element=2) == 14
+    assert bytedmd(my_add, (1, 2, 3), bytes_per_element=2) == 16
 
 
 def my_composite_func(a, b, c, d):
@@ -35,10 +36,13 @@ def test_repeated_operand_is_charged_twice():
 
 
 def test_my_composite_func():
+    # Arg stack [a@1, b@2, c@3, d@4].
+    # b+c: arg 2+3. a+d: arg 1+4. cmp: geom 2+1.
     trace, result = traced_eval(my_composite_func, (1, 2, 3, 4))
-    assert trace == [2, 3, 2, 3, 2, 1]
+    assert trace == [2, 3, 1, 4, 2, 1]
     cost = bytedmd(my_composite_func, (1, 2, 3, 4))
-    assert cost == 11
+    assert cost == 10
+
 
 def test_dot_product():
     def dot(a, b):
@@ -47,9 +51,11 @@ def test_dot_product():
     a, b = [0, 1], [2, 3]
     trace, result = traced_eval(dot, (a, b))
 
-    assert trace == [2, 4, 2, 3, 2, 1]
+    # Arg stack [a[0]@1, a[1]@2, b[0]@3, b[1]@4].
+    # a[0]*b[0]: arg 1+3. a[1]*b[1]: arg 2+4. p0+p1: geom 2+1.
+    assert trace == [1, 3, 2, 4, 2, 1]
     assert result == 3
-    assert bytedmd(dot, (a, b)) == 11
+    assert bytedmd(dot, (a, b)) == 10
 
 
 def test_branching_and_comparisons_trace():
@@ -115,7 +121,8 @@ def test_index_protocol_works():
     assert result == [0, 1, 2]
 
     trace, result = traced_eval(lambda xs, i: xs[i], ([10, 20, 30], 1))
-    assert trace == [2]
+    # Arg stack: xs[0]@1, xs[1]@2, xs[2]@3, i@4. Only i is read (for indexing).
+    assert trace == [4]
     assert result == 20
 
 
@@ -157,18 +164,19 @@ def _ceil_sqrt(x):
 
 
 def test_matvec_costs():
-    """Verify matvec costs with eager init + aggressive compaction.
-    With eager init, matvec and vecmat are no longer symmetric because
-    the traversal order matters against the pre-loaded stack."""
-    expected_mv = {2: 26, 3: 75, 4: 157, 5: 270, 6: 422, 7: 615, 8: 896}
-    expected_vm = {2: 25, 3: 72, 4: 150, 5: 258, 6: 397, 7: 572, 8: 832}
+    """Under the two-stack model, matvec and vecmat are once again
+    symmetric: both algorithms touch the same (A cell, x cell) pairs
+    in the same multiplicity, and the argument stack positions are
+    fixed regardless of traversal order — so the total priced trace
+    is identical."""
+    expected = {2: 23, 3: 66, 4: 140, 5: 243, 6: 381, 7: 558, 8: 820}
     for n in [2, 3, 4, 5, 6, 7, 8]:
         A = np.ones((n, n))
         x = np.ones(n)
         mv = bytedmd(_matvec, (A, x))
         vm = bytedmd(_vecmat, (A, x))
-        assert mv == expected_mv[n], f"matvec N={n}: got {mv}, expected {expected_mv[n]}"
-        assert vm == expected_vm[n], f"vecmat N={n}: got {vm}, expected {expected_vm[n]}"
+        assert mv == expected[n], f"matvec N={n}: got {mv}, expected {expected[n]}"
+        assert vm == expected[n], f"vecmat N={n}: got {vm}, expected {expected[n]}"
 
 
 if __name__ == "__main__":

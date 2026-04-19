@@ -1,31 +1,52 @@
 """
-ByteDMD tracer — LRU stack with eager initialization and aggressive compaction.
+ByteDMD tracer — two-stack LRU with argument-stack promotion and aggressive
+compaction.
 
-  1. Simultaneous pricing: All inputs are priced against the pre-instruction
-     stack state before LRU bumping, guaranteeing commutativity.
-  2. Eager initialization: Arguments are loaded onto the stack left to right —
-     the first argument sits at the top (depth 1). No cold misses.
-  3. Liveness Analysis and Aggressive Compaction: Two-pass analysis strictly
-     limits stack size by immediately discarding elements when their last
-     operation completes, dynamically sliding remaining items up the stack.
+  1. Two stacks: the argument stack holds input elements at fixed depths
+     (first arg element at depth 1, second at depth 2, …). The geometric
+     stack holds intermediates. Reads against the argument stack use the
+     static arg depth; reads against the geometric stack use the live
+     LRU depth.
+  2. First-read promotion: reading an argument the first time is priced
+     against the argument stack; the argument is then promoted onto the
+     top of the geometric stack, so every subsequent read is priced on
+     the geometric stack like any intermediate.
+  3. Simultaneous pricing: all inputs to one op are priced against the
+     pre-instruction snapshot before any LRU bumping or promotion,
+     guaranteeing commutativity.
+  4. Aggressive liveness compaction on the geometric stack: dead values
+     are removed the moment their last operation completes. The argument
+     stack is fixed and does not compact.
 """
 
 import math
 import operator
 
 class _Context:
-    __slots__ = ('stack', 'trace', 'sync', 'memo', 'counter', 'ir', 'events', 'last_use')
-    
+    __slots__ = ('stack', 'trace', 'sync', 'memo', 'counter', 'ir', 'events',
+                 'last_use', 'arg_depth', 'arg_keys')
+
     def __init__(self):
         self.stack, self.trace, self.sync, self.ir, self.events = [], [], [], [], []
         self.memo = {}
         self.counter = 0
+        self.arg_depth = {}     # key -> static arg-stack depth
+        self.arg_keys = []      # order-preserving list for IR emission
 
     def allocate(self, deferred=False):
-        """Allocate a tracking ID. Deferred pushing until second pass via STORE event."""
+        """Allocate an intermediate (geometric-stack) tracking ID."""
         self.counter += 1
         if not deferred:
             self.events.append(('STORE', self.counter))
+        return self.counter
+
+    def allocate_arg(self):
+        """Allocate an argument tracking ID at the next arg-stack depth."""
+        self.counter += 1
+        depth = len(self.arg_depth) + 1
+        self.arg_depth[self.counter] = depth
+        self.arg_keys.append(self.counter)
+        self.events.append(('ARG', self.counter, depth))
         return self.counter
 
     def read(self, keys):
@@ -88,14 +109,14 @@ for n, f in _OPS.items():
     if n in 'add sub mul truediv floordiv mod divmod pow lshift rshift and xor or matmul'.split():
         setattr(_Tracked, f'__r{n}__', _make_op(f, rev=True))
 
-def _wrap(ctx, val, deferred=False):
+def _wrap(ctx, val, deferred=False, is_arg=False):
     if isinstance(val, _Tracked): return val
     vid = id(val)
     if vid in ctx.memo: return ctx.memo[vid]
 
     typ = type(val)
     is_prim = typ in (int, float, bool, complex, str)
-    
+
     if typ.__name__ == 'ndarray':
         import numpy as np
         res = np.empty_like(val, dtype=object)
@@ -104,17 +125,17 @@ def _wrap(ctx, val, deferred=False):
             ctx.sync.append((val, res))
         for idx in np.ndindex(val.shape):
             v = val[idx]
-            res[idx] = _wrap(ctx, v.item() if hasattr(v, 'item') and not isinstance(v, np.ndarray) else v, deferred)
+            res[idx] = _wrap(ctx, v.item() if hasattr(v, 'item') and not isinstance(v, np.ndarray) else v, deferred, is_arg)
         return res
 
     if isinstance(val, (list, tuple)):
-        res = typ(_wrap(ctx, v, deferred) for v in val)
+        res = typ(_wrap(ctx, v, deferred, is_arg) for v in val)
         if not is_prim:
             ctx.memo[vid] = res
             if typ is list: ctx.sync.append((val, res))
         return res
 
-    key = ctx.allocate(deferred)
+    key = ctx.allocate_arg() if is_arg else ctx.allocate(deferred)
     res = _Tracked(ctx, key, val)
     if not is_prim: ctx.memo[vid] = res
     return res
@@ -149,14 +170,17 @@ def _unwrap(val, memo=None):
     return res
 
 def _pass2(ctx, res):
-    """Pass 2: Computes liveness over the event log, vaporizes dead variables, and constructs the trace."""
+    """Pass 2: Computes liveness over the event log, vaporizes dead
+    variables on the geometric stack, and constructs the trace under
+    the two-stack model (arg stack fixed, geom stack LRU)."""
     events = ctx.events
+    arg_depth = ctx.arg_depth  # key -> static arg-stack depth
     last_use = {}
     for i, ev in enumerate(events):
         if ev[0] == 'READ_BATCH':
             for k in ev[1]:
                 last_use[k] = i
-        elif ev[0] == 'STORE':
+        elif ev[0] in ('STORE', 'ARG'):
             k = ev[1]
             if k not in last_use:
                 last_use[k] = i
@@ -171,17 +195,18 @@ def _pass2(ctx, res):
             import numpy as np
             for v in val.flat: collect_keys(v)
     collect_keys(res)
-    
+
     # Results are marked alive until the end
     for k in names:
         last_use[k] = len(events)
-        
-    stack = []
+
+    stack = []          # geometric stack (LRU order: bottom..top)
+    promoted = set()    # arg keys that have been read at least once
     trace = []
     ir = []
     last_depths_map = {}
     op_start_stack = []
-    
+
     def kill_dead_variables(current_idx):
         nonlocal stack
         new_stack = []
@@ -191,43 +216,60 @@ def _pass2(ctx, res):
         stack = new_stack
 
     for i, ev in enumerate(events):
-        if ev[0] == 'STORE':
+        if ev[0] == 'ARG':
+            # Argument allocation — placed on the fixed argument stack.
+            # Not pushed onto geom; arg_depth already tracked in ctx.
+            k, d = ev[1], ev[2]
+            ir.append(('ARG', k, d))
+
+        elif ev[0] == 'STORE':
             k = ev[1]
             stack.append(k)
             ir.append(('STORE', k))
             kill_dead_variables(i)
-            
+
         elif ev[0] == 'READ_BATCH':
             valid = ev[1]
             unique = list(dict.fromkeys(valid))
             depths_map = {}
+            origin_map = {}
             L = len(stack)
-            
-            # Price simultaneously against active universe
+
+            # Price simultaneously against the pre-instruction snapshot.
             for k in unique:
-                depths_map[k] = L - stack.index(k)
-            
+                if k in arg_depth and k not in promoted:
+                    depths_map[k] = arg_depth[k]
+                    origin_map[k] = 'arg'
+                else:
+                    depths_map[k] = L - stack.index(k)
+                    origin_map[k] = 'geom'
+
             trace.extend(depths_map[k] for k in valid)
             for k in valid:
-                ir.append(('READ', k, depths_map[k]))
-                
+                ir.append(('READ', k, depths_map[k], origin_map[k]))
+
+            # Apply promotions + LRU bumps in read order.
             for k in unique:
-                stack.remove(k)
-                stack.append(k)
-                
+                if origin_map[k] == 'arg':
+                    promoted.add(k)
+                    stack.append(k)
+                else:
+                    stack.remove(k)
+                    stack.append(k)
+
             last_depths_map = depths_map
             kill_dead_variables(i)
-            
+
         elif ev[0] == 'OP_START':
             op_start_stack.append(len(ir))
-            
+
         elif ev[0] == 'OP_END':
             name, valid_keys, out_key = ev[1], ev[2], ev[3]
             depths = [last_depths_map.get(k, 0) for k in valid_keys]
-            
+
             idx = op_start_stack.pop()
             ir.insert(idx, ('OP', name, valid_keys, depths, out_key))
-            
+
         elif ev[0] == 'OP':
             # Fallback for NotImplemented returns
             name, valid_keys, out_key = ev[1], ev[2], ev[3]
@@ -245,11 +287,10 @@ def _sum_usqrt(N):
 
 def traced_eval(func, args):
     ctx = _Context()
-    # Wrap in reverse order so the first argument ends up at the top of the
-    # stack (pushed last).  The wrapped_args tuple is kept in original order
-    # for passing to the function.
-    rev_wrapped = [_wrap(ctx, a) for a in reversed(args)]
-    wrapped_args = tuple(reversed(rev_wrapped))
+    # Wrap args left-to-right so the first argument's elements land at
+    # arg-stack depths 1..n_first (top), the second argument at
+    # n_first+1..n_first+n_second, etc.
+    wrapped_args = tuple(_wrap(ctx, a, is_arg=True) for a in args)
     res = func(*wrapped_args)
 
     _pass2(ctx, res)
@@ -268,20 +309,29 @@ def trace_to_bytedmd(trace, bytes_per_element):
 
 def inspect_ir(func, args):
     ctx = _Context()
-    rev_wrapped = [_wrap(ctx, a) for a in reversed(args)]
-    wrapped_args = tuple(reversed(rev_wrapped))
+    wrapped_args = tuple(_wrap(ctx, a, is_arg=True) for a in args)
     res = func(*wrapped_args)
     _pass2(ctx, res)
     return ctx.ir
 
 def format_ir(ir):
+    """Render the two-stack IR as a human-readable trace.
+    Event tags: ARG (argument placed on the arg stack at a fixed depth),
+    STORE (intermediate pushed onto the geom stack), READ (priced against
+    whichever stack holds the operand — `arg=` or `geom=`), OP (summary
+    of preceding reads). Output follows a consistent format suitable for
+    inspection in tests and docs."""
     out, total = [], 0
     for ev in ir:
-        if ev[0] == 'STORE':
+        if ev[0] == 'ARG':
+            out.append(f"ARG   v{ev[1]} @ arg={ev[2]}")
+        elif ev[0] == 'STORE':
             out.append(f"STORE v{ev[1]}")
         elif ev[0] == 'READ':
-            cost = math.isqrt(ev[2] - 1) + 1
-            out.append(f"  READ v{ev[1]}@{ev[2]}  cost={cost}")
+            key, depth = ev[1], ev[2]
+            origin = ev[3] if len(ev) > 3 else 'geom'
+            cost = math.isqrt(depth - 1) + 1
+            out.append(f"  READ v{key}@{origin}={depth}  cost={cost}")
         else:
             _, name, keys, depths, _ok = ev
             cost = sum(math.isqrt(d - 1) + 1 for d in depths)
@@ -316,10 +366,9 @@ def trace_ir(func, args):
     """Replay an IR step-by-step with variable names and the compacted logical stack state."""
     import inspect
     ctx = _Context()
-    rev_wrapped = [_wrap(ctx, a) for a in reversed(args)]
-    wrapped_args = tuple(reversed(rev_wrapped))
+    wrapped_args = tuple(_wrap(ctx, a, is_arg=True) for a in args)
     res = func(*wrapped_args)
-    
+
     _pass2(ctx, res)
     ir = ctx.ir
     last_use = ctx.last_use
@@ -327,7 +376,7 @@ def trace_ir(func, args):
     # Re-calculate a mapped local `last_use` map dict to tie directly to `ir` iteration formatting
     last_use_ir = {}
     for i, ev in enumerate(ir):
-        if ev[0] == 'STORE':
+        if ev[0] in ('STORE', 'ARG'):
             if ev[1] not in last_use_ir:
                 last_use_ir[ev[1]] = i
         elif ev[0] == 'READ':
@@ -376,17 +425,27 @@ def trace_ir(func, args):
                 new_stack.append(k)
         stack[:] = new_stack
 
+    promoted_local = set()
+    arg_depth_local = ctx.arg_depth
     for i, ev in enumerate(ir):
         tag = ev[0]
-        if tag == 'STORE':
+        if tag == 'ARG':
+            key, depth = ev[1], ev[2]
+            out.append(f"ARG   {n(key):<20} arg_depth={depth}")
+        elif tag == 'STORE':
             key = ev[1]
             stack.append(key)
             compact(i)
             out.append(f"STORE {n(key):<20}              stack={fmt_stack()}")
         elif tag == 'READ':
             key, depth = ev[1], ev[2]
+            origin = ev[3] if len(ev) > 3 else 'geom'
             cost = math.isqrt(depth - 1) + 1
-            if key not in stack:
+            # First read of an arg: promote onto the geom stack.
+            if origin == 'arg' and key in arg_depth_local and key not in promoted_local:
+                promoted_local.add(key)
+                stack.append(key)
+            elif key not in stack:
                 stack.append(key)
             stack.remove(key)
             stack.append(key)
