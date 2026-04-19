@@ -33,8 +33,8 @@ This rounding makes reuse costs correspond to Manhattan distances of a stack arr
 Second, we only consider "live variables" when computing reuse distance. Counting lives bytes between reuses is equivalent to a model which fetches from a stack which shrinks on garbage collection - ([example](https://yaroslavvb.github.io/ByteDMD-vis/myfunc_stack.html))
 
 An advantage of this modification, is that we can bound the cost of optimal manually placed memory strategy in a 2D Manhattan model from the value of of this metric
-- Lower bound: gemini/tarjan-bytedmd-lower-bound.pdf
-- Upper bound: gemini/bytedmd-upper-bound.pdf
+- Lower bound: [gemini/tarjan-bytedmd-lower-bound.pdf](gemini/tarjan-bytedmd-lower-bound.pdf)
+- Upper bound: [gemini/bytedmd-upper-bound.pdf](gemini/bytedmd-upper-bound.pdf)
 
 ## Computation Model
 
