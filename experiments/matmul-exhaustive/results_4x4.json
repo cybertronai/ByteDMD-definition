@@ -1,0 +1,79 @@
+[
+  {
+    "name": "naive_b_col_cached",
+    "cost": 739,
+    "peak_scratch": 21,
+    "peak_arg": 32,
+    "reads": 256
+  },
+  {
+    "name": "outer_b_row_a_scalar",
+    "cost": 741,
+    "peak_scratch": 22,
+    "peak_arg": 32,
+    "reads": 272
+  },
+  {
+    "name": "naive_a_row_scalar_acc",
+    "cost": 801,
+    "peak_scratch": 22,
+    "peak_arg": 32,
+    "reads": 272
+  },
+  {
+    "name": "naive_ijk_direct",
+    "cost": 812,
+    "peak_scratch": 17,
+    "peak_arg": 32,
+    "reads": 240
+  },
+  {
+    "name": "naive_jik_direct",
+    "cost": 812,
+    "peak_scratch": 17,
+    "peak_arg": 32,
+    "reads": 240
+  },
+  {
+    "name": "naive_kij_rank1",
+    "cost": 812,
+    "peak_scratch": 17,
+    "peak_arg": 32,
+    "reads": 240
+  },
+  {
+    "name": "block_2x2_direct",
+    "cost": 847,
+    "peak_scratch": 21,
+    "peak_arg": 32,
+    "reads": 240
+  },
+  {
+    "name": "batched_per_pair",
+    "cost": 849,
+    "peak_scratch": 20,
+    "peak_arg": 32,
+    "reads": 240
+  },
+  {
+    "name": "naive_a_row_cached",
+    "cost": 850,
+    "peak_scratch": 21,
+    "peak_arg": 32,
+    "reads": 256
+  },
+  {
+    "name": "naive_ijk_always_acc",
+    "cost": 882,
+    "peak_scratch": 17,
+    "peak_arg": 32,
+    "reads": 272
+  },
+  {
+    "name": "batched_all_64",
+    "cost": 1352,
+    "peak_scratch": 80,
+    "peak_arg": 32,
+    "reads": 240
+  }
+]
