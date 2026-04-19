@@ -6,6 +6,8 @@ $$C=\sum_{b \in bytes} \sqrt{D(b)}$$
 
 where $D(b)$ is the reuse distance. Square-root is motivated by VLSI routing cost in 2D.
 
+![Reuse distance example](docs/reuse_distance.png)
+
 ## Usage
 
 ```python
