@@ -175,8 +175,7 @@ def render_frame(d: int = 8,
              ha='center', va='top', fontsize=11,
              color='dimgray', fontweight='bold')
 
-    ax1.set(aspect='equal',
-            title="Manhattan-Diamond: two arenas around one core")
+    ax1.set(aspect='equal')
     ax1.set_xlabel('')
     ax1.set_ylabel('')
     ax1.xaxis.set_major_locator(MultipleLocator(1))
