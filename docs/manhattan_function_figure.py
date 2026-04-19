@@ -97,14 +97,18 @@ def render_frame(d: int = 8,
             cur = (i + 1 == highlight_idx)
             weight = 'bold' if cur else 'normal'
             alpha = 1.0 if cur else 0.4
-            x_off = 5 if (i + 1) in (1, 3) else 0
+            # Cells on the vertical spine (x=0) put their whole label to
+            # the right of the trunk; others stay centered above.
+            on_spine = short[i, 0] == 0
+            x_off = 6 if on_spine else 0
             y_off = 7
+            ha = 'left' if on_spine else 'center'
             va = 'bottom'
             lbl = f"-{i + 1}" if label_neg else f"{i + 1}"
             ax1.annotate(
                 lbl, (short[i, 0], short[i, 1]),
                 textcoords="offset points", xytext=(x_off, y_off),
-                ha='center', va=va, fontsize=9, fontweight=weight,
+                ha=ha, va=va, fontsize=9, fontweight=weight,
                 color='black', alpha=alpha, zorder=4,
                 bbox=dict(boxstyle='round,pad=0.15', fc='white',
                           ec='none', alpha=0.7 if cur else 0.3),
@@ -149,8 +153,10 @@ def render_frame(d: int = 8,
 
     # --- ALU at origin ---
     ax1.plot(0, 0, marker='o', color='red', ms=14, mec='black', zorder=5)
+    # Nudge the "core" label up slightly so it clears the horizontal
+    # divider line at y = 0.
     ax1.annotate("core", (0, 0), textcoords="offset points",
-                 xytext=(14, 0), ha='left', va='center', fontsize=10,
+                 xytext=(14, 6), ha='left', va='bottom', fontsize=10,
                  fontweight='bold', color='red')
 
     # --- Optional wire path from the core to the highlighted scratch target ---
