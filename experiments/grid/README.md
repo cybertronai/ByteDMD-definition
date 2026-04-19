@@ -1198,7 +1198,32 @@ steps can't amortize `c_V` across merge-tree levels.
 ## stencil_time_diamond [(code)](scripts/stencil_time_diamond_16x16_t_4.py)
 `n=16, T=4, block=4`. **Algorithm.** Diamond tiling: per (bi,bj) block, load a halo-expanded region into a hot scratchpad and run all T steps locally before flushing.
 
-**Manual.** Reads are concentrated in the per-block buffer (low scratch addrs) for T steps, at the cost of O(block+2T)² redundant halo loads per block. On this small `n=16` grid the redundancy dominates — diamond is *more* expensive than naive, a known regime.
+**Manual.** Three stacked optimizations (gemini's suggestion in
+`gemini/optimize-stencil-time-diamond.md`):
+
+1. **Lazy arg loading** — only cells actually inside the current
+   block's Manhattan-distance diamond (`dist_i + dist_j ≤ T`) get
+   touched, and only on their first visit. The naive version
+   preloaded the full n² grid.
+2. **In-place time-stepping** — the second `buf_nxt` array is
+   dropped entirely. A sliding horizontal window of three scalar
+   registers `c_left / c_center / c_right` plus a `prev_row` buffer
+   holds the stale neighbor values long enough to do an in-place
+   write on `buf_cur`.
+3. **Diamond pruning** — each time step `t` clips to the
+   **shrinking** dependence cone `dist_i + dist_j ≤ T - 1 - t`, so
+   cells near the halo edge (whose values would be overwritten by
+   halo contamination before they become needed) get skipped.
+
+Layout:
+  `c_left, c_center, c_right` (addrs 1..3) — sliding L1 register ring;
+  `prev_row` (addrs 4..stride+3) — top-row buffer;
+  `buf_cur` (addrs stride+4..stride²+stride+3) — sole block workspace;
+  `cur` (addrs stride²+stride+4..) — global target.
+
+Drops manual from 562,290 to **136,095** (−76%). Now beats both
+`space_dmd` (178,875) and `bytedmd_live` (230,387) — a rare win on an
+algorithm that was previously our worst-ratio offender.
 
 ![](traces/stencil_time_diamond_16x16_t_4.png)
 

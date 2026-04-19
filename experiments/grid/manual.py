@@ -1787,46 +1787,106 @@ def manual_stencil_time_naive(n: int, T: int = 4) -> int:
 
 
 def manual_stencil_time_diamond(n: int, T: int = 4, block: int = 4) -> int:
-    """Diamond-tiled Jacobi. Per (bi, bj) block with halo T, carry a
-    block-local buffer through T steps before flushing back. Reads of
-    the halo region span O((block + 2T)²) cells per block, all kept in
-    a hot scratchpad during the T steps."""
+    """Perfectly in-place diamond time-tiling with L1 row caching and
+    sliding scalar registers (gemini/optimize-stencil-time-diamond.md).
+
+    Three optimizations layered onto the naive halo-buffered schedule:
+      (1) Lazy arg loading: only arg cells that are actually inside
+          the Manhattan-distance diamond at the current block get
+          touched, and only on their very first visit.
+      (2) In-place time-stepping: the second "buf_nxt" array is
+          dropped entirely. The sliding horizontal window (c_left,
+          c_center, c_right) plus a top-row buffer prev_row lets every
+          update read the stale neighbor values before the in-place
+          write touches that cell.
+      (3) Diamond pruning: each time step t clips to the shrinking
+          dependence cone (dist_i + dist_j <= T - 1 - t), skipping
+          cells whose values would be overwritten by halo before they
+          become needed.
+
+    Layout:
+      c_left, c_center, c_right  (addrs 1..3)
+      prev_row                   (addrs 4..stride+3)
+      buf_cur                    (addrs stride+4..stride²+stride+3)
+      cur                        (addrs stride²+stride+4..)
+    """
     a = _alloc()
     A = a.alloc_arg(n * n)
-    cur = a.alloc(n * n); out = a.alloc(n * n)
-    bufsz = (block + 2 * T) * (block + 2 * T)
-    buf_cur = a.alloc(bufsz); buf_nxt = a.alloc(bufsz)
-    a.set_output_range(out, out + n * n)
-    for i in range(n * n):
-        a.touch_arg(A + i); a.write(cur + i)
+    c_left = a.alloc(1); c_center = a.alloc(1); c_right = a.alloc(1)
+    stride = block + 2 * T
+    prev_row = a.alloc(stride)
+    buf_cur = a.alloc(stride * stride)
+    cur = a.alloc(n * n)
+    a.set_output_range(cur, cur + n * n)
+
+    loaded = [[False] * n for _ in range(n)]
+
     for bi in range(0, n, block):
         for bj in range(0, n, block):
             rr = max(0, bi - T); cc = max(0, bj - T)
             rows = min(n, bi + block + T) - rr
             cols = min(n, bj + block + T) - cc
-            # Load block halo from cur into buf_cur.
+
+            # (a) Lazy-load just the diamond subset into buf_cur.
             for ii in range(rows):
                 for jj in range(cols):
-                    a.touch(cur + (rr + ii) * n + (cc + jj))
-                    a.write(buf_cur + ii * (block + 2 * T) + jj)
+                    r_glob = rr + ii
+                    c_glob = cc + jj
+                    dist_i = 0
+                    if r_glob < bi: dist_i = bi - r_glob
+                    elif r_glob >= bi + block: dist_i = r_glob - (bi + block - 1)
+                    dist_j = 0
+                    if c_glob < bj: dist_j = bj - c_glob
+                    elif c_glob >= bj + block: dist_j = c_glob - (bj + block - 1)
+                    if dist_i + dist_j <= T:
+                        if not loaded[r_glob][c_glob]:
+                            a.touch_arg(A + r_glob * n + c_glob)
+                            loaded[r_glob][c_glob] = True
+                        else:
+                            a.touch(cur + r_glob * n + c_glob)
+                        a.write(buf_cur + ii * stride + jj)
+
+            # (b) In-place time-stepping with sliding register window.
             for t in range(T):
+                for jj in range(cols):
+                    a.touch(buf_cur + 0 * stride + jj)
+                    a.write(prev_row + jj)
                 for ii in range(1, rows - 1):
+                    a.touch(buf_cur + ii * stride + 0); a.write(c_left)
+                    a.touch(buf_cur + ii * stride + 1); a.write(c_center)
                     for jj in range(1, cols - 1):
-                        if (0 < rr + ii < n - 1) and (0 < cc + jj < n - 1):
-                            stride = block + 2 * T
-                            a.touch(buf_cur + ii * stride + jj)
-                            a.touch(buf_cur + (ii - 1) * stride + jj)
-                            a.touch(buf_cur + (ii + 1) * stride + jj)
-                            a.touch(buf_cur + ii * stride + jj - 1)
-                            a.touch(buf_cur + ii * stride + jj + 1)
-                            a.write(buf_nxt + ii * stride + jj)
-                buf_cur, buf_nxt = buf_nxt, buf_cur
-            # Flush the interior back to out.
+                        a.touch(buf_cur + ii * stride + jj + 1)
+                        a.write(c_right)
+
+                        r_glob = rr + ii
+                        c_glob = cc + jj
+                        dist_i = 0
+                        if r_glob < bi: dist_i = bi - r_glob
+                        elif r_glob >= bi + block: dist_i = r_glob - (bi + block - 1)
+                        dist_j = 0
+                        if c_glob < bj: dist_j = bj - c_glob
+                        elif c_glob >= bj + block: dist_j = c_glob - (bj + block - 1)
+
+                        if dist_i + dist_j <= T - 1 - t:
+                            if (0 < r_glob < n - 1) and (0 < c_glob < n - 1):
+                                a.touch(c_center)
+                                a.touch(prev_row + jj)
+                                a.touch(buf_cur + (ii + 1) * stride + jj)
+                                a.touch(c_left)
+                                a.touch(c_right)
+                                a.write(buf_cur + ii * stride + jj)
+
+                        # Slide registers forward every column.
+                        a.touch(c_center); a.write(prev_row + jj)
+                        a.touch(c_center); a.write(c_left)
+                        a.touch(c_right);  a.write(c_center)
+
+            # (c) Flush the block interior to cur.
             for i in range(bi, min(bi + block, n)):
                 for j in range(bj, min(bj + block, n)):
                     li = i - rr; lj = j - cc
-                    a.touch(buf_cur + li * (block + 2 * T) + lj)
-                    a.write(out + i * n + j)
+                    a.touch(buf_cur + li * stride + lj)
+                    a.write(cur + i * n + j)
     a.read_output()
     return a.cost
 
