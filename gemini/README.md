@@ -120,3 +120,4 @@ Research notes on **ByteDMD** (Byte-level Data Movement Distance): a concrete me
 | [naive-attention-surprise.md](naive-attention-surprise.md) | Why Flash Attention manual cost exceeds naive at small N: algorithmic mismatch + arithmetic overhead |
 | [efficient-matvec.md](efficient-matvec.md) | Why SpaceDMD beats manual matvec: streaming registers vs static bulk array placement |
 | [manual-vs-traced-mismatch.md](manual-vs-traced-mismatch.md) | Manual schedule beats automated bounds by executing an optimized algorithm, not just better layout |
+| [left-looking-lu.md](left-looking-lu.md) | Left-looking blocked LU/Cholesky scheduling with L1 vector scratchpads to minimize geometric stack cost |
