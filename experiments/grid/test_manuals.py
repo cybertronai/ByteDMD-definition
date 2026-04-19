@@ -29,6 +29,14 @@ from manual_dsl_examples import (
     manual_matvec_blocked_dsl,
     manual_rmm_dsl,
     manual_tiled_matmul_dsl,
+    manual_transpose_naive_dsl,
+    manual_transpose_blocked_dsl,
+    manual_transpose_recursive_dsl,
+    manual_spatial_convolution_dsl,
+    manual_lcs_dp_dsl,
+    manual_quicksort_dsl,
+    manual_mergesort_dsl,
+    manual_layernorm_fused_dsl,
 )
 
 
@@ -147,6 +155,46 @@ def test_dsl_matches_rmm() -> None:
 
 def test_dsl_matches_tiled_matmul() -> None:
     _within_tolerance(manual_tiled_matmul_dsl(16), man.manual_tiled_matmul(16))
+
+
+def test_dsl_matches_transpose_naive() -> None:
+    _within_tolerance(manual_transpose_naive_dsl(32),
+                      man.manual_transpose_naive(32))
+
+
+def test_dsl_matches_transpose_blocked() -> None:
+    _within_tolerance(manual_transpose_blocked_dsl(32),
+                      man.manual_transpose_blocked(32))
+
+
+def test_dsl_matches_transpose_recursive() -> None:
+    _within_tolerance(manual_transpose_recursive_dsl(32),
+                      man.manual_transpose_recursive(32))
+
+
+def test_dsl_matches_spatial_convolution() -> None:
+    _within_tolerance(manual_spatial_convolution_dsl(32, 32, 5),
+                      man.manual_spatial_convolution(32, 32, 5))
+
+
+def test_dsl_matches_lcs_dp() -> None:
+    _within_tolerance(manual_lcs_dp_dsl(32, 32),
+                      man.manual_lcs_dp(32, 32))
+
+
+def test_dsl_matches_quicksort() -> None:
+    _within_tolerance(manual_quicksort_dsl(64),
+                      man.manual_quicksort(64))
+
+
+def test_dsl_matches_mergesort() -> None:
+    _within_tolerance(manual_mergesort_dsl(64),
+                      man.manual_mergesort(64))
+
+
+def test_dsl_matches_layernorm_fused() -> None:
+    _within_tolerance(manual_layernorm_fused_dsl(256),
+                      man.manual_layernorm_fused(256))
 
 
 if __name__ == "__main__":
