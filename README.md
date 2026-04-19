@@ -125,58 +125,54 @@ incurs cost). Op results are materialized by the `STORE` that
 immediately follows the `OP`.
 
 ```python
-from bytedmd import inspect_ir, format_ir, bytedmd
+from bytedmd import inspect_ir, format_ir
 
-def matvec2(A, x):
-    y0 = A[0][0]*x[0] + A[0][1]*x[1]
-    y1 = A[1][0]*x[0] + A[1][1]*x[1]
-    return [y0, y1]
+def myfunc(a, b, c, d, e):
+    return a*b + c*d + e
 
-print(format_ir(inspect_ir(matvec2, ([[1,2],[3,4]], [5,6]))))
+print(format_ir(inspect_ir(myfunc, (1, 2, 3, 4, 5))))
 ```
 
 ```text
-ARG   v1 @ arg=1                        # A[0][0] at arg depth 1 (top)
-ARG   v2 @ arg=2                        # A[0][1]
-ARG   v3 @ arg=3                        # A[1][0]
-ARG   v4 @ arg=4                        # A[1][1]
-ARG   v5 @ arg=5                        # x[0]
-ARG   v6 @ arg=6                        # x[1] — deepest arg slot
-  READ v1@arg=1  cost=1                 # A[0][0] first read (on arg stack)
-  READ v5@arg=5  cost=3                 # x[0] first read
-OP    mul(v1@1, v5@5)  cost=4           # A[0][0]*x[0]; v1, v5 promoted
-STORE v7
-  READ v2@arg=2  cost=2                 # A[0][1] first read
-  READ v6@arg=6  cost=3                 # x[1] first read
-OP    mul(v2@2, v6@6)  cost=5           # A[0][1]*x[1]; v2, v6 promoted
-STORE v8
-  READ v7@geom=3  cost=2                # v7 sunk on geom as v6 promoted
-  READ v8@geom=1  cost=1                # v8 still at top
-OP    add(v7@3, v8@1)  cost=3           # y0
+ARG   v1 @ arg=1                        # a at top of the arg stack
+ARG   v2 @ arg=2                        # b
+ARG   v3 @ arg=3                        # c
+ARG   v4 @ arg=4                        # d
+ARG   v5 @ arg=5                        # e — deepest arg slot
+  READ v1@arg=1  cost=1                 # a first read (arg stack)
+  READ v2@arg=2  cost=2                 # b first read
+OP    mul(v1@1, v2@2)  cost=3           # a*b; v1, v2 promoted, die
+STORE v6                                 # p0 = a*b on geom stack
+  READ v3@arg=3  cost=2                 # c first read
+  READ v4@arg=4  cost=2                 # d first read
+OP    mul(v3@3, v4@4)  cost=4           # c*d; v3, v4 promoted, die
+STORE v7                                 # p1 = c*d on geom (top), p0 below
+  READ v6@geom=2  cost=2                # p0 at geom depth 2
+  READ v7@geom=1  cost=1                # p1 at top
+OP    add(v6@2, v7@1)  cost=3           # p2 = p0 + p1
+STORE v8                                 # p2 replaces p0/p1 on geom
+  READ v8@geom=1  cost=1                # p2 on geom
+  READ v5@arg=5  cost=3                 # e first read (still unpromoted!)
+OP    add(v8@1, v5@5)  cost=4           # mixed: one geom + one arg
 STORE v9
-  READ v3@arg=3  cost=2                 # A[1][0] first read
-  READ v5@geom=3  cost=2                # x[0] — hot hit, already promoted!
-OP    mul(v3@3, v5@3)  cost=4
-STORE v10
-  READ v4@arg=4  cost=2                 # A[1][1] first read
-  READ v6@geom=3  cost=2                # x[1] — hot hit
-OP    mul(v4@4, v6@3)  cost=4
-STORE v11
-  READ v10@geom=2  cost=2
-  READ v11@geom=1  cost=1
-OP    add(v10@2, v11@1)  cost=3         # y1
-STORE v12
-# total cost = 23
+# total cost = 14
 ```
 
-Two-stack structure visible: the six `ARG` lines place `A` elements at
-arg depths 1..4 (first argument, top of arg stack) and `x` at depths
-5..6. First reads against the arg stack use the static arg depth; once
-an element is read, it is *promoted* onto the top of the geometric
-stack, so the second read of `x[0]` and `x[1]` in the second y-sweep
-pays a cheap geom-stack depth (`v5@geom=3`, `v6@geom=3`) instead of the
-deeper arg position. Liveness still aggressively evicts dead variables
-on the geometric stack (the arg stack is fixed).
+Two-stack structure on display across four ops:
+
+- **Both operands on arg stack** (`mul v1@1, v2@2`; `mul v3@3, v4@4`)
+  — first reads of a/b and c/d, priced at their static arg depths.
+- **Both operands on geom stack** (`add v6@2, v7@1`) — once the two
+  products exist on the geometric stack, the second add prices them
+  by live LRU depth with the usual bumping.
+- **Mixed** (`add v8@1, v5@5`) — `v8` (the partial sum) is on the
+  geom stack at depth 1, while `e` has never been touched yet and
+  is still sitting at its original arg depth 5. A single op can
+  freely combine one read from each stack.
+
+Liveness still aggressively evicts dead variables on the geometric
+stack (the arg stack is fixed — promoted args just stop
+contributing).
 
 ## ByteDMD benchmarks
 
