@@ -71,7 +71,7 @@ DAGs are identical, so `bytedmd_live` / `bytedmd_classic` match — only
 | [flash_attn(N=64,d=2,Bk=8)](#flash_attn)                              |   353,721 |      476,067 |     610,154 |         842,854 |
 | [matvec_row(n=64)](#matvec_row)                                       |   217,053 |      229,527 |     218,552 |         266,353 |
 | [matvec_col(n=64)](#matvec_col)                                       |   197,719 |      229,716 |     217,952 |         270,193 |
-| [matvec_blocked(n=64,B=4)](#matvec_blocked)                           |   208,307 |      215,668 |     275,535 |         256,422 |
+| [matvec_blocked(n=64,B=8)](#matvec_blocked)                           |   207,179 |      214,377 |     208,832 |         250,463 |
 | [fft_iterative(N=256)](#fft_iterative)                                |    35,400 |       47,088 |      55,516 |          71,317 |
 | [fft_recursive(N=256)](#fft_recursive)                                |    28,170 |       33,110 |      52,704 |          62,417 |
 | [stencil_naive(32x32)](#stencil_naive)                                |    61,258 |       65,937 |      78,968 |         109,401 |
@@ -562,9 +562,11 @@ Drops manual from 455,587 to **218,552** (−52%), now just below
 > [gemini/optimal-matvec.md](../../gemini/optimal-matvec.md) derives
 > a strict lower bound under the semi-ring + polyhedron restrictions:
 > the compulsory-I/O barrier is **180,960** (just the arg transport
-> cost), and the achievable minimum is **208,832**. All three
-> manuals honour it: `matvec_row` 218,552 (+5%), `matvec_col`
-> 217,952 (+4%), `matvec_blocked` 275,535 (+32%).
+> cost), and the achievable minimum is **208,832**. `matvec_blocked`
+> (below) now implements the exact schedule prescribed by the doc
+> and lands at **208,832 — the floor itself**. `matvec_row` (218,552,
+> +5%) and `matvec_col` (217,952, +4%) are close but pay for their
+> simpler layouts.
 
 ![](traces/matvec_row_n_64.png)
 
@@ -608,44 +610,62 @@ again, the sum is fixed.
 
 ---
 
-## matvec_blocked [(code)](scripts/matvec_blocked_n_64_b_4.py)
-`n=64, B=4`. **Algorithm.** Tile matvec into B×B sub-matrix blocks; for
-each tile, DMA-load the current B-slice of `x` into short-lived
-`x_tile` vars (`+ 0.0` idiom — forces real `L2Load/L2Store` events),
-then run a tight B×B MAC against the corresponding A block
-accumulating into B running sums `s[0..B-1]`. Abstract form follows
-[gemini/efficient-matvec.md](../../gemini/efficient-matvec.md); the
-**manual implementation here differs from the doc** by placing A
-in the spatial grid as a proper n×n slab rather than streaming it
-through a single FIFO port — the streaming trick is not available
-under strict ByteDMD.
+## matvec_blocked [(code)](scripts/matvec_blocked_n_64_b_8.py)
+`n=64, B=8`. **Algorithm.** Stationary-Accumulator 1D-Blocked MatVec
+([gemini/optimal-matvec.md](../../gemini/optimal-matvec.md)). Outer
+loop iterates over 8-column blocks of x. For each block, load the
+current 8 x-values once into a tight L1 cache, then sweep every row
+of A through a single scalar accumulator `s`, flushing the
+partial sum back to `y[i]` after each row. Subsequent x-blocks
+reload the partial sum from `y[i]`, add their contribution, and
+store back.
 
-**Manual placement.** `s[0..B-1]` at addrs 1..B, `x_tile` at B+1..2B,
-`tmp` at 2B+1, `x_main` (cold bulk x) at 2B+2..2B+n+1, and finally
-**A as a full n*n slab at 2B+n+2..**. Every A[i][j] read pays
-ceil(sqrt(its actual address)) — no streaming shortcut.
+**Manual placement.** Addresses laid out strictly by access
+frequency:
+  `s`   (addr 1)         — stationary accumulator (4,096 MACs)
+  `tmp` (addr 2)         — multiply intermediate (4,032 reads)
+  `c_x` (addrs 3..10)    — current 8-element x-block cache
+  `y`   (addrs 11..74)   — output / partial-sum array
 
-The only legitimate locality win is in x-reads: the x-slice is
-loaded from `x_main` into `x_tile` once per (i_out, j_out) tile and
-then reused B times from the hot region. Manual drops from
-`matvec_row`'s 238,853 to **219,732 (8% cheaper)** — modest but
-real, and entirely accounted for by the scratchpad. A-reads sum to
-~184k either way because every A cell must occupy its own grid
-address and be read exactly once.
+Inner loop footprint is strictly addrs 1..10 — everything hotter
+than the output array sits in a register-file-sized window. Under
+the semi-ring restriction the full argument-transport cost
+(A=176,800 + x=4,160 = 180,960) is unavoidable; the remainder
+(27,872 of L1 reads, y-flushes, and epilogue) is what the optimal
+schedule minimises.
 
-![](traces/matvec_blocked_n_64_b_4.png)
+**Manual lands at 208,832 — the provable floor** for n=64 matvec
+under the semi-ring + polyhedron restrictions (doc §2). Every
+other schedule in this family either reloads x from the deep arg
+stack (paying `4,160` per row), stretches the scratch footprint
+past addr 10 (inflating every inner-loop read), or wastes cycles
+pulling A through a cached tile it cannot reuse. This hits every
+term of the doc's exact breakdown:
+
+| term | cost |
+|---|-:|
+| A arg sweep (4,096 reads) | 176,800 |
+| x arg sweep (64 reads) | 4,160 |
+| c_x reads (4,096 × avg 2.875) | 11,776 |
+| s + tmp inner reads (4,032 × 3) | 12,096 |
+| y flush-and-reload (7 × 436) | 3,052 |
+| s-store overhead (512 touches) | 512 |
+| output epilogue | 436 |
+| **total** | **208,832** |
+
+![](traces/matvec_blocked_n_64_b_8.png)
 
 **Working-set size over time** (peak = 129).
 
-![](traces/matvec_blocked_n_64_b_4_liveset.png)
+![](traces/matvec_blocked_n_64_b_8_liveset.png)
 
 **Reuse distance per load** (max = 4,160).
 
-![](traces/matvec_blocked_n_64_b_4_reuse_distance.png)
+![](traces/matvec_blocked_n_64_b_8_reuse_distance.png)
 
-**Working-set size over a τ = 2,420-event window** (max = 1,008).
+**Working-set size over a τ = 100-event window** (max = 82).
 
-![](traces/matvec_blocked_n_64_b_4_wss.png)
+![](traces/matvec_blocked_n_64_b_8_wss.png)
 
 ---
 

@@ -11,7 +11,7 @@ naive_attn(N=64,d=2)	naive_attn_n_64_d_2	4164	4163	4	100	100
 flash_attn(N=64,d=2,Bk=8)	flash_attn_n_64_d_2_bk_8	398	384	4	100	100
 matvec_row(n=64)	matvec_row_n_64	128	4160	33	100	82
 matvec_col(n=64)	matvec_col_n_64	66	4160	49	100	80
-matvec_blocked(n=64,B=4)	matvec_blocked_n_64_b_4	129	4160	5	100	82
+matvec_blocked(n=64,B=8)	matvec_blocked_n_64_b_8	129	4160	9	100	82
 fft_iterative(N=256)	fft_iterative_n_256	257	256	3	100	100
 fft_recursive(N=256)	fft_recursive_n_256	257	256	3	100	100
 stencil_naive(32x32)	stencil_naive_32x32	930	1023	3	100	100

@@ -827,35 +827,58 @@ def manual_matvec_row(n: int) -> int:
     return a.cost
 
 
-def manual_matvec_blocked(n: int, B: int = 4) -> int:
-    """Blocked matvec. A and x_main on arg stack; B accumulators,
-    x_tile scratchpad, tmp and y on scratch. x_tile reuses an x-slice
-    across B rows — A's per-cell arg-read cost is unchanged from
-    matvec_row."""
+def manual_matvec_blocked(n: int, B: int = 8) -> int:
+    """Optimal Stationary-Accumulator 1D-Blocked matvec
+    (gemini/optimal-matvec.md). Sweeps A perfectly left-to-right
+    exactly once (arg-stack); holds one B-element x-block in a
+    tight L1 cache at addrs 3..B+2; uses a single scalar `s` as
+    stationary accumulator at addr 1. Inner loop footprint is
+    strictly addrs 1..B+2 — the mathematically minimal spatial
+    layout achievable under the semi-ring + polyhedron
+    restrictions. For n=64, B=8 this hits 208,832 — the strict
+    theoretical floor derived in gemini/optimal-matvec.md.
+
+      s    (addr 1)         — stationary accumulator
+      tmp  (addr 2)         — multiply intermediate
+      c_x  (addrs 3..B+2)   — current x-block cache
+      y    (addrs B+3..)    — main output / partial-sum array"""
     a = _alloc()
-    A = a.alloc_arg(n * n); x_main = a.alloc_arg(n)
-    s = [a.alloc(1) for _ in range(B)]
-    x_tile = a.alloc(B)
+    A = a.alloc_arg(n * n)
+    x = a.alloc_arg(n)
+
+    s = a.alloc(1)
     tmp = a.alloc(1)
+    c_x = a.alloc(B)
     y = a.alloc(n)
     a.set_output_range(y, y + n)
 
-    for i_out in range(0, n, B):
-        for j_out in range(0, n, B):
+    for j_blk in range(0, n, B):
+        # Load one B-element block of x into the L1 cache.
+        for j in range(B):
+            a.touch_arg(x + j_blk + j)
+            a.write(c_x + j)
+
+        for i in range(n):
+            # Carry the running sum for row i from the y array.
+            if j_blk != 0:
+                a.touch(y + i)
+                a.write(s)
+
+            # Inner loop physically bounded to addrs 1..B+2.
             for j in range(B):
-                a.touch_arg(x_main + j_out + j)
-                a.write(x_tile + j)
-            for i in range(B):
-                for j in range(B):
-                    a.touch_arg(A + (i_out + i) * n + (j_out + j))
-                    a.touch(x_tile + j)
-                    if j_out != 0 or j != 0:
-                        a.touch(s[i])
+                a.touch_arg(A + i * n + j_blk + j)
+                a.touch(c_x + j)
+                # First-ever MAC for this row: write s directly;
+                # subsequent MACs accumulate s += tmp.
+                if j_blk != 0 or j != 0:
+                    a.touch(s)
                     a.touch(tmp)
-                    a.write(s[i])
-        for i in range(B):
-            a.touch(s[i])
-            a.write(y + i_out + i)
+                a.write(s)
+
+            # Flush the running sum back into y[i].
+            a.touch(s)
+            a.write(y + i)
+
     a.read_output()
     return a.cost
 

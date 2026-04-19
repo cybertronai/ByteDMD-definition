@@ -198,33 +198,28 @@ def manual_matvec_col_dsl(n: int) -> int:
 # matvec_blocked — B×B tile with x-tile scratchpad reuse.
 # ---------------------------------------------------------------------------
 
-def manual_matvec_blocked_dsl(n: int, B: int = 4) -> int:
+def manual_matvec_blocked_dsl(n: int, B: int = 8) -> int:
+    """Stationary-Accumulator 1D-Blocked matvec (gemini/optimal-matvec.md)."""
     sch = Sched()
     A = sch.arg_buffer(n * n)
-    x_main = sch.arg_buffer(n)
-    s = [sch.scalar() for _ in range(B)]
-    x_tile = sch.buffer(B)
+    x = sch.arg_buffer(n)
+    s = sch.scalar()
     tmp = sch.scalar()
+    c_x = sch.buffer(B)
     y = sch.output_buffer(n)
 
-    for i_out in range(0, n, B):
-        for j_out in range(0, n, B):
-            # Copy the current x-slice into the tile.
+    for j_blk in range(0, n, B):
+        for j in range(B):
+            sch.assign(x[j_blk + j], c_x[j])
+        for i in range(n):
+            if j_blk != 0:
+                sch.assign(y[i], s)
             for j in range(B):
-                sch.assign(x_main[j_out + j], x_tile[j])
-            for i in range(B):
-                if j_out == 0:
-                    # First contribution: s[i] = A[i][j_out] * x_tile[0]
-                    sch.mul(A[(i_out + i) * n + (j_out + 0)], x_tile[0], s[i])
-                    for j in range(1, B):
-                        sch.mac(s[i], A[(i_out + i) * n + (j_out + j)],
-                                x_tile[j], tmp)
+                if j_blk == 0 and j == 0:
+                    sch.mul(A[i * n + j_blk + j], c_x[j], s)
                 else:
-                    for j in range(B):
-                        sch.mac(s[i], A[(i_out + i) * n + (j_out + j)],
-                                x_tile[j], tmp)
-        for i in range(B):
-            sch.assign(s[i], y[i_out + i])
+                    sch.mac(s, A[i * n + j_blk + j], c_x[j], tmp)
+            sch.assign(s, y[i])
     return sch.finalize()
 
 

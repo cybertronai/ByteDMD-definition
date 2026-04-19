@@ -184,8 +184,8 @@ def test_dsl_matches_matvec_col() -> None:
 
 
 def test_dsl_matches_matvec_blocked() -> None:
-    _within_tolerance(manual_matvec_blocked_dsl(64, B=4),
-                      man.manual_matvec_blocked(64, B=4))
+    _within_tolerance(manual_matvec_blocked_dsl(64, B=8),
+                      man.manual_matvec_blocked(64, B=8))
 
 
 def test_dsl_matches_rmm() -> None:
