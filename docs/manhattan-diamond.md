@@ -7,12 +7,12 @@ Bill Dally ([*On the Model of Computation*, CACM
 
 This is a simplified implementation of this model for a single processor, designed to price a single function call.
 
-docs/manhattan_function_figure.svg
+![Manhattan-Diamond layout](manhattan_diamond.svg)
 
 - Processor is in the center and the memory is arranged on a 2D grid around it.
-- Space is linearly indexed , with layout chosen to make it easy to compute Manhattan distance, ceiling(sqrt(idx)) gives the cost
-
-[TODO(claude): insert a figure like https://github.com/cybertronai/ByteDMD/blob/dev/docs/manhattan_figure.svg, but drop the example with memory access at 12, I basically want the same layout and colors as docs/manhattan_function_figure.svg, but I want to illustrate the memory access pattern
+- Space is linearly indexed, with layout chosen to make it easy to compute Manhattan distance: `ceil(sqrt(idx))` gives the cost.
+- Colour bands mark Manhattan-distance rings — red = 1, orange = 2, green = 3, blue = 4 — matching the colour strip in the address table.
+- Faint gray lines sketch the memory-access infrastructure: one vertical trunk along the spine plus one horizontal branch per row (widths matching the populated cell extent). Every read traverses some segment of the trunk plus one branch.
 
 - We only price reads. Since every write and instruction call involves a read, we absorb those costs into the read cost.
 

@@ -71,7 +71,8 @@ def render_frame(d: int = 8,
                  arg_d: int = 6,
                  n_short_scratch: int = 16,
                  n_short_arg: int = 16,
-                 table_size: int = 16) -> plt.Figure:
+                 table_size: int = 16,
+                 show_access: bool = True) -> plt.Figure:
     """Render the two-arena diamond.
 
     Args:
@@ -152,13 +153,14 @@ def render_frame(d: int = 8,
                  xytext=(14, 0), ha='left', va='center', fontsize=10,
                  fontweight='bold', color='red')
 
-    # --- Single wire path from the core to the highlighted scratch target ---
-    sx, sy = SCRATCH_PTS[d - 1]
-    ax1.plot([0, 0], [0, sy], color='red', lw=3, zorder=3)
-    ax1.plot([0, sx], [sy, sy], color='red', lw=3, zorder=3)
-    # Hollow circle at the target so the cell's ring colour shows through.
-    ax1.plot(sx, sy, marker='o', markerfacecolor='none',
-             markeredgecolor='red', markeredgewidth=3, ms=16, zorder=4)
+    # --- Optional wire path from the core to the highlighted scratch target ---
+    if show_access:
+        sx, sy = SCRATCH_PTS[d - 1]
+        ax1.plot([0, 0], [0, sy], color='red', lw=3, zorder=3)
+        ax1.plot([0, sx], [sy, sy], color='red', lw=3, zorder=3)
+        # Hollow circle at the target so the cell's ring colour shows through.
+        ax1.plot(sx, sy, marker='o', markerfacecolor='none',
+                 markeredgecolor='red', markeredgewidth=3, ms=16, zorder=4)
 
     # --- Axis dividing line (visual hint of the "arg | scratch" split) ---
     ax1.axhline(0, color='black', alpha=0.25, lw=1, zorder=0)
@@ -228,7 +230,7 @@ def render_frame(d: int = 8,
             wl = wire_lengths[row - 1]
             cell.set_facecolor(RING_COLORS[min(wl, MAX_RING) - 1])
             cell.set_edgecolor('white')
-        elif row == d:
+        elif show_access and row == d:
             cell.set_facecolor('#ffcccc')
             cell.set_text_props(weight='bold')
         else:
@@ -241,8 +243,18 @@ def render_frame(d: int = 8,
 # GENERATE OUTPUT
 # ==================================================
 if __name__ == "__main__":
-    fig = render_frame(d=8, arg_d=6)
+    # With a concrete access example highlighted (d=8 in scratch).
+    fig = render_frame(d=8, arg_d=6, show_access=True)
     fig.savefig('manhattan_function_figure.svg', bbox_inches='tight')
     fig.savefig('manhattan_function_figure.png', bbox_inches='tight', dpi=150)
     plt.close(fig)
     print("Saved manhattan_function_figure.svg and .png")
+
+    # Layout-only variant used in docs/manhattan-diamond.md — no red
+    # access path, no highlighted table row; just the two-arena
+    # ring-coloured diamond plus its H-tree infrastructure.
+    fig = render_frame(show_access=False)
+    fig.savefig('manhattan_diamond.svg', bbox_inches='tight')
+    fig.savefig('manhattan_diamond.png', bbox_inches='tight', dpi=150)
+    plt.close(fig)
+    print("Saved manhattan_diamond.svg and .png")
