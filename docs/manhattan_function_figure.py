@@ -110,34 +110,32 @@ def render_frame(d: int = 8,
             )
 
     # --- Hypothetical memory-access wires (H-tree infrastructure) ---
-    # Spine and branches colour-coded by Manhattan-distance ring:
-    # each spine segment of length 1 from y=k-1 to y=k picks up ring-k
-    # colour, and each horizontal branch at row y=±k uses the same.
-    # Branch width matches the populated cell extent in that row.
-    LW = 3.0
+    # One central vertical spine + a horizontal branch per row, spanning
+    # exactly the populated cells on that row. Drawn in faint gray so
+    # the ring colours of the cells and the red access path both pop.
+    LW = 2.0
+    WIRE_COLOR = '#bdbdbd'
 
     def _branch_extent(pts, n_short, row_y):
         xs = [x for x, y in pts[:n_short] if y == row_y]
         return (min(xs), max(xs)) if xs else None
 
+    # Single vertical spine spanning the full arena height.
+    arg_y_max = int(ARG_PTS[:n_short_arg, 1].max())
+    scr_y_min = int(SCRATCH_PTS[:n_short_scratch, 1].min())
+    ax1.plot([0, 0], [scr_y_min, arg_y_max], color=WIRE_COLOR,
+             lw=LW, zorder=0.3, solid_capstyle='round')
+
+    # Horizontal branches on every populated row of each arena.
     for k in range(1, MAX_RING + 1):
-        color = RING_COLORS[k - 1]
-        # Spine segment, arg side  (y = k-1 -> y = k)
-        ax1.plot([0, 0], [k - 1, k], color=color, lw=LW, zorder=0.5,
-                 solid_capstyle='round')
-        # Spine segment, scratch side (y = -(k-1) -> y = -k)
-        ax1.plot([0, 0], [-(k - 1), -k], color=color, lw=LW, zorder=0.5,
-                 solid_capstyle='round')
-        # Horizontal branch on arg row y = k
         ext = _branch_extent(ARG_PTS, n_short_arg, k)
         if ext is not None:
-            ax1.plot([ext[0], ext[1]], [k, k], color=color, lw=LW,
-                     zorder=0.5, solid_capstyle='round')
-        # Horizontal branch on scratch row y = -k
+            ax1.plot([ext[0], ext[1]], [k, k], color=WIRE_COLOR, lw=LW,
+                     zorder=0.3, solid_capstyle='round')
         ext = _branch_extent(SCRATCH_PTS, n_short_scratch, -k)
         if ext is not None:
-            ax1.plot([ext[0], ext[1]], [-k, -k], color=color, lw=LW,
-                     zorder=0.5, solid_capstyle='round')
+            ax1.plot([ext[0], ext[1]], [-k, -k], color=WIRE_COLOR, lw=LW,
+                     zorder=0.3, solid_capstyle='round')
 
     # Arg arena (above) — label numbers prefixed with minus sign.
     draw_arena(ARG_PTS, n_short_arg, arg_d,
