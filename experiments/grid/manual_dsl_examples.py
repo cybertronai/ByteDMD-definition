@@ -763,6 +763,366 @@ def manual_spmv_csr_random_dsl(n: int, nnz_per_row: int = 7,
     return _manual_spmv_dsl(n, row_ptr, col_ind)
 
 
+# ===========================================================================
+# Schur-family ports (lazy_matrix). All share the pattern:
+#   A = sch.lazy_matrix(n*n)   # arg base reserved
+#   ... allocate scratchpads ...
+#   sch.lazy_output_buffer(A)  # scratch base (highest addresses), is_output
+# Each A[i*n+j] reads from arg until first written, then from scratch.
+# ===========================================================================
+
+def manual_lu_no_pivot_dsl(n: int) -> int:
+    sch = Sched()
+    A = sch.lazy_matrix(n * n)
+    tmp = sch.scalar()
+    c_A = sch.scalar()
+    c_C = sch.buffer(n)
+    sch.lazy_output_buffer(A)
+
+    for k in range(n):
+        # Pivot: cache A[k][k] into c_A.
+        sch.assign(A[k * n + k], c_A)
+        # Divide column k: A[i][k] /= c_A
+        for i in range(k + 1, n):
+            sch.read(A[i * n + k]); sch.read(c_A); sch.write(A[i * n + k])
+        # Row cache: A[k][k+1..n-1] -> c_C
+        for j in range(k + 1, n):
+            sch.assign(A[k * n + j], c_C[j - k - 1])
+        # Schur update.
+        for i in range(k + 1, n):
+            sch.assign(A[i * n + k], c_A)
+            for j in range(k + 1, n):
+                sch.mul(c_A, c_C[j - k - 1], tmp)
+                sch.sub(A[i * n + j], tmp, A[i * n + j])
+    return sch.finalize()
+
+
+def manual_cholesky_dsl(n: int) -> int:
+    sch = Sched()
+    A = sch.lazy_matrix(n * n)
+    tmp = sch.scalar()
+    c_A = sch.scalar()
+    c_C = sch.buffer(n)
+    sch.lazy_output_buffer(A)
+
+    for k in range(n):
+        # Pivot sqrt: A[k][k] = sqrt(A[k][k])  (1 read + 1 write).
+        sch.read(A[k * n + k]); sch.write(A[k * n + k])
+        sch.assign(A[k * n + k], c_A)
+        # Divide column k.
+        for i in range(k + 1, n):
+            sch.read(A[i * n + k]); sch.read(c_A); sch.write(A[i * n + k])
+        # Cache column k below diagonal.
+        for i in range(k + 1, n):
+            sch.assign(A[i * n + k], c_C[i - k - 1])
+        # Schur update (lower triangle).
+        for j in range(k + 1, n):
+            sch.assign(c_C[j - k - 1], c_A)
+            for i in range(j, n):
+                sch.mul(c_C[i - k - 1], c_A, tmp)
+                sch.sub(A[i * n + j], tmp, A[i * n + j])
+    return sch.finalize()
+
+
+def manual_floyd_warshall_naive_dsl(V: int) -> int:
+    sch = Sched()
+    D = sch.lazy_matrix(V * V)
+    tmp = sch.scalar()
+    c_A = sch.scalar()
+    c_C = sch.buffer(V)
+    sch.lazy_output_buffer(D)
+
+    for k in range(V):
+        for j in range(V):
+            sch.assign(D[k * V + j], c_C[j])
+        for i in range(V):
+            sch.assign(D[i * V + k], c_A)
+            for j in range(V):
+                # Matches hand-rolled: 4 reads + 1 write (D, c_A, c_C, tmp).
+                sch.read(D[i * V + j])
+                sch.read(c_A)
+                sch.read(c_C[j])
+                sch.read(tmp)
+                sch.write(D[i * V + j])
+    return sch.finalize()
+
+
+def manual_lu_partial_pivot_dsl(n: int) -> int:
+    sch = Sched()
+    A = sch.lazy_matrix(n * n)
+    tmp = sch.scalar()
+    c_A = sch.scalar()
+    c_C = sch.buffer(n)
+    sch.lazy_output_buffer(A)
+
+    for k in range(n):
+        # Pivot selection — scan column k.
+        for i in range(k, n):
+            sch.read(A[i * n + k])
+            sch.read(A[k * n + k])
+        # Row swap: rows k and p across cols [k, n).
+        p = k + 1 if k + 1 < n else k
+        for j in range(k, n):
+            sch.read(A[k * n + j]); sch.read(A[p * n + j])
+            sch.write(A[k * n + j]); sch.write(A[p * n + j])
+        sch.assign(A[k * n + k], c_A)
+        for i in range(k + 1, n):
+            sch.read(A[i * n + k]); sch.read(c_A); sch.write(A[i * n + k])
+        for j in range(k + 1, n):
+            sch.assign(A[k * n + j], c_C[j - k - 1])
+        for i in range(k + 1, n):
+            sch.assign(A[i * n + k], c_A)
+            for j in range(k + 1, n):
+                # Hand-rolled: 3 reads + 1 write (no tmp).
+                sch.read(A[i * n + j])
+                sch.read(c_A)
+                sch.read(c_C[j - k - 1])
+                sch.write(A[i * n + j])
+    return sch.finalize()
+
+
+def manual_householder_qr_dsl(m: int, n: int) -> int:
+    sch = Sched()
+    A_in = sch.arg_buffer(m * n)
+    tmp = sch.scalar()
+    c_A = sch.scalar()
+    c_V = sch.buffer(m)
+    A = sch.output_buffer(m * n)
+    for i in range(m * n):
+        sch.assign(A_in[i], A[i])
+
+    for k in range(min(m, n)):
+        # Reflector norm: reads column k, writes it back.
+        sch.read(A[k * n + k])
+        for i in range(k + 1, m):
+            sch.read(A[i * n + k])
+        sch.write(A[k * n + k])
+        for i in range(k + 1, m):
+            sch.write(A[i * n + k])
+        # Cache reflector column into c_V.
+        sch.assign(A[k * n + k], c_V[0])
+        for i in range(k + 1, m):
+            sch.assign(A[i * n + k], c_V[i - k])
+        # Apply reflector to each trailing column j.
+        for j in range(k + 1, n):
+            # Dot product: c_A = Σ c_V[.] * A[.][j]
+            sch.read(c_V[0]); sch.read(A[k * n + j]); sch.write(c_A)
+            for i in range(k + 1, m):
+                sch.read(c_V[i - k]); sch.read(A[i * n + j])
+                sch.read(c_A); sch.write(c_A)
+            # Rank-1 update.
+            sch.read(c_A); sch.read(c_V[0]); sch.read(A[k * n + j])
+            sch.write(A[k * n + j])
+            for i in range(k + 1, m):
+                sch.read(c_A); sch.read(c_V[i - k])
+                sch.read(A[i * n + j]); sch.write(A[i * n + j])
+    return sch.finalize()
+
+
+def manual_blocked_lu_dsl(n: int, NB: int = 8) -> int:
+    sch = Sched()
+    A = sch.lazy_matrix(n * n)
+    tmp = sch.scalar()
+    c_A = sch.scalar()
+    c_C = sch.buffer(NB)
+    c_B = sch.buffer(NB * NB)
+    sch.lazy_output_buffer(A)
+
+    for kb in range(0, n, NB):
+        ke = min(kb + NB, n)
+        sz = ke - kb
+
+        # (a) Diagonal block: load, factor locally in c_B, flush.
+        for i in range(kb, ke):
+            for j in range(kb, ke):
+                sch.assign(A[i * n + j], c_B[(i - kb) * NB + (j - kb)])
+        for k in range(sz):
+            pivot_idx = k * NB + k
+            sch.assign(c_B[pivot_idx], c_A)
+            for i in range(k + 1, sz):
+                sch.read(c_B[i * NB + k]); sch.read(c_A)
+                sch.write(c_B[i * NB + k])
+            for i in range(k + 1, sz):
+                sch.assign(c_B[i * NB + k], c_A)
+                for j in range(k + 1, sz):
+                    # 4 reads + 1 write (standard MAC).
+                    sch.read(c_B[i * NB + j])
+                    sch.read(c_A)
+                    sch.read(c_B[k * NB + j])
+                    sch.write(c_B[i * NB + j])
+        for i in range(kb, ke):
+            for j in range(kb, ke):
+                sch.assign(c_B[(i - kb) * NB + (j - kb)], A[i * n + j])
+
+        # (b) Panel update A[ke:n, kb:ke] via c_C row.
+        for ib in range(ke, n, NB):
+            ie = min(ib + NB, n)
+            for i in range(ib, ie):
+                for j in range(kb, ke):
+                    sch.assign(A[i * n + j], c_C[j - kb])
+                for k in range(sz):
+                    sch.read(c_C[k]); sch.read(c_B[k * NB + k])
+                    sch.write(c_C[k])
+                    sch.assign(c_C[k], c_A)
+                    for j in range(k + 1, sz):
+                        sch.read(c_C[j])
+                        sch.read(c_A)
+                        sch.read(c_B[k * NB + j])
+                        sch.write(c_C[j])
+                for j in range(kb, ke):
+                    sch.read(c_C[j - kb])
+                    sch.write(A[i * n + j])
+
+        # (c) Row-strip update A[kb:ke, ke:n] via c_B block.
+        for jb in range(ke, n, NB):
+            je = min(jb + NB, n)
+            sz_j = je - jb
+            for k in range(kb, ke):
+                for j in range(jb, je):
+                    sch.assign(A[k * n + j], c_B[(k - kb) * NB + (j - jb)])
+            for k in range(sz):
+                for i in range(k + 1, sz):
+                    sch.assign(A[(kb + i) * n + (kb + k)], c_A)
+                    for j in range(sz_j):
+                        sch.read(c_B[i * NB + j])
+                        sch.read(c_A)
+                        sch.read(c_B[k * NB + j])
+                        sch.write(c_B[i * NB + j])
+            for k in range(kb, ke):
+                for j in range(jb, je):
+                    sch.read(c_B[(k - kb) * NB + (j - jb)])
+                    sch.write(A[k * n + j])
+
+        # (d) Trailing GEMM: A[ke:n, jb:je] for each (ib, jb) pair.
+        for jb in range(ke, n, NB):
+            je = min(jb + NB, n)
+            sz_j = je - jb
+            # Load row-strip block into c_B.
+            for k in range(kb, ke):
+                for j in range(jb, je):
+                    sch.assign(A[k * n + j], c_B[(k - kb) * NB + (j - jb)])
+            for ib in range(ke, n, NB):
+                ie = min(ib + NB, n)
+                for i in range(ib, ie):
+                    for j in range(jb, je):
+                        sch.assign(A[i * n + j], c_C[j - jb])
+                    for k in range(sz):
+                        sch.assign(A[i * n + (kb + k)], c_A)
+                        for j in range(sz_j):
+                            sch.read(c_C[j])
+                            sch.read(c_A)
+                            sch.read(c_B[k * NB + j])
+                            sch.write(c_C[j])
+                    for j in range(jb, je):
+                        sch.read(c_C[j - jb])
+                        sch.write(A[i * n + j])
+    return sch.finalize()
+
+
+def manual_floyd_warshall_recursive_dsl(V: int) -> int:
+    SZ = 2
+
+    # Dry run to compute per-block miss counts (matches hand-rolled).
+    miss_counts: dict = {}
+    sim_tag_T = [None]
+    sim_tag_D = [None]
+
+    def _sim_rec(r0, c0, sz):
+        if sz <= SZ:
+            if sim_tag_T[0] != (r0, c0):
+                miss_counts[(r0, c0)] = miss_counts.get((r0, c0), 0) + 1
+                sim_tag_T[0] = (r0, c0)
+            if r0 != c0 and sim_tag_D[0] != r0:
+                miss_counts[(r0, r0)] = miss_counts.get((r0, r0), 0) + 1
+                sim_tag_D[0] = r0
+            return
+        h = sz // 2
+        for dr, dc in [(0, 0), (0, h), (h, 0), (h, h),
+                       (h, h), (h, 0), (0, h), (0, 0)]:
+            _sim_rec(r0 + dr, c0 + dc, h)
+
+    _sim_rec(0, 0, V)
+    for i in range(0, V, SZ):
+        for j in range(0, V, SZ):
+            miss_counts.setdefault((i, j), 0)
+    sorted_blocks = sorted(miss_counts.keys(), key=lambda x: -miss_counts[x])
+    block_mapping = {cell: i for i, cell in enumerate(sorted_blocks)}
+
+    def D_idx(r, c):
+        b = block_mapping[((r // SZ) * SZ, (c // SZ) * SZ)]
+        return b * (SZ * SZ) + (r % SZ) * SZ + (c % SZ)
+
+    sch = Sched()
+    M = sch.arg_buffer(V * V)
+    tmp = sch.scalar()
+    cache_T = sch.buffer(SZ * SZ)
+    cache_D = sch.buffer(SZ * SZ)
+    D = sch.output_buffer(V * V)
+
+    for i in range(V):
+        for j in range(V):
+            sch.assign(M[i * V + j], D[D_idx(i, j)])
+
+    tag_T = [None]
+    tag_D = [None]
+    dirty_T = [False]
+
+    def load_T(r0, c0):
+        if tag_T[0] == (r0, c0):
+            return
+        if tag_T[0] is not None and dirty_T[0]:
+            pr, pc = tag_T[0]
+            for i in range(SZ):
+                for j in range(SZ):
+                    sch.assign(cache_T[i * SZ + j], D[D_idx(pr + i, pc + j)])
+        tag_T[0] = (r0, c0)
+        dirty_T[0] = False
+        for i in range(SZ):
+            for j in range(SZ):
+                sch.assign(D[D_idx(r0 + i, c0 + j)], cache_T[i * SZ + j])
+
+    def load_D(r0):
+        if tag_D[0] == r0:
+            return
+        tag_D[0] = r0
+        for i in range(SZ):
+            for j in range(SZ):
+                sch.assign(D[D_idx(r0 + i, r0 + j)], cache_D[i * SZ + j])
+
+    def do_block(r0, c0):
+        load_T(r0, c0)
+        if r0 != c0:
+            load_D(r0)
+        for k in range(SZ):
+            for i in range(SZ):
+                for j in range(SZ):
+                    sch.read(cache_T[i * SZ + j])
+                    if r0 == c0:
+                        sch.read(cache_T[i * SZ + k])
+                    else:
+                        sch.read(cache_D[i * SZ + k])
+                    sch.read(cache_T[k * SZ + j])
+                    sch.write(cache_T[i * SZ + j])
+        dirty_T[0] = True
+
+    def rec_main(r0, c0, sz):
+        if sz <= SZ:
+            do_block(r0, c0); return
+        h = sz // 2
+        for dr, dc in [(0, 0), (0, h), (h, 0), (h, h),
+                       (h, h), (h, 0), (0, h), (0, 0)]:
+            rec_main(r0 + dr, c0 + dc, h)
+
+    rec_main(0, 0, V)
+
+    if tag_T[0] is not None and dirty_T[0]:
+        pr, pc = tag_T[0]
+        for i in range(SZ):
+            for j in range(SZ):
+                sch.assign(cache_T[i * SZ + j], D[D_idx(pr + i, pc + j)])
+    return sch.finalize()
+
+
 # ---------------------------------------------------------------------------
 # fft_conv — FFT-based convolution: forward FFT on X and Y, pointwise
 # multiply, inverse FFT (here just another forward, cost parity only).

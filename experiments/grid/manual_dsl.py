@@ -76,17 +76,26 @@ class Cell:
 
     `origin="scratch"` is a normal scratch cell — every read charges
     the scratch-stack cost.
+
+    `origin="lazy"` is a dual-address cell: an arg cell backed by a
+    scratch slot (both addresses pre-allocated). Reads pay the arg
+    cost UNTIL the cell has been written; after that, they pay the
+    scratch cost. This matches the Schur-family pattern where the
+    first iteration lazily loads A_in and subsequent iterations read
+    the in-place-updated scratch copy.
     """
 
-    __slots__ = ("sched", "addr", "origin", "arg_addr", "_promoted_addr")
+    __slots__ = ("sched", "addr", "origin", "arg_addr",
+                 "_promoted_addr", "_loaded")
 
     def __init__(self, sched: "Sched", addr: int, origin: str,
                  arg_addr: Optional[int] = None) -> None:
         self.sched = sched
-        self.addr = addr                  # scratch address if origin="scratch"
-        self.origin = origin              # "arg" | "scratch"
-        self.arg_addr = arg_addr          # arg addr if origin="arg"
+        self.addr = addr                  # scratch address if origin="scratch"/"lazy"
+        self.origin = origin              # "arg" | "scratch" | "lazy"
+        self.arg_addr = arg_addr          # arg addr if origin="arg"/"lazy"
         self._promoted_addr: Optional[int] = None
+        self._loaded = False              # lazy: True after first write
 
     # ----- pricing hooks — called by Sched, not by user code directly.
 
@@ -94,23 +103,27 @@ class Cell:
         a = self.sched._a
         if self.origin == "scratch":
             a.touch(self.addr)
-        else:
-            # If the cell has been explicitly promoted into a scratch
-            # slot (via Sched.assign(arg, scratch) or Sched.promote()),
-            # read from there; otherwise pay the arg-stack cost.
-            # No auto-promotion: many algorithms read each arg cell
-            # exactly once and auto-promotion would waste scratch slots.
+        elif self.origin == "lazy":
+            if self._loaded:
+                a.touch(self.addr)
+            else:
+                a.touch_arg(self.arg_addr)
+        else:  # "arg"
             if self._promoted_addr is not None:
                 a.touch(self._promoted_addr)
             else:
                 a.touch_arg(self.arg_addr)
 
     def _write(self) -> None:
-        """Writes are free in ByteDMD. Scratch cells write directly;
-        arg cells CANNOT be written (the arg stack is read-only)."""
+        """Writes are free in ByteDMD. Scratch / lazy cells write
+        directly; arg cells CANNOT be written (the arg stack is
+        read-only)."""
         a = self.sched._a
         if self.origin == "scratch":
             a.write(self.addr)
+        elif self.origin == "lazy":
+            a.write(self.addr)
+            self._loaded = True
         else:
             raise ValueError(
                 f"Cannot write to arg cell at arg_addr={self.arg_addr}. "
@@ -120,7 +133,7 @@ class Cell:
 
     @property
     def effective_addr(self) -> int:
-        if self.origin == "scratch":
+        if self.origin in ("scratch", "lazy"):
             return self.addr
         return self._promoted_addr if self._promoted_addr is not None else -1
 
@@ -154,6 +167,42 @@ class Sched:
         base = self._a.alloc_arg(size)
         return [Cell(self, -1, origin="arg", arg_addr=base + i)
                 for i in range(size)]
+
+    def lazy_matrix(self, size: int) -> List[Cell]:
+        """Allocate arg cells whose scratch addresses will be set
+        later via `bind_lazy_scratch(cells)` (or `lazy_output_buffer`).
+
+        Semantics for each returned Cell:
+          - Before any write: reads pay the arg-stack cost.
+          - After first write: both reads and writes pay the
+            scratch-stack cost at `addr`.
+
+        Call this BEFORE allocating other scratch slots so the arg
+        base sits at the lowest arg addresses. Call
+        `bind_lazy_scratch(cells)` AFTER all other scratch allocations
+        so the lazy scratch range sits at the highest scratch
+        addresses (matching the hand-rolled `A_in=alloc_arg; ...; A=
+        alloc(size)` layout)."""
+        base = self._a.alloc_arg(size)
+        return [Cell(self, -1, origin="lazy", arg_addr=base + i)
+                for i in range(size)]
+
+    def bind_lazy_scratch(self, cells: List[Cell]) -> int:
+        """Allocate the scratch range for a `lazy_matrix` now.
+        Returns the scratch base."""
+        size = len(cells)
+        base = self._a.alloc(size)
+        for i, c in enumerate(cells):
+            assert c.origin == "lazy", "bind_lazy_scratch expects lazy cells"
+            c.addr = base + i
+        return base
+
+    def lazy_output_buffer(self, cells: List[Cell]) -> List[Cell]:
+        """`bind_lazy_scratch` + mark the scratch range as output."""
+        base = self.bind_lazy_scratch(cells)
+        self._a.set_output_range(base, base + len(cells))
+        self._output_cells = cells
+        return cells
 
     def output_buffer(self, size: int) -> List[Cell]:
         """Allocate a scratch buffer designated as algorithm output.

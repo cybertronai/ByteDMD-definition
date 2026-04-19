@@ -48,6 +48,13 @@ from manual_dsl_examples import (
     manual_regular_convolution_dsl,
     manual_fused_strassen_dsl,
     manual_stencil_recursive_dsl,
+    manual_lu_no_pivot_dsl,
+    manual_cholesky_dsl,
+    manual_floyd_warshall_naive_dsl,
+    manual_lu_partial_pivot_dsl,
+    manual_householder_qr_dsl,
+    manual_blocked_lu_dsl,
+    manual_floyd_warshall_recursive_dsl,
 )
 
 
@@ -261,6 +268,41 @@ def test_dsl_matches_regular_convolution() -> None:
 def test_dsl_matches_stencil_recursive() -> None:
     _within_tolerance(manual_stencil_recursive_dsl(32, leaf=8),
                       man.manual_stencil_recursive(32, leaf=8))
+
+
+def test_dsl_matches_lu_no_pivot() -> None:
+    _within_tolerance(manual_lu_no_pivot_dsl(32),
+                      man.manual_lu_no_pivot(32))
+
+
+def test_dsl_matches_cholesky() -> None:
+    _within_tolerance(manual_cholesky_dsl(32),
+                      man.manual_cholesky(32))
+
+
+def test_dsl_matches_floyd_warshall_naive() -> None:
+    _within_tolerance(manual_floyd_warshall_naive_dsl(32),
+                      man.manual_floyd_warshall_naive(32))
+
+
+def test_dsl_matches_lu_partial_pivot() -> None:
+    _within_tolerance(manual_lu_partial_pivot_dsl(32),
+                      man.manual_lu_partial_pivot(32))
+
+
+def test_dsl_matches_householder_qr() -> None:
+    _within_tolerance(manual_householder_qr_dsl(32, 16),
+                      man.manual_householder_qr(32, 16))
+
+
+def test_dsl_matches_blocked_lu() -> None:
+    _within_tolerance(manual_blocked_lu_dsl(32, NB=8),
+                      man.manual_blocked_lu(32, NB=8))
+
+
+def test_dsl_matches_floyd_warshall_recursive() -> None:
+    _within_tolerance(manual_floyd_warshall_recursive_dsl(32),
+                      man.manual_floyd_warshall_recursive(32))
 
 
 def test_dsl_matches_fused_strassen() -> None:
