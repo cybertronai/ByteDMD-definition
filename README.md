@@ -20,23 +20,18 @@ assert myfunc(1, 2, 3, 4, 5) == 19
 assert bytedmd(myfunc, (1, 2, 3, 4, 5)) == 15
 ```
 
-Stack-lifecycle visualization: https://yaroslavvb.github.io/ByteDMD-vis/myfunc_stack.html
-
 ## Motivation
 
 
-Modern architectures spend more energy moving data than doing arithmetic, making FLOP counts an outdated cost metric. Bill Dally ([ACM Opinion](https://cacm.acm.org/opinion/on-the-model-of-computation-point/)) proposed penalizing data movement based on 2D spatial distance to the processor. To avoid manual spatial mapping, Ding and Smith ([Beyond Time Complexity, 2022](https://arxiv.org/abs/2203.02536)) automated this via Data Movement Distance (DMD): a rule treating memory as an LRU stack where reading a byte at depth $d$ costs $\sqrt{d}$, modeling a cache laid out in 2D.
+Modern architectures spend more energy moving data than doing arithmetic, making FLOP counts an outdated cost metric. Bill Dally ([ACM Opinion](https://cacm.acm.org/opinion/on-the-model-of-computation-point/)) proposed penalizing data movement based on Manhattan distance to the processor. To avoid manual spatial mapping, Ding and Smith ([Beyond Time Complexity, 2022](https://arxiv.org/abs/2203.02536)) measure complexity using Reuse Distance, which considers distances between successive reuses of variables.
 
-We introduce two changes to DMD metric introduces by Ding/Smith:
+We introduce two modifications to DMD to make it compatible with Bill Dally's Manhattan distance model [docs/manhattan-diamond.md](docs/manhattan-diamond.md) - round up square roots to the nearest integer, and only consider "live variables" when computing reuse distance.  
 
-1. Round up to the nearest integer
-This corresponds to routing wire length on a 2D grid with LRU stack arranged in the following order.
+This makes each term in the computation of DMD correspond to the wire length of fetching corresponding byte arranged in 2D in the following order:
 
 ![ByteDMD](docs/manhattan_figure.svg)
 
-2. Only "live" bytes contribute to reuse distance. This gives a closer correspondence between this metric and the cost of an optimal allocator on a 2D grid through bounds (todo(y): add bounds)
-
-Visualization: https://yaroslavvb.github.io/ByteDMD-vis/dotproduct_stack.html
+Only counting live bytes, makes this model equivalent to a computation model which puts newly fetched values on the stack, and deletes any dead variables. Visualizing computation of `myfunc` above -- https://yaroslavvb.github.io/ByteDMD-vis/myfunc_stack.html
 
 
 ## Computation Model
