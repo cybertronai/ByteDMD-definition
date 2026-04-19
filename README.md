@@ -18,7 +18,7 @@ assert myfunc(1, 2, 3, 4, 5) == 19
 assert bytedmd(myfunc, (1, 2, 3, 4, 5)) == 15
 ```
 
-Stack-lifecycle visualization: https://yaroslavvb.github.io/ByteDMD-vis/myfunc_stack.html
+Stack-lifecycle visualization: https://cybertronai.github.io/ByteDMD/myfunc_stack.html
 
 ## Motivation
 
