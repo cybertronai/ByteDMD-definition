@@ -201,8 +201,15 @@ Median depth is 25, max is 512.
 `(bi, bj, bk)` tiles of size T×T, compute each inner tile with the triple
 loop. Same arithmetic as naive but in block-major order for locality.
 
+> *Why does the manual score here beat* `space_dmd` *outright?* See
+> the [audit note in gemini/tiled-matmul-optimization.md](../../gemini/tiled-matmul-optimization.md)
+> — it's not an accounting cheat; the manual schedule implements a
+> fundamentally different register-blocked outer product (B-row
+> stationary, `blocks=2`) that the trace-based heuristics score
+> against the naive 2D-tiling Python code.
+
 **Manual placement.** Register-blocked outer product with a B-row
-stationary schedule (gemini/optimized-tiled-matmul.md):
+stationary schedule ([gemini/optimized-tiled-matmul.md](../../gemini/optimized-tiled-matmul.md)):
   `c_A` (addr 1) — scalar register for the current A element;
   `c_B` (addrs 2..T+1) — L1 vector holding the current row of B;
   `sC` (addrs T+2..T+1+blocks·T²) — 2D accumulator for TWO vertical
