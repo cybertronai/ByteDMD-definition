@@ -556,39 +556,33 @@ def manual_regular_convolution(H: int, W: int, K: int, Cin: int, Cout: int) -> i
     out_h = H - K + 1
     out_w = W - K + 1
 
-    # Low-scratch layout: accumulator, then K-row rolling img buffer.
-    s = a.alloc(1)
+    # Low-scratch layout: tmp, accumulator, then K-row rolling img buffer.
+    tmp = a.alloc(1); s = a.alloc(1)
     row_stride = W * Cin
-    buf = a.alloc(K * row_stride)   # buf[r % K] starts at buf + (r % K)*row_stride
+    buf = a.alloc(K * row_stride)
     O = a.alloc(out_h * out_w * Cout)
     a.set_output_range(O, O + out_h * out_w * Cout)
 
     def load_row(r: int) -> None:
-        """Copy img row `r` from the arg stack into scratch slot r % K."""
         slot = buf + (r % K) * row_stride
         base_arg = img + r * row_stride
         for x in range(row_stride):
             a.touch_arg(base_arg + x)
             a.write(slot + x)
 
-    # Prime the buffer with the first K rows.
     for r in range(K):
         load_row(r)
 
     for i in range(out_h):
-        # Ensure rows i..i+K-1 are in the buffer. Row i..i+K-2 are
-        # already there from the previous iteration (or from priming);
-        # we only need to load the new frontier row i+K-1. For i == 0
-        # it is already loaded by the priming loop above.
         if i > 0:
             load_row(i + K - 1)
 
-        # Per-row precomputed slot bases for the K cached rows.
         slot_base = [buf + ((i + ki) % K) * row_stride for ki in range(K)]
 
         for j in range(out_w):
             for co in range(Cout):
-                a.touch(s)
+                # MAC with priced intermediates per inner op.
+                first = True
                 for ki in range(K):
                     sb = slot_base[ki]
                     for kj in range(K):
@@ -597,7 +591,13 @@ def manual_regular_convolution(H: int, W: int, K: int, Cin: int, Cout: int) -> i
                         for ci in range(Cin):
                             a.touch(sb + col_off + ci)
                             a.touch_arg(wk_base + ci * Cout)
-                a.write(O + (i * out_w + j) * Cout + co)
+                            a.write(tmp)
+                            if first:
+                                a.touch(tmp); a.write(s)
+                                first = False
+                            else:
+                                a.touch(s); a.touch(tmp); a.write(s)
+                a.touch(s); a.write(O + (i * out_w + j) * Cout + co)
     a.read_output()
     return a.cost
 # ===========================================================================

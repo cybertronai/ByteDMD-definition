@@ -549,9 +549,11 @@ def matmul_strassen(A, B):
 def manual_fused_strassen(n: int, T: int = 4) -> int:
     """Zero-Allocation Fused Strassen (ZAFS): A, B on arg stack; fast
     scratchpads + output C on scratch. Sub-additions are fused into the
-    L1 tile loads. fast_C read once per (i,j) outside k-loop."""
+    L1 tile loads. Inner MAC correctly prices intermediate multiplication
+    products and per-k accumulator reads (gemini/strassen-cheating-macc.md)."""
     a = _alloc()
     A = a.alloc_arg(n * n); B = a.alloc_arg(n * n)
+    fast_tmp = a.alloc(1)
     fast_A = a.alloc(T * T); fast_B = a.alloc(T * T); fast_C = a.alloc(T * T)
     C = a.alloc(n * n)
     a.set_output_range(C, C + n * n)
@@ -569,18 +571,24 @@ def manual_fused_strassen(n: int, T: int = 4) -> int:
                 for _sgn, rb, cb in ops_B:
                     a.touch_arg(B + (rb + k_off + i) * n + cb + c + j)
                 a.write(fast_B + i * T + j)
-        # 3. Bulk read of fast_C (accumulator init)
-        for i in range(T * T):
-            a.touch(fast_C + i)
-        # 4. Tile MAC
+        # 3. Tile MAC with priced intermediates
         for i in range(T):
             for j in range(T):
-                a.touch(fast_C + i * T + j)
                 for k in range(T):
+                    # multiply: read A, B → write fast_tmp (free)
                     a.touch(fast_A + i * T + k)
                     a.touch(fast_B + k * T + j)
-                a.write(fast_C + i * T + j)
-        # 5. Fan-out fast_C -> multiple C targets with signs
+                    a.write(fast_tmp)
+                    if k == 0 and k_off == 0:
+                        # first-iter: no prior accumulator; assign sC = tmp
+                        a.touch(fast_tmp)
+                        a.write(fast_C + i * T + j)
+                    else:
+                        # accumulate: read tmp + sC → write sC
+                        a.touch(fast_C + i * T + j)
+                        a.touch(fast_tmp)
+                        a.write(fast_C + i * T + j)
+        # 4. Fan-out fast_C -> multiple C targets with signs
         for _sgn, rb, cb, is_first in ops_C:
             for i in range(T):
                 for j in range(T):
@@ -607,8 +615,6 @@ def manual_fused_strassen(n: int, T: int = 4) -> int:
             compute_fused_tile(A_ops, B_ops, C_ops_accum, r, c, k_off=T)
     a.read_output()
     return a.cost
-
-
 # ===========================================================================
 # Driver — run under this script's specific algorithm.
 # ===========================================================================

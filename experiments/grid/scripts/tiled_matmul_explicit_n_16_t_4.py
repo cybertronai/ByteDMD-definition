@@ -533,51 +533,73 @@ def matmul_tiled_explicit(A, B, tile=4):
 # ===========================================================================
 
 def manual_tiled_matmul(n: int, T: int | None = None) -> int:
-    """One-level blocked matmul. A, B on arg stack (read once per tile-load
-    into scratch sA, sB). sA, sB, sC and output C on scratch."""
+    """Optimal register-blocked, B-row stationary outer product
+    (gemini/optimized-tiled-matmul.md). Loads a row of B into an L1
+    vector and a single element of A into a scalar register, then
+    updates two 4×4 blocks of C simultaneously to maximize the reuse
+    of the fetched B row. Bypasses redundant 2D double-buffering and
+    pulls the heavily accessed accumulation array down to physical
+    addresses 6..37.
+
+      c_A (addr 1)       — scalar register for current A element
+      c_B (addr 2..T+1)  — L1 vector holding current B row
+      sC  (addr T+2..)   — 2D L1 scratchpad accumulating 2 vertical
+                           blocks of C simultaneously (blocks*T*T cells)
+      C   (just above sC) — output matrix
+    """
     if T is None:
         T = max(1, int(round(n ** 0.5)))
     a = _alloc()
-    A = a.alloc_arg(n * n); B = a.alloc_arg(n * n)
-    sA = a.alloc(T * T); sB = a.alloc(T * T); sC = a.alloc(T * T)
+    A = a.alloc_arg(n * n)
+    B = a.alloc_arg(n * n)
+
+    tmp = a.alloc(1)
+    c_A = a.alloc(1)
+    c_B = a.alloc(T)
+    blocks = 2
+    sC = a.alloc(blocks * T * T)
     C = a.alloc(n * n)
     a.set_output_range(C, C + n * n)
 
-    for bi in range(0, n, T):
-        for bj in range(0, n, T):
-            # Load C tile into sC (read C, write sC)
-            for ii in range(min(T, n - bi)):
-                for jj in range(min(T, n - bj)):
-                    a.touch(C + (bi + ii) * n + (bj + jj))
-                    a.write(sC + ii * T + jj)
+    for bj in range(0, n, T):
+        for bi_start in range(0, n, blocks * T):
             for bk in range(0, n, T):
-                # Load A tile into sA
-                for ii in range(min(T, n - bi)):
-                    for kk in range(min(T, n - bk)):
-                        a.touch_arg(A + (bi + ii) * n + (bk + kk))
-                        a.write(sA + ii * T + kk)
-                # Load B tile into sB
                 for kk in range(min(T, n - bk)):
+                    # Stream a single row of B into the L1 vector.
                     for jj in range(min(T, n - bj)):
                         a.touch_arg(B + (bk + kk) * n + (bj + jj))
-                        a.write(sB + kk * T + jj)
-                # MAC: accumulate into sC (sC write per (ii,jj))
+                        a.write(c_B + jj)
+                    # Accumulate across multiple vertical tiles.
+                    for bi in range(bi_start,
+                                    min(n, bi_start + blocks * T), T):
+                        local_bi = (bi - bi_start) // T
+                        for ii in range(min(T, n - bi)):
+                            a.touch_arg(A + (bi + ii) * n + (bk + kk))
+                            a.write(c_A)
+                            for jj in range(min(T, n - bj)):
+                                # multiply: read c_A, c_B → write tmp (free)
+                                a.touch(c_A)
+                                a.touch(c_B + jj)
+                                a.write(tmp)
+                                if bk == 0 and kk == 0:
+                                    # first MAC: sC = tmp
+                                    a.touch(tmp)
+                                else:
+                                    # accumulate: sC = sC + tmp
+                                    a.touch(sC + local_bi * T * T + ii * T + jj)
+                                    a.touch(tmp)
+                                a.write(sC + local_bi * T * T + ii * T + jj)
+
+            # Flush the fully computed C tiles back once per (bj, bi_start).
+            for bi in range(bi_start, min(n, bi_start + blocks * T), T):
+                local_bi = (bi - bi_start) // T
                 for ii in range(min(T, n - bi)):
                     for jj in range(min(T, n - bj)):
-                        a.touch(sC + ii * T + jj)
-                        for kk in range(min(T, n - bk)):
-                            a.touch(sA + ii * T + kk)
-                            a.touch(sB + kk * T + jj)
-                        a.write(sC + ii * T + jj)
-            # Flush sC -> C (read sC, write C)
-            for ii in range(min(T, n - bi)):
-                for jj in range(min(T, n - bj)):
-                    a.touch(sC + ii * T + jj)
-                    a.write(C + (bi + ii) * n + (bj + jj))
+                        a.touch(sC + local_bi * T * T + ii * T + jj)
+                        a.write(C + (bi + ii) * n + (bj + jj))
+
     a.read_output()
     return a.cost
-
-
 # ===========================================================================
 # Driver — run under this script's specific algorithm.
 # ===========================================================================

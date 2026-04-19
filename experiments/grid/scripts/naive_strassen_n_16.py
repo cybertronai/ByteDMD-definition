@@ -552,6 +552,7 @@ def manual_strassen(n: int, T: int = 4) -> int:
     flip pointers back to scratch buffers (M-intermediates)."""
     a = _alloc()
     A = a.alloc_arg(n * n); B = a.alloc_arg(n * n)
+    tmp = a.alloc(1)
     sA = a.alloc(T * T); sB = a.alloc(T * T); sC = a.alloc(T * T)
     C = a.alloc(n * n)
     a.set_output_range(C, C + n * n)
@@ -581,13 +582,16 @@ def manual_strassen(n: int, T: int = 4) -> int:
             for jj in range(T):
                 a.touch(pC + ii * sCstr + jj)
                 a.write(sC + ii * T + jj)
+        # MAC with priced intermediates: every kk reads tmp and sC.
         for ii in range(T):
             for jj in range(T):
-                a.touch(sC + ii * T + jj)
                 for kk in range(T):
                     a.touch(sA + ii * T + kk)
                     a.touch(sB + kk * T + jj)
-                a.write(sC + ii * T + jj)
+                    a.write(tmp)
+                    a.touch(sC + ii * T + jj)
+                    a.touch(tmp)
+                    a.write(sC + ii * T + jj)
         for ii in range(T):
             for jj in range(T):
                 a.touch(sC + ii * T + jj)
@@ -655,8 +659,6 @@ def manual_strassen(n: int, T: int = 4) -> int:
     recurse(A, n, True, B, n, True, C, n, n)
     a.read_output()
     return a.cost
-
-
 # ===========================================================================
 # Driver — run under this script's specific algorithm.
 # ===========================================================================

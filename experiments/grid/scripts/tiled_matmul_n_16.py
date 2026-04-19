@@ -551,6 +551,7 @@ def manual_tiled_matmul(n: int, T: int | None = None) -> int:
     A = a.alloc_arg(n * n)
     B = a.alloc_arg(n * n)
 
+    tmp = a.alloc(1)
     c_A = a.alloc(1)
     c_B = a.alloc(T)
     blocks = 2
@@ -566,23 +567,25 @@ def manual_tiled_matmul(n: int, T: int | None = None) -> int:
                     for jj in range(min(T, n - bj)):
                         a.touch_arg(B + (bk + kk) * n + (bj + jj))
                         a.write(c_B + jj)
-                    # Accumulate across multiple vertical tiles to
-                    # maximize B-row reuse.
+                    # Accumulate across multiple vertical tiles.
                     for bi in range(bi_start,
                                     min(n, bi_start + blocks * T), T):
                         local_bi = (bi - bi_start) // T
                         for ii in range(min(T, n - bi)):
-                            # Stream a single element of A into c_A.
                             a.touch_arg(A + (bi + ii) * n + (bk + kk))
                             a.write(c_A)
                             for jj in range(min(T, n - bj)):
+                                # multiply: read c_A, c_B → write tmp (free)
+                                a.touch(c_A)
+                                a.touch(c_B + jj)
+                                a.write(tmp)
                                 if bk == 0 and kk == 0:
-                                    a.touch(c_A)
-                                    a.touch(c_B + jj)
+                                    # first MAC: sC = tmp
+                                    a.touch(tmp)
                                 else:
+                                    # accumulate: sC = sC + tmp
                                     a.touch(sC + local_bi * T * T + ii * T + jj)
-                                    a.touch(c_A)
-                                    a.touch(c_B + jj)
+                                    a.touch(tmp)
                                 a.write(sC + local_bi * T * T + ii * T + jj)
 
             # Flush the fully computed C tiles back once per (bj, bi_start).

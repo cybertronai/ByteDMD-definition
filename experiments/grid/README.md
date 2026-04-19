@@ -59,12 +59,12 @@ DAGs are identical, so `bytedmd_live` / `bytedmd_classic` match — only
 
 | algorithm                                                            | space_dmd | bytedmd_live | manual      | bytedmd_classic |
 |-----------------------------------------------------------------------|----------:|-------------:|------------:|----------------:|
-| [naive_matmul(n=16)](#naive_matmul)                                   |    79,044 |      109,217 |     102,026 |         181,258 |
-| [tiled_matmul(n=16)](#tiled_matmul)                                   |    93,369 |       78,708 |      58,531 |         143,812 |
-| [tiled_matmul_explicit(n=16,T=4)](#tiled_matmul_explicit)             |    73,927 |       99,006 |      58,531 |         201,547 |
-| [rmm(n=16)](#rmm)                                                     |   107,058 |       83,196 |      93,291 |         151,375 |
-| [naive_strassen(n=16)](#naive_strassen)                               |   135,273 |      175,157 |     231,112 |         343,737 |
-| [fused_strassen(n=16)](#fused_strassen)                               |   135,273 |      175,157 |     121,612 |         343,737 |
+| [naive_matmul(n=16)](#naive_matmul)                                   |    79,044 |      109,217 |     114,838 |         181,258 |
+| [tiled_matmul(n=16)](#tiled_matmul)                                   |    93,369 |       78,708 |      68,270 |         143,812 |
+| [tiled_matmul_explicit(n=16,T=4)](#tiled_matmul_explicit)             |    73,927 |       99,006 |      68,270 |         201,547 |
+| [rmm(n=16)](#rmm)                                                     |   107,058 |       83,196 |     106,835 |         151,375 |
+| [naive_strassen(n=16)](#naive_strassen)                               |   135,273 |      175,157 |     251,486 |         343,737 |
+| [fused_strassen(n=16)](#fused_strassen)                               |   135,273 |      175,157 |     135,740 |         343,737 |
 | [naive_attn(N=32,d=2)](#naive_attn)                                   |   127,674 |      144,851 |     106,026 |         281,164 |
 | [flash_attn(N=32,d=2,Bk=8)](#flash_attn)                              |    75,992 |       98,273 |     127,782 |         167,393 |
 | [matvec_row(n=64)](#matvec_row)                                       |   217,053 |      229,527 |     218,552 |         266,353 |
@@ -74,8 +74,8 @@ DAGs are identical, so `bytedmd_live` / `bytedmd_classic` match — only
 | [fft_recursive(N=256)](#fft_recursive)                                |    28,170 |       33,110 |      28,560 |          62,417 |
 | [stencil_naive(32x32)](#stencil_naive)                                |    61,258 |       65,937 |      78,968 |         109,401 |
 | [stencil_recursive(32x32,leaf=8)](#stencil_recursive)                 |    54,599 |       58,764 |      78,968 |         101,657 |
-| [spatial_conv(32x32,K=5)](#spatial_conv)                              |   344,389 |      402,858 |     537,944 |         681,253 |
-| [regular_conv(16x16,K=3,Cin=4,Cout=4)](#regular_conv)                 |   724,678 |      778,473 |     562,658 |       1,290,500 |
+| [spatial_conv(32x32,K=5)](#spatial_conv)                              |   344,389 |      402,858 |     595,987 |         681,253 |
+| [regular_conv(16x16,K=3,Cin=4,Cout=4)](#regular_conv)                 |   724,678 |      778,473 |     648,300 |       1,290,500 |
 | [fft_conv(N=256)](#fft_conv)                                          |   110,194 |      148,641 |     152,812 |         233,158 |
 | [quicksort(N=64)](#quicksort)                                         |     2,470 |        2,852 |       4,718 |           4,292 |
 | [heapsort(N=64)](#heapsort)                                           |     3,597 |        4,696 |       5,523 |           7,889 |

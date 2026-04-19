@@ -529,28 +529,33 @@ def spatial_convolution(A, Wk):
 # ===========================================================================
 
 def manual_spatial_convolution(H: int, W: int, K: int) -> int:
-    """2D single-channel convolution. img and Wk on arg stack;
-    accumulator s and output O on scratch."""
+    """2D single-channel convolution with priced MAC intermediates.
+    Each inner op prices the multiply's tmp result and reads the
+    accumulator per inner iteration (ByteDMD has no free register)."""
     a = _alloc()
     Wk = a.alloc_arg(K * K)
     img = a.alloc_arg(H * W)
-    s = a.alloc(1)
+    tmp = a.alloc(1); s = a.alloc(1)
     out_h = H - K + 1
     out_w = W - K + 1
     O = a.alloc(out_h * out_w)
     a.set_output_range(O, O + out_h * out_w)
     for i in range(out_h):
         for j in range(out_w):
-            a.touch(s)
+            first = True
             for ki in range(K):
                 for kj in range(K):
                     a.touch_arg(img + (i + ki) * W + (j + kj))
                     a.touch_arg(Wk + ki * K + kj)
-            a.write(O + i * out_w + j)
+                    a.write(tmp)
+                    if first:
+                        a.touch(tmp); a.write(s)
+                        first = False
+                    else:
+                        a.touch(s); a.touch(tmp); a.write(s)
+            a.touch(s); a.write(O + i * out_w + j)
     a.read_output()
     return a.cost
-
-
 # ===========================================================================
 # Driver — run under this script's specific algorithm.
 # ===========================================================================

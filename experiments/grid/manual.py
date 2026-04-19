@@ -146,7 +146,7 @@ def manual_naive_matmul(n: int) -> int:
       C       (addrs n+2..)    — output"""
     a = _alloc()
     A = a.alloc_arg(n * n); B = a.alloc_arg(n * n)
-    s = a.alloc(1)
+    tmp = a.alloc(1); s = a.alloc(1)
     c_A_row = a.alloc(n)
     C = a.alloc(n * n)
     a.set_output_range(C, C + n * n)
@@ -155,10 +155,18 @@ def manual_naive_matmul(n: int) -> int:
         for k in range(n):
             a.touch_arg(A + i * n + k); a.write(c_A_row + k)
         for j in range(n):
-            a.touch(s)
+            # MAC with priced intermediates: every k reads tmp and s.
             for k in range(n):
                 a.touch(c_A_row + k)
                 a.touch_arg(B + j * n + k)
+                a.write(tmp)
+                if k == 0:
+                    a.touch(tmp)
+                    a.write(s)
+                else:
+                    a.touch(s); a.touch(tmp)
+                    a.write(s)
+            a.touch(s)
             a.write(C + i * n + j)
     a.read_output()
     return a.cost
@@ -185,6 +193,7 @@ def manual_tiled_matmul(n: int, T: int | None = None) -> int:
     A = a.alloc_arg(n * n)
     B = a.alloc_arg(n * n)
 
+    tmp = a.alloc(1)
     c_A = a.alloc(1)
     c_B = a.alloc(T)
     blocks = 2
@@ -200,23 +209,25 @@ def manual_tiled_matmul(n: int, T: int | None = None) -> int:
                     for jj in range(min(T, n - bj)):
                         a.touch_arg(B + (bk + kk) * n + (bj + jj))
                         a.write(c_B + jj)
-                    # Accumulate across multiple vertical tiles to
-                    # maximize B-row reuse.
+                    # Accumulate across multiple vertical tiles.
                     for bi in range(bi_start,
                                     min(n, bi_start + blocks * T), T):
                         local_bi = (bi - bi_start) // T
                         for ii in range(min(T, n - bi)):
-                            # Stream a single element of A into c_A.
                             a.touch_arg(A + (bi + ii) * n + (bk + kk))
                             a.write(c_A)
                             for jj in range(min(T, n - bj)):
+                                # multiply: read c_A, c_B → write tmp (free)
+                                a.touch(c_A)
+                                a.touch(c_B + jj)
+                                a.write(tmp)
                                 if bk == 0 and kk == 0:
-                                    a.touch(c_A)
-                                    a.touch(c_B + jj)
+                                    # first MAC: sC = tmp
+                                    a.touch(tmp)
                                 else:
+                                    # accumulate: sC = sC + tmp
                                     a.touch(sC + local_bi * T * T + ii * T + jj)
-                                    a.touch(c_A)
-                                    a.touch(c_B + jj)
+                                    a.touch(tmp)
                                 a.write(sC + local_bi * T * T + ii * T + jj)
 
             # Flush the fully computed C tiles back once per (bj, bi_start).
@@ -238,6 +249,7 @@ def manual_rmm(n: int, T: int = 4) -> int:
     on first write of a C-tile, skip pre-load of pC (fresh)."""
     a = _alloc()
     A = a.alloc_arg(n * n); B = a.alloc_arg(n * n)
+    tmp = a.alloc(1)
     sA = a.alloc(T * T); sB = a.alloc(T * T); sC = a.alloc(T * T)
     C = a.alloc(n * n)
     a.set_output_range(C, C + n * n)
@@ -258,17 +270,20 @@ def manual_rmm(n: int, T: int = 4) -> int:
             for jj in range(T):
                 a.touch_arg(B + (rB + ii) * n + cB + jj)
                 a.write(sB + ii * T + jj)
-        # Bulk read of fast_C (accumulator init)
-        for i in range(T * T):
-            a.touch(sC + i)
-        # MAC
+        # MAC with priced intermediates: every kk reads tmp and sC.
         for ii in range(T):
             for jj in range(T):
-                a.touch(sC + ii * T + jj)
                 for kk in range(T):
                     a.touch(sA + ii * T + kk)
                     a.touch(sB + kk * T + jj)
-                a.write(sC + ii * T + jj)
+                    a.write(tmp)
+                    if kk == 0 and is_first:
+                        a.touch(tmp)
+                        a.write(sC + ii * T + jj)
+                    else:
+                        a.touch(sC + ii * T + jj)
+                        a.touch(tmp)
+                        a.write(sC + ii * T + jj)
         # Flush fast_C -> pC
         for ii in range(T):
             for jj in range(T):
@@ -301,6 +316,7 @@ def manual_strassen(n: int, T: int = 4) -> int:
     flip pointers back to scratch buffers (M-intermediates)."""
     a = _alloc()
     A = a.alloc_arg(n * n); B = a.alloc_arg(n * n)
+    tmp = a.alloc(1)
     sA = a.alloc(T * T); sB = a.alloc(T * T); sC = a.alloc(T * T)
     C = a.alloc(n * n)
     a.set_output_range(C, C + n * n)
@@ -330,13 +346,16 @@ def manual_strassen(n: int, T: int = 4) -> int:
             for jj in range(T):
                 a.touch(pC + ii * sCstr + jj)
                 a.write(sC + ii * T + jj)
+        # MAC with priced intermediates: every kk reads tmp and sC.
         for ii in range(T):
             for jj in range(T):
-                a.touch(sC + ii * T + jj)
                 for kk in range(T):
                     a.touch(sA + ii * T + kk)
                     a.touch(sB + kk * T + jj)
-                a.write(sC + ii * T + jj)
+                    a.write(tmp)
+                    a.touch(sC + ii * T + jj)
+                    a.touch(tmp)
+                    a.write(sC + ii * T + jj)
         for ii in range(T):
             for jj in range(T):
                 a.touch(sC + ii * T + jj)
@@ -409,9 +428,11 @@ def manual_strassen(n: int, T: int = 4) -> int:
 def manual_fused_strassen(n: int, T: int = 4) -> int:
     """Zero-Allocation Fused Strassen (ZAFS): A, B on arg stack; fast
     scratchpads + output C on scratch. Sub-additions are fused into the
-    L1 tile loads. fast_C read once per (i,j) outside k-loop."""
+    L1 tile loads. Inner MAC correctly prices intermediate multiplication
+    products and per-k accumulator reads (gemini/strassen-cheating-macc.md)."""
     a = _alloc()
     A = a.alloc_arg(n * n); B = a.alloc_arg(n * n)
+    fast_tmp = a.alloc(1)
     fast_A = a.alloc(T * T); fast_B = a.alloc(T * T); fast_C = a.alloc(T * T)
     C = a.alloc(n * n)
     a.set_output_range(C, C + n * n)
@@ -429,18 +450,24 @@ def manual_fused_strassen(n: int, T: int = 4) -> int:
                 for _sgn, rb, cb in ops_B:
                     a.touch_arg(B + (rb + k_off + i) * n + cb + c + j)
                 a.write(fast_B + i * T + j)
-        # 3. Bulk read of fast_C (accumulator init)
-        for i in range(T * T):
-            a.touch(fast_C + i)
-        # 4. Tile MAC
+        # 3. Tile MAC with priced intermediates
         for i in range(T):
             for j in range(T):
-                a.touch(fast_C + i * T + j)
                 for k in range(T):
+                    # multiply: read A, B → write fast_tmp (free)
                     a.touch(fast_A + i * T + k)
                     a.touch(fast_B + k * T + j)
-                a.write(fast_C + i * T + j)
-        # 5. Fan-out fast_C -> multiple C targets with signs
+                    a.write(fast_tmp)
+                    if k == 0 and k_off == 0:
+                        # first-iter: no prior accumulator; assign sC = tmp
+                        a.touch(fast_tmp)
+                        a.write(fast_C + i * T + j)
+                    else:
+                        # accumulate: read tmp + sC → write sC
+                        a.touch(fast_C + i * T + j)
+                        a.touch(fast_tmp)
+                        a.write(fast_C + i * T + j)
+        # 4. Fan-out fast_C -> multiple C targets with signs
         for _sgn, rb, cb, is_first in ops_C:
             for i in range(T):
                 for j in range(T):
@@ -983,24 +1010,31 @@ def manual_stencil_recursive(n: int, leaf: int = 8) -> int:
 # ============================================================================
 
 def manual_spatial_convolution(H: int, W: int, K: int) -> int:
-    """2D single-channel convolution. img and Wk on arg stack;
-    accumulator s and output O on scratch."""
+    """2D single-channel convolution with priced MAC intermediates.
+    Each inner op prices the multiply's tmp result and reads the
+    accumulator per inner iteration (ByteDMD has no free register)."""
     a = _alloc()
     Wk = a.alloc_arg(K * K)
     img = a.alloc_arg(H * W)
-    s = a.alloc(1)
+    tmp = a.alloc(1); s = a.alloc(1)
     out_h = H - K + 1
     out_w = W - K + 1
     O = a.alloc(out_h * out_w)
     a.set_output_range(O, O + out_h * out_w)
     for i in range(out_h):
         for j in range(out_w):
-            a.touch(s)
+            first = True
             for ki in range(K):
                 for kj in range(K):
                     a.touch_arg(img + (i + ki) * W + (j + kj))
                     a.touch_arg(Wk + ki * K + kj)
-            a.write(O + i * out_w + j)
+                    a.write(tmp)
+                    if first:
+                        a.touch(tmp); a.write(s)
+                        first = False
+                    else:
+                        a.touch(s); a.touch(tmp); a.write(s)
+            a.touch(s); a.write(O + i * out_w + j)
     a.read_output()
     return a.cost
 
@@ -1070,39 +1104,33 @@ def manual_regular_convolution(H: int, W: int, K: int, Cin: int, Cout: int) -> i
     out_h = H - K + 1
     out_w = W - K + 1
 
-    # Low-scratch layout: accumulator, then K-row rolling img buffer.
-    s = a.alloc(1)
+    # Low-scratch layout: tmp, accumulator, then K-row rolling img buffer.
+    tmp = a.alloc(1); s = a.alloc(1)
     row_stride = W * Cin
-    buf = a.alloc(K * row_stride)   # buf[r % K] starts at buf + (r % K)*row_stride
+    buf = a.alloc(K * row_stride)
     O = a.alloc(out_h * out_w * Cout)
     a.set_output_range(O, O + out_h * out_w * Cout)
 
     def load_row(r: int) -> None:
-        """Copy img row `r` from the arg stack into scratch slot r % K."""
         slot = buf + (r % K) * row_stride
         base_arg = img + r * row_stride
         for x in range(row_stride):
             a.touch_arg(base_arg + x)
             a.write(slot + x)
 
-    # Prime the buffer with the first K rows.
     for r in range(K):
         load_row(r)
 
     for i in range(out_h):
-        # Ensure rows i..i+K-1 are in the buffer. Row i..i+K-2 are
-        # already there from the previous iteration (or from priming);
-        # we only need to load the new frontier row i+K-1. For i == 0
-        # it is already loaded by the priming loop above.
         if i > 0:
             load_row(i + K - 1)
 
-        # Per-row precomputed slot bases for the K cached rows.
         slot_base = [buf + ((i + ki) % K) * row_stride for ki in range(K)]
 
         for j in range(out_w):
             for co in range(Cout):
-                a.touch(s)
+                # MAC with priced intermediates per inner op.
+                first = True
                 for ki in range(K):
                     sb = slot_base[ki]
                     for kj in range(K):
@@ -1111,7 +1139,13 @@ def manual_regular_convolution(H: int, W: int, K: int, Cin: int, Cout: int) -> i
                         for ci in range(Cin):
                             a.touch(sb + col_off + ci)
                             a.touch_arg(wk_base + ci * Cout)
-                a.write(O + (i * out_w + j) * Cout + co)
+                            a.write(tmp)
+                            if first:
+                                a.touch(tmp); a.write(s)
+                                first = False
+                            else:
+                                a.touch(s); a.touch(tmp); a.write(s)
+                a.touch(s); a.write(O + (i * out_w + j) * Cout + co)
     a.read_output()
     return a.cost
 

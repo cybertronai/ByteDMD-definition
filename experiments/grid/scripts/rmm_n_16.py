@@ -548,6 +548,7 @@ def manual_rmm(n: int, T: int = 4) -> int:
     on first write of a C-tile, skip pre-load of pC (fresh)."""
     a = _alloc()
     A = a.alloc_arg(n * n); B = a.alloc_arg(n * n)
+    tmp = a.alloc(1)
     sA = a.alloc(T * T); sB = a.alloc(T * T); sC = a.alloc(T * T)
     C = a.alloc(n * n)
     a.set_output_range(C, C + n * n)
@@ -568,17 +569,20 @@ def manual_rmm(n: int, T: int = 4) -> int:
             for jj in range(T):
                 a.touch_arg(B + (rB + ii) * n + cB + jj)
                 a.write(sB + ii * T + jj)
-        # Bulk read of fast_C (accumulator init)
-        for i in range(T * T):
-            a.touch(sC + i)
-        # MAC
+        # MAC with priced intermediates: every kk reads tmp and sC.
         for ii in range(T):
             for jj in range(T):
-                a.touch(sC + ii * T + jj)
                 for kk in range(T):
                     a.touch(sA + ii * T + kk)
                     a.touch(sB + kk * T + jj)
-                a.write(sC + ii * T + jj)
+                    a.write(tmp)
+                    if kk == 0 and is_first:
+                        a.touch(tmp)
+                        a.write(sC + ii * T + jj)
+                    else:
+                        a.touch(sC + ii * T + jj)
+                        a.touch(tmp)
+                        a.write(sC + ii * T + jj)
         # Flush fast_C -> pC
         for ii in range(T):
             for jj in range(T):
@@ -603,8 +607,6 @@ def manual_rmm(n: int, T: int = 4) -> int:
     recurse(0, 0, 0, 0, 0, 0, n)
     a.read_output()
     return a.cost
-
-
 # ===========================================================================
 # Driver — run under this script's specific algorithm.
 # ===========================================================================
