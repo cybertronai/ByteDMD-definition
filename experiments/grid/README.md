@@ -60,7 +60,7 @@ DAGs are identical, so `bytedmd_live` / `bytedmd_classic` match — only
 | algorithm                                                            | space_dmd | bytedmd_live | manual      | bytedmd_classic |
 |-----------------------------------------------------------------------|----------:|-------------:|------------:|----------------:|
 | [naive_matmul(n=16)](#naive_matmul)                                   |    79,044 |      109,217 |     177,744 |         181,258 |
-| [naive_tiled_matmul(n=16,k=2)](#naive_tiled_matmul)                   |    79,044 |      109,217 |     154,384 |         181,258 |
+| [naive_tiled_matmul(n=16,k=4)](#naive_tiled_matmul)                   |    79,044 |      109,217 |     161,084 |         181,258 |
 | [naive_matmul_cached(n=16)](#naive_matmul_cached)                     |    79,044 |      109,217 |     114,838 |         181,258 |
 | [tiled_matmul(n=16)](#tiled_matmul)                                   |    93,369 |       78,708 |      67,758 |         143,812 |
 | [tiled_matmul_explicit(n=16,T=4)](#tiled_matmul_explicit)             |    73,927 |       99,006 |      67,758 |         201,547 |
@@ -186,7 +186,7 @@ with-scratchpad variant that drops 35 % off this baseline.
 ---
 
 ## naive_tiled_matmul [(code)](scripts/naive_tiled_matmul_n_16.py)
-`n=16, k=2`. **Algorithm.** Same matmul as `naive_matmul` but
+`n=16, k=4`. **Algorithm.** Same matmul as `naive_matmul` but
 each block caches **k rows of A and k rows of B** (in the
 A·B^T formulation, B's "rows" are the transposed operand's
 columns — semantically one slab per side) and computes **k² output
@@ -196,7 +196,7 @@ two scratch slabs.
 **Manual placement.**
 
   `tmp` (addr 1)                 — multiply intermediate
-  `sA`  (addrs 2..k·n+1)         — k rows of A (32 cells at k=2)
+  `sA`  (addrs 2..k·n+1)         — k rows of A (64 cells at k=4)
   `sB`  (addrs k·n+2..2k·n+1)    — k rows of B
   `C`   (above sB)               — output / accumulator in place
 
@@ -205,22 +205,23 @@ two scratch slabs.
 | k | manual cost |
 |--:|-----------:|
 | 1 | 177,688 (≈ truly-naive) |
-| **2** | **154,384** ← sweet spot |
-| 4 | 161,084 |
+| 2 | 154,384 |
+| **4** | **161,084** ← chosen |
 | 8 | 191,202 |
 | 16 | 245,693 |
 
-Larger k should amortize arg reloads over more scratch reads, but
-it also pushes the scratch footprint deeper — at k=16 both
-matrices sit fully in scratch and each sA/sB read pays
-`sqrt(512)`. Smaller k is near-no-op. k=2 balances the two.
+Larger k amortizes arg reloads over more scratch reads but pushes
+the scratch footprint deeper — at k=16 both matrices sit fully
+in scratch and each sA/sB read pays `sqrt(512)`. Smaller k is
+near-no-op. k=4 doubles the block footprint over the minimum and
+still gives a meaningful win: 4×4 = 16 output entries per block
+with k·n = 64-cell scratch slabs.
 
-Drops manual **177,744 → 154,384** (−13 %) — modest but real.
-Still above `naive_matmul_cached` (114,838) because the A-row
-hoist there keeps all of A[i][*] hot across every j for fixed i
-(stronger reuse than a square tile), and well above
-`tiled_matmul` (67,758) which adds register-level stationary-
-operand scheduling on top.
+Drops manual **177,744 → 161,084** (−9 %). Still above
+`naive_matmul_cached` (114,838) because the A-row hoist there
+keeps all of A[i][*] hot across every j for fixed i (stronger
+reuse than a square tile), and well above `tiled_matmul` (67,758)
+which adds register-level stationary-operand scheduling on top.
 
 ![](traces/naive_tiled_matmul_n_16.png)
 

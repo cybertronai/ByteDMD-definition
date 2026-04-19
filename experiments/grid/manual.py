@@ -166,7 +166,7 @@ def manual_naive_matmul(n: int) -> int:
     return a.cost
 
 
-def manual_naive_tiled_matmul(n: int, k: int = 2) -> int:
+def manual_naive_tiled_matmul(n: int, k: int = 4) -> int:
     """Naive matmul where each block caches k rows of A and k rows of
     B (k·n cells each) and computes k² entries against those two
     scratch slabs. Output block (bi, bj) covers k² C entries at

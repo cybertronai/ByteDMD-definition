@@ -36,7 +36,7 @@ def manual_naive_matmul_dsl(n: int) -> int:
     return s.finalize()
 
 
-def manual_naive_tiled_matmul_dsl(n: int, k: int = 2) -> int:
+def manual_naive_tiled_matmul_dsl(n: int, k: int = 4) -> int:
     """Naive matmul: cache k rows of A + k rows of B, compute k² dot products."""
     assert n % k == 0
     nb = n // k

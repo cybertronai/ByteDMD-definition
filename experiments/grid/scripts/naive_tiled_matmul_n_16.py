@@ -521,7 +521,7 @@ def matmul_naive_abt(A, B):
 # Manual-schedule definitions (closure of what the manual impl needs).
 # ===========================================================================
 
-def manual_naive_matmul(n: int, k: int = 2) -> int:
+def manual_naive_matmul(n: int, k: int = 4) -> int:
     """Naive matmul that caches k rows of A + k rows of B (2*k*n
     scratch cells) and computes k² output entries per block. For
     n=16 a sweep picks k=2."""
