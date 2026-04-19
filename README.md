@@ -37,6 +37,13 @@ This rounding corresponds to routing wire length on a 2D grid with LRU stack arr
 
 ## Computation Model
 
+A full formalization that fuses Bill Dally's PECM (CACM 2022) with
+this cost model is in
+[docs/manhattan-diamond.md](docs/manhattan-diamond.md) — single core,
+two physically-separate arenas (arg + scratch) packed as Manhattan
+diamonds around the ALU, with `⌈√d⌉` pricing and Bélády-optimal
+liveness on scratch.
+
 An idealized processor operates directly on an element-level LRU stack. **Computations and writes are free; only memory reads incur a cost.**
 
 - **Two stacks:** Reads are priced against one of two stacks, each with the same $\lceil\sqrt{d}\rceil$ depth-cost shape:
@@ -204,6 +211,7 @@ Based on [Karpathy's microGPT](https://gist.github.com/karpathy/8627fe009c40f575
 
 In-depth reports applying ByteDMD to specific algorithms and design questions:
 
+- [The Manhattan-Diamond Model](docs/manhattan-diamond.md) — formalization of the cost model fusing Bill Dally's PECM with the Geometric Stack: single core, two physically-separate arenas (args above, scratch below), priced by Manhattan distance. Reference for what every other report assumes.
 - [Strassen vs naive matmul](docs/report-strassen-benchmarks/) — at what matrix size does Strassen's recursive algorithm beat naive matmul under ByteDMD? Includes a crossover-point experiment.
 - [Modern flash attention vs naive attention](docs/report-modern-flash-attention/) — full sweep across sequence length, head dim, and block size showing flash attention's advantage growing as O(sqrt(N/Bk)) under ByteDMD while FLOPs see no benefit. Uses an optimised tracer (`bytedmd_fast.py`).
 - [Antigravity flash attention experiments](docs/report-antigravity-flash-attention/) — alternative flash attention implementations and their ByteDMD costs.
