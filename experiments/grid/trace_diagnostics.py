@@ -131,18 +131,29 @@ def plot_liveset(times, sizes, title, out_path):
     plt.close(fig)
 
 
-def pick_wss_window(n_events: int) -> int:
-    """Choose a sliding-window size τ from the event-stream length.
+def pick_wss_window(reuse_distances, n_events: int) -> int:
+    """Pick a sliding-window size τ that represents a realistic cache.
 
-    Heuristic: τ = max(50, round(3 * sqrt(n_events))). This grows with
-    the problem but slowly enough that a 30-event algorithm is sampled
-    on a useful fraction of its runtime (~τ=50) while a 200 k-event
-    algorithm gets a τ≈1300 window that's still << the whole trace.
+    The window is set to the 90th-percentile reuse distance: a cache of
+    exactly τ slots would capture roughly 90% of this algorithm's reads
+    (the remaining 10% are the long-reuse tail). Algorithms with tight
+    locality (tiled / blocked / recursive) get a small τ that reveals
+    their steady-state working set; algorithms that churn through cold
+    data get a τ closer to the full reference stream.
+
+    Clamped to [32, max(32, n_events // 2)] so every plot still has
+    meaningful horizontal variation.
     """
     import math as _math
-    if n_events <= 0:
-        return 1
-    return max(50, round(3 * _math.sqrt(n_events)))
+    if not reuse_distances:
+        return max(32, round(_math.sqrt(max(1, n_events))))
+    rd = sorted(reuse_distances)
+    idx = min(len(rd) - 1, int(0.90 * len(rd)))
+    p90 = rd[idx]
+    tau = max(32, int(p90))
+    if n_events > 0:
+        tau = min(tau, max(32, n_events // 2))
+    return tau
 
 
 def working_set_over_time(events, window):
@@ -219,7 +230,7 @@ def main() -> None:
         mx = max(rd_d) if rd_d else 0
         med = sorted(rd_d)[len(rd_d) // 2] if rd_d else 0
 
-        window = pick_wss_window(len(events))
+        window = pick_wss_window(rd_d, len(events))
         wss_t, wss_s = working_set_over_time(events, window)
         wss_max = max(wss_s) if wss_s else 0
 
