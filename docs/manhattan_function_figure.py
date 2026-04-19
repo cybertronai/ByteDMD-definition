@@ -67,14 +67,14 @@ def render_frame(d: int = 8,
                  arg_d: int = 6,
                  n_short_scratch: int = 40,
                  n_short_arg: int = 40,
-                 table_half: int = 8) -> plt.Figure:
+                 table_size: int = 13) -> plt.Figure:
     """Render the two-arena diamond.
 
     Args:
         d: which scratch depth to highlight (1-indexed).
         arg_d: which arg depth to highlight (1-indexed).
         n_short_scratch / n_short_arg: how many cells to draw per arena.
-        table_half: the right-side table spans -table_half..+table_half.
+        table_size: the right-side table lists scratch depths 1..table_size.
     """
     fig, ax1 = plt.subplots(figsize=(10, 10))
 
@@ -172,47 +172,30 @@ def render_frame(d: int = 8,
     ) + 1
     ax1.set_xlim(-x_ext, x_ext)
 
-    # --- Right-side address table ---
+    # --- Right-side address table (same format as manhattan_figure.py) ---
     divider = make_axes_locatable(ax1)
     ax2 = divider.append_axes("right", size="50%", pad=0.6)
     ax2.axis('off')
 
-    # Rows from -table_half (deep arg) through core (0) to +table_half
-    # (deep scratch).
-    rows = []
-    for depth in range(table_half, 0, -1):
-        x, y = ARG_PTS[depth - 1]
-        rows.append((f"-{depth}", int(abs(x) + abs(y))))
-    rows.append(("0", 0))  # the core
-    for depth in range(1, table_half + 1):
-        x, y = SCRATCH_PTS[depth - 1]
-        rows.append((str(depth), int(abs(x) + abs(y))))
+    table_data = []
+    for t in range(1, table_size + 1):
+        x, y = SCRATCH_PTS[t - 1]
+        table_data.append([t, int(abs(x) + abs(y))])
 
     table = ax2.table(
-        cellText=[[addr, dist] for addr, dist in rows],
-        colLabels=['addr', 'wire length'],
+        cellText=table_data,
+        colLabels=['d', 'Wire length'],
         cellLoc='center',
         bbox=[0, 0, 1, 1],
     )
     table.auto_set_font_size(False)
     table.set_fontsize(10)
 
-    # Index of the arg-highlight row: arg_d rows from the top (after header).
-    arg_row = 1 + (table_half - arg_d)
-    # Index of the scratch-highlight row: table_half rows of arg + 1 (core) + d.
-    scratch_row = 1 + table_half + 1 + (d - 1)
-
     for (row, col), cell in table.get_celld().items():
         if row == 0:
             cell.set_text_props(weight='medium')
             cell.set_facecolor('#f2f2f2')
-        elif row == 1 + table_half:  # the core row
-            cell.set_facecolor('#fff2cc')
-            cell.set_text_props(weight='bold', color='red')
-        elif row == arg_row and 1 <= arg_d <= table_half:
-            cell.set_facecolor('#cce5ff')
-            cell.set_text_props(weight='bold')
-        elif row == scratch_row and 1 <= d <= table_half:
+        elif row == d:
             cell.set_facecolor('#ffcccc')
             cell.set_text_props(weight='bold')
         else:
