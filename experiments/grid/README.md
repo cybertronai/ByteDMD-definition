@@ -88,7 +88,7 @@ DAGs are identical, so `bytedmd_live` / `bytedmd_classic` match — only
 | [cholesky(n=32)](#cholesky)                                           |   176,488 |      176,313 |     238,688 |         293,328 |
 | [householder_qr(32x32)](#householder_qr)                              |   781,325 |      605,876 |     743,882 |       1,131,740 |
 | [blocked_qr(32x32,NB=8)](#blocked_qr)                                 |   549,811 |      610,248 |     529,552 |       1,068,832 |
-| [tsqr(64x16,br=8)](#tsqr)                                             |   380,689 |      267,962 |     461,782 |         546,266 |
+| [tsqr(64x16,br=8)](#tsqr)                                             |   380,689 |      267,962 |     297,513 |         546,266 |
 | [transpose_naive(n=32)](#transpose_naive)                             |    44,704 |       44,704 |      44,704 |          62,799 |
 | [transpose_blocked(n=32)](#transpose_blocked)                         |    43,296 |       43,873 |      44,704 |          62,341 |
 | [transpose_recursive(n=32)](#transpose_recursive)                     |    41,434 |       42,513 |      44,704 |          61,688 |
@@ -1094,16 +1094,23 @@ tile independently with local Householder QR; merge the resulting R
 factors pairwise up a binary tree (log₂(#tiles) levels of
 reductions).
 
-**Manual placement.** Two hoisted scratchpads shared across both
-phases:
-  `c_A` (addr 1) dot-product accumulator;
-  `c_V` (addrs 2..block_rows+2) reflector column buffer.
-Phase 1's local QR loads each reflector into `c_V` once and reuses
-across n trailing columns; phase 2's pairwise R-factor merge caches
-the two-range reflector (one left pivot + up-to-`block_rows` right
-cells) the same way. Drops manual from 729,566 to **461,782**
-(−37%), still above `space_dmd` (380,689) because the tree-reduction
-steps can't amortize `c_V` across merge-tree levels.
+**Manual placement.** Three stacked optimizations (gemini/optimize-tsqr.md):
+
+1. **L1 tile funnel** `cache_A` — the current row-tile (block_rows×n = 128
+   cells) lives in a scratchpad at the very bottom of the stack. All
+   Phase-1 inner-loop reads hit these low addresses.
+2. **Asymmetric caching in Phase 2** — only the right R-factor block is
+   pulled into `cache_A`; the left block's sparsely-accessed k-th row
+   reads come directly from A (and the frequency-ordered layout makes
+   them cheap too).
+3. **Frequency-ordered layout** — a dry-run counts per-cell touches
+   across both phases + epilogue; A and `cache_A` then pack the
+   busiest cells at the lowest addresses (same trick as
+   floyd_warshall_recursive and recursive_lu).
+
+Drops manual from 461,782 to **297,513** (−36%), now below
+`space_dmd` (380,689) and only 11% above `bytedmd_live` (267,962).
+
 
 ![](traces/tsqr_64x16_br_8.png)
 

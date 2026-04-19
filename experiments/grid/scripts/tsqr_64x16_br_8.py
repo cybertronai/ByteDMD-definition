@@ -554,83 +554,171 @@ def tsqr(A, block_rows=8):
 # ===========================================================================
 
 def manual_tsqr(m: int, n: int, block_rows: int = 8) -> int:
-    """Tall-skinny QR with hoisted scratchpads.
-    Phase 1 does local Householder QR per row-tile. Phase 2 tree-reduces
-    pairs of R factors. Both phases cache the current reflector column
-    into c_V and reuse it across the n trailing columns — exactly the
-    same trick as manual_blocked_qr.
+    """Tall-skinny QR with L1 cache blocking and frequency-based layout
+    (gemini/optimize-tsqr.md). Three stacked optimizations:
 
-      c_A  (addr 1)                    — dot-product accumulator
-      c_V  (addr 2..block_rows+2)      — reflector column buffer
-                                         (Phase 2 needs one extra slot
-                                         for the left-block pivot element)"""
+    1. **L1 tile funnel** `cache_A` — the current row-tile (block_rows×n)
+       is pulled into a scratchpad at the very bottom of the stack so the
+       dense inner-loop reads hit low addresses.
+    2. **Asymmetric caching in Phase 2** — only the right-block R-factor
+       is pulled into `cache_A`; the left block's sparsely-accessed k-th
+       row reads come directly from A (cheap under the frequency-ordered
+       layout below).
+    3. **Frequency-ordered physical layout** — a dry-run tallies how
+       many times each (r, c) cell is touched across both phases +
+       epilogue; A and cache_A then pack the busiest cells at the lowest
+       addresses (same trick used in floyd_warshall_recursive and
+       recursive_lu)."""
     a = _alloc()
     A_in = a.alloc_arg(m * n)
     c_A = a.alloc(1)
     c_V = a.alloc(block_rows + 1)
+    cache_A = a.alloc(block_rows * n)
     A = a.alloc(m * n)
     a.set_output_range(A, A + m * n)
-    for i in range(m * n):
-        a.touch_arg(A_in + i); a.write(A + i)
 
-    # --- Phase 1: local QR per row-tile. Cache the reflector column
-    # into c_V and reuse across all n trailing columns. -----------------
+    # ---- Phase 1 & 2 dry-run: count per-cell touch frequencies. ----
+    freq_cA = {}
+    freq_A = {}
+    def _cA(i, j): freq_cA[(i, j)] = freq_cA.get((i, j), 0) + 1
+    def _A(r, c):  freq_A[(r, c)]  = freq_A.get((r, c), 0) + 1
+
+    def _sim_load(row0):
+        row1 = min(row0 + block_rows, m)
+        for i in range(row1 - row0):
+            for j in range(n):
+                _A(row0 + i, j)
+                _cA(i, j)
+
     for row0 in range(0, m, block_rows):
         row1 = min(row0 + block_rows, m)
-        for k in range(min(row1 - row0, n)):
-            kk = row0 + k
-            a.touch(A + kk * n + k)
-            for i in range(kk + 1, row1):
-                a.touch(A + i * n + k)
-            a.write(A + kk * n + k)
-            for i in range(kk + 1, row1):
-                a.write(A + i * n + k)
-            a.touch(A + kk * n + k); a.write(c_V + 0)
-            for i in range(kk + 1, row1):
-                a.touch(A + i * n + k); a.write(c_V + (i - kk))
+        rows_in_block = row1 - row0
+        _sim_load(row0)
+        for k in range(min(rows_in_block, n)):
+            _cA(k, k)
+            for i in range(k + 1, rows_in_block): _cA(i, k)
+            _cA(k, k)
+            for i in range(k + 1, rows_in_block): _cA(i, k)
             for j in range(k + 1, n):
-                a.touch(c_V + 0); a.touch(A + kk * n + j); a.write(c_A)
-                for i in range(kk + 1, row1):
-                    a.touch(c_V + (i - kk)); a.touch(A + i * n + j)
-                    a.touch(c_A); a.write(c_A)
-                a.touch(c_A); a.touch(c_V + 0); a.touch(A + kk * n + j)
-                a.write(A + kk * n + j)
-                for i in range(kk + 1, row1):
-                    a.touch(c_A); a.touch(c_V + (i - kk))
-                    a.touch(A + i * n + j); a.write(A + i * n + j)
+                _cA(k, j)
+                for i in range(k + 1, rows_in_block): _cA(i, j)
+                _cA(k, j)
+                for i in range(k + 1, rows_in_block): _cA(i, j)
 
-    # --- Phase 2: pairwise tree-reduction over R factors. ---------------
     num_tiles = (m + block_rows - 1) // block_rows
     stride = 1
     while stride < num_tiles:
         for idx in range(0, num_tiles, 2 * stride):
             other = idx + stride
-            if other >= num_tiles:
-                break
+            if other >= num_tiles: break
             left_row = idx * block_rows
             right_row = other * block_rows
             right_end = min(right_row + block_rows, m)
+            right_rows_in_block = right_end - right_row
+            _sim_load(right_row)
             for k in range(min(n, block_rows)):
-                a.touch(A + (left_row + k) * n + k)
-                a.touch(A + (right_row + k) * n + k)
-                # Cache reflector: one pivot element from left + right block.
-                a.touch(A + (left_row + k) * n + k); a.write(c_V + 0)
-                for i in range(right_row + k, right_end):
-                    a.touch(A + i * n + k); a.write(c_V + 1 + (i - right_row - k))
+                _A(left_row + k, k)
+                _cA(k, k)
+                _A(left_row + k, k)
+                for i in range(k, right_rows_in_block): _cA(i, k)
                 for j in range(k + 1, n):
-                    a.touch(c_V + 0); a.touch(A + (left_row + k) * n + j)
+                    _A(left_row + k, j)
+                    for i in range(k, right_rows_in_block): _cA(i, j)
+                    _A(left_row + k, j)
+                    for i in range(k, right_rows_in_block): _cA(i, j)
+        stride *= 2
+    for r in range(m):
+        for c in range(n):
+            _A(r, c)
+    for i in range(block_rows):
+        for j in range(n):
+            freq_cA.setdefault((i, j), 0)
+
+    # Sort cells by descending frequency → packing permutation.
+    sorted_cA = sorted(freq_cA.keys(), key=lambda x: -freq_cA[x])
+    c_map = {cell: idx for idx, cell in enumerate(sorted_cA)}
+    def cA_addr(i, j): return cache_A + c_map[(i, j)]
+    sorted_A = sorted(freq_A.keys(), key=lambda x: -freq_A[x])
+    A_map = {cell: idx for idx, cell in enumerate(sorted_A)}
+    def A_addr(r, c): return A + A_map[(r, c)]
+
+    # ---- Emit the priced trace. ----
+    for r in range(m):
+        for c in range(n):
+            a.touch_arg(A_in + r * n + c)
+            a.write(A_addr(r, c))
+
+    def load_block(row0):
+        row1 = min(row0 + block_rows, m)
+        for i in range(row1 - row0):
+            for j in range(n):
+                a.touch(A_addr(row0 + i, j))
+                a.write(cA_addr(i, j))
+
+    def store_block(row0):
+        row1 = min(row0 + block_rows, m)
+        for i in range(row1 - row0):
+            for j in range(n):
+                a.touch(cA_addr(i, j))
+                a.write(A_addr(row0 + i, j))
+
+    # Phase 1 — local QR per row-tile, computed inside cache_A.
+    for row0 in range(0, m, block_rows):
+        row1 = min(row0 + block_rows, m)
+        rows_in_block = row1 - row0
+        load_block(row0)
+        for k in range(min(rows_in_block, n)):
+            a.touch(cA_addr(k, k))
+            for i in range(k + 1, rows_in_block): a.touch(cA_addr(i, k))
+            a.write(cA_addr(k, k))
+            for i in range(k + 1, rows_in_block): a.write(cA_addr(i, k))
+            a.touch(cA_addr(k, k)); a.write(c_V + 0)
+            for i in range(k + 1, rows_in_block):
+                a.touch(cA_addr(i, k)); a.write(c_V + (i - k))
+            for j in range(k + 1, n):
+                a.touch(c_V + 0); a.touch(cA_addr(k, j)); a.write(c_A)
+                for i in range(k + 1, rows_in_block):
+                    a.touch(c_V + (i - k)); a.touch(cA_addr(i, j))
+                    a.touch(c_A); a.write(c_A)
+                a.touch(c_A); a.touch(c_V + 0); a.touch(cA_addr(k, j))
+                a.write(cA_addr(k, j))
+                for i in range(k + 1, rows_in_block):
+                    a.touch(c_A); a.touch(c_V + (i - k))
+                    a.touch(cA_addr(i, j)); a.write(cA_addr(i, j))
+        store_block(row0)
+
+    # Phase 2 — tree-reduction with asymmetric caching.
+    stride = 1
+    while stride < num_tiles:
+        for idx in range(0, num_tiles, 2 * stride):
+            other = idx + stride
+            if other >= num_tiles: break
+            left_row = idx * block_rows
+            right_row = other * block_rows
+            right_end = min(right_row + block_rows, m)
+            right_rows_in_block = right_end - right_row
+            load_block(right_row)
+            for k in range(min(n, block_rows)):
+                a.touch(A_addr(left_row + k, k))
+                a.touch(cA_addr(k, k))
+                a.touch(A_addr(left_row + k, k)); a.write(c_V + 0)
+                for i in range(k, right_rows_in_block):
+                    a.touch(cA_addr(i, k)); a.write(c_V + 1 + (i - k))
+                for j in range(k + 1, n):
+                    a.touch(c_V + 0); a.touch(A_addr(left_row + k, j))
                     a.write(c_A)
-                    for i in range(right_row + k, right_end):
-                        a.touch(c_V + 1 + (i - right_row - k))
-                        a.touch(A + i * n + j)
+                    for i in range(k, right_rows_in_block):
+                        a.touch(c_V + 1 + (i - k)); a.touch(cA_addr(i, j))
                         a.touch(c_A); a.write(c_A)
                     a.touch(c_A); a.touch(c_V + 0)
-                    a.touch(A + (left_row + k) * n + j)
-                    a.write(A + (left_row + k) * n + j)
-                    for i in range(right_row + k, right_end):
-                        a.touch(c_A); a.touch(c_V + 1 + (i - right_row - k))
-                        a.touch(A + i * n + j); a.write(A + i * n + j)
+                    a.touch(A_addr(left_row + k, j))
+                    a.write(A_addr(left_row + k, j))
+                    for i in range(k, right_rows_in_block):
+                        a.touch(c_A); a.touch(c_V + 1 + (i - k))
+                        a.touch(cA_addr(i, j)); a.write(cA_addr(i, j))
+            store_block(right_row)
         stride *= 2
+
     a.read_output()
     return a.cost
 # ===========================================================================
