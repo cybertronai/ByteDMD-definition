@@ -65,8 +65,8 @@ ARG_PTS = np.array(list(upper_half_spiral(N_PTS)))
 # ==================================================
 def render_frame(d: int = 8,
                  arg_d: int = 6,
-                 n_short_scratch: int = 40,
-                 n_short_arg: int = 40,
+                 n_short_scratch: int = 15,
+                 n_short_arg: int = 15,
                  table_size: int = 13) -> plt.Figure:
     """Render the two-arena diamond.
 
