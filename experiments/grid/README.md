@@ -148,6 +148,22 @@ DAGs are identical, so `bytedmd_live` / `bytedmd_classic` match — only
   75k, rmm 108k vs 81k, recursive_lu 336k vs 278k) it's because LRU's
   dynamic refresh of recently-touched vars beats static density
   ranking when the working set shifts over time.
+- **Theoretical sandwich on `manual`**. Under the `⌈√addr⌉` cost
+  model, any correct manual placement is bounded on both sides by
+  `bytedmd_live`:
+  `0.3849 · bytedmd_live ≤ manual ≤ 4.0 · bytedmd_live`. The lower
+  bound is a Sleator–Tarjan-style competitive-caching proof lifted
+  to the continuous √d model
+  ([gemini/tarjan-bytedmd-lower-bound.md](../../gemini/tarjan-bytedmd-lower-bound.md));
+  the upper bound is the companion constant-factor analysis for an
+  optimal DMA-managed scratchpad
+  ([gemini/bytedmd-upper-bound.md](../../gemini/bytedmd-upper-bound.md)).
+  Every row in the summary table sits inside this sandwich — the
+  tightest (`stencil_time_diamond`, `naive_attn`, `fft_conv`) at
+  ~0.59× `bytedmd_live`, still +53 % above the 0.3849× floor. An
+  approachable walkthrough of why hand-placed scratchpads are
+  mathematically optimal on a 2D spatial grid is in
+  [gemini/illustrative-matmul-tiled.md](../../gemini/illustrative-matmul-tiled.md).
 ---
 
 ## naive_matmul [(code)](scripts/naive_matmul_n_16.py)
