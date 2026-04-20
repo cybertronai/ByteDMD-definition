@@ -149,3 +149,10 @@ Research notes on **ByteDMD** (Byte-level Data Movement Distance): a concrete me
 | [chatgpt-lower-bound.md](chatgpt-lower-bound.md) | Shared ChatGPT audit of the Tarjan lower bound: the 0.3849 constant is correct under the idealized unrounded LRU model, but ByteDMD's ceil rounding, free writes, arg first-touch, and liveness compaction require qualifications |
 | [copy-spacedmd.md](copy-spacedmd.md) | CopySpaceDMD: auto-DMA upgrade of space_dmd. Partitions each variable's reads into bursts separated by gap thresholds, inserts explicit DMA copies per burst, ranks the resulting local scratch copies by density. Predicts tiled_matmul achievable cost 61,918 (below current manual 67,758) |
 | [copy_space_dmd_bound.md](copy_space_dmd_bound.md) | Proof that copy_space_dmd is also bounded below by 2/(3*sqrt(3)) * bytedmd_live — the same Sleator–Tarjan geometric competitive envelope governs any explicit-copy scratchpad heuristic |
+
+## April 20, 2026
+
+| Report | Summary |
+|--------|---------|
+| [tarjan-detailed-part1.md](tarjan-detailed-part1.md) | Rigorous step-by-step Sleator–Tarjan lower bound proof: 2D spatial axioms, calculus transform to infinite cache hierarchy, capacity-scaling theorem |
+| [tarjan-detailed-part2.md](tarjan-detailed-part2.md) | ByteDMD-live as LRU+GC: why perfect garbage collection is only half of optimal, and the gap to Belady OPT |
