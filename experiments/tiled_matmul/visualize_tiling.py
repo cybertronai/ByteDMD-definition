@@ -112,7 +112,7 @@ def main():
 
     plt.tight_layout()
     out = os.path.join(os.path.dirname(__file__), 'matmul_access_pattern.svg')
-    plt.savefig(out, bbox_inches='tight')
+    plt.savefig(out, bbox_inches='tight', dpi=360)
     print(f"Saved: {out}")
     print(f"N={N}, T={T}: {len(A_n):,} accesses per matrix")
 
