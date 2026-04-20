@@ -235,11 +235,11 @@ def plot_panel(ax, addrs_list, is_write_list, regions, title, cost, y_min, y_max
         mask_r = mask_region & ~ws
         mask_w = mask_region & ws
         if mask_r.any():
-            ax.scatter(xs[mask_r], ys[mask_r], s=12, alpha=0.7, c=color,
+            ax.scatter(xs[mask_r], ys[mask_r], s=8, alpha=0.7, c=color,
                        label=f"{name} R ({lo}..{hi})", rasterized=True,
                        linewidths=0, marker='o')
         if mask_w.any():
-            ax.scatter(xs[mask_w], ys[mask_w], s=30, alpha=0.7,
+            ax.scatter(xs[mask_w], ys[mask_w], s=20, alpha=0.7,
                        facecolors='none', edgecolors=color,
                        label=f"{name} W", rasterized=True,
                        linewidths=0.8, marker='v')

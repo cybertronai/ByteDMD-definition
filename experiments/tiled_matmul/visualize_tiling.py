@@ -80,7 +80,7 @@ def main():
     fig, axes = plt.subplots(2, 1, figsize=(12, 9), sharex=True, sharey=True)
 
     offset_B = N * N
-    scatter_kws = {'s': 8, 'alpha': 0.7, 'rasterized': True, 'linewidths': 0}
+    scatter_kws = {'s': 5, 'alpha': 0.7, 'rasterized': True, 'linewidths': 0}
 
     # --- TOP PANEL: NAIVE ---
     axes[0].scatter(time_n, A_n, color='tab:blue', label='Matrix A reads', **scatter_kws)
