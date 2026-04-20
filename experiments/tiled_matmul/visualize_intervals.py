@@ -30,7 +30,7 @@ the color of whichever source cell they currently mirror.
 
 Usage:
     uv run --script visualize_intervals.py
-Produces `intervals_naive.png` and `intervals_tiled.png`.
+Produces `intervals_naive.svg` and `intervals_tiled.svg`.
 """
 
 import os
@@ -281,7 +281,7 @@ def plot_intervals(tr, bases_deep, bases_scratch, N, T, title, path):
         ax_full.set_ylabel('address')
         _label_matrix_bands(ax_full, bases_deep, None, N, T)
         _draw_colorbar_legend(fig, N)
-    plt.savefig(path, dpi=140)
+    plt.savefig(path)
     plt.close(fig)
 
 
@@ -300,18 +300,18 @@ def main():
         naive_tr, naive_bases, None, N, T,
         f'Naive matmul (N={N}) — no scratchpad, no DMA\n'
         f'{len(naive_tr.intervals)} intervals across {naive_tr.t} priced reads',
-        os.path.join(here, 'intervals_naive.png'),
+        os.path.join(here, 'intervals_naive.svg'),
     )
     plot_intervals(
         tiled_tr, tiled_bases, tiled_scratch, N, T,
         f'Tiled matmul (N={N}, T={T}) — scratchpad + DMA block loads\n'
         f'{len(tiled_tr.intervals)} intervals across {tiled_tr.t} priced reads',
-        os.path.join(here, 'intervals_tiled.png'),
+        os.path.join(here, 'intervals_tiled.svg'),
     )
     print(
-        f'Wrote intervals_naive.png '
+        f'Wrote intervals_naive.svg '
         f'({len(naive_tr.intervals)} intervals) and '
-        f'intervals_tiled.png ({len(tiled_tr.intervals)} intervals).'
+        f'intervals_tiled.svg ({len(tiled_tr.intervals)} intervals).'
     )
 
 

@@ -302,8 +302,8 @@ def main():
         f'Ratio={naive_cost/tiled_cost:.2f}x',
         fontsize=12, y=0.99)
     plt.tight_layout()
-    out = os.path.join(os.path.dirname(__file__), 'manual_access_pattern.png')
-    plt.savefig(out, dpi=150, bbox_inches='tight')
+    out = os.path.join(os.path.dirname(__file__), 'manual_access_pattern.svg')
+    plt.savefig(out, bbox_inches='tight')
     plt.close()
     print(f'\nSaved: {out}')
 

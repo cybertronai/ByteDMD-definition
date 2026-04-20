@@ -11,7 +11,7 @@ By plotting **Time** (operation sequence) on the X-axis and **1D Physical Memory
 
 ## Results
 
-![Naive vs Tiled Access Patterns](matmul_access_pattern.png)
+![Naive vs Tiled Access Patterns](matmul_access_pattern.svg)
 
 ### Naive (top panel)
 
@@ -27,4 +27,4 @@ Instead of sweeping the entire matrix, accesses form tight, localized blocks ("c
 uv run --script visualize_tiling.py
 ```
 
-Generates `matmul_access_pattern.png` (N=64, T=16, ~262k access points).
+Generates `matmul_access_pattern.svg` (N=64, T=16, ~262k access points).
