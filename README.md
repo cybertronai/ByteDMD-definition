@@ -20,6 +20,8 @@ assert myfunc(1, 2, 3, 4, 5) == 19
 assert bytedmd(myfunc, (1, 2, 3, 4, 5)) == 15
 ```
 
+([walk-through](https://yaroslavvb.github.io/ByteDMD-vis/myfunc_stack.html))
+
 ## Motivation
 
 
