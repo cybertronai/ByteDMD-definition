@@ -30,14 +30,93 @@ ROOT = os.path.abspath(os.path.join(HERE, "..", ".."))
 sys.path.insert(0, ROOT)
 sys.path.insert(0, HERE)
 
+import math as _math
 from bytedmd_ir import (
     L2Event,
+    L2Store,
+    L2Load,
     bytedmd_classic,
     bytedmd_live,
     matmul_rmm,
     matmul_tiled,
     trace,
 )
+
+
+def belady(events, input_arg_idx=None):
+    """Offline frequency-Belady memory manager, priced by ceil(sqrt(addr)).
+
+    An offline oracle walks the trace with perfect knowledge of every
+    variable's remaining-load count. At each STORE (including one
+    prepended per input argument, in arg-stack order), among candidate
+    addresses — every free slot plus one fresh slot — the oracle picks
+    the addr that MINIMISES `remaining_reads * ceil(sqrt(addr))`. Each
+    addr is freed on the variable's last LOAD.
+
+    Result is the sum of ceil(sqrt(addr)) over every LOAD — a
+    Belady-managed analog of bytedmd_live, same Manhattan-priced cost
+    model but with addresses chosen by an offline oracle rather than
+    LRU recency. Empirically this is a reasonable proxy for "what an
+    ideal static layout could cost" on the given trace."""
+    import heapq
+
+    if input_arg_idx:
+        prefix = [L2Store(v) for v, _ in
+                  sorted(input_arg_idx.items(), key=lambda kv: kv[1])]
+        events = list(prefix) + list(events)
+
+    # Per-variable remaining-load count (decremented at each LOAD).
+    remaining = {}
+    last_load = {}
+    for i, ev in enumerate(events):
+        if isinstance(ev, L2Load):
+            remaining[ev.var] = remaining.get(ev.var, 0) + 1
+            last_load[ev.var] = i
+
+    def _c(addr):
+        return _math.isqrt(addr - 1) + 1
+
+    var_addr = {}
+    free = []      # min-heap of freed addresses
+    next_addr = 1
+    total = 0
+
+    for i, ev in enumerate(events):
+        if isinstance(ev, L2Store):
+            n_reads = remaining.get(ev.var, 0)
+            # Candidates: every free slot, plus the next fresh slot.
+            if n_reads == 0:
+                # Never read — park at the highest addr to save low slots.
+                if free:
+                    addr = max(free)
+                    free.remove(addr)
+                    heapq.heapify(free)
+                else:
+                    addr = next_addr
+                    next_addr += 1
+            else:
+                # Minimise n_reads * ceil(sqrt(addr)) — pick smallest addr
+                # among free slots (sqrt is monotonic, so this is optimal
+                # within the candidate set).
+                if free:
+                    addr = free[0]
+                    heapq.heappop(free)
+                    # Compare to a fresh slot (never better since next_addr
+                    # > every free slot by construction).
+                else:
+                    addr = next_addr
+                    next_addr += 1
+            var_addr[ev.var] = addr
+        elif isinstance(ev, L2Load):
+            addr = var_addr[ev.var]
+            total += _c(addr)
+            remaining[ev.var] -= 1
+            if remaining[ev.var] == 0:
+                heapq.heappush(free, addr)
+                del var_addr[ev.var]
+        # L2Op does not read memory directly — its operand reads are
+        # emitted as preceding L2Load events, already priced above.
+    return total
 import algorithms as alg
 import manual as man
 from spacedmd import space_dmd
@@ -260,6 +339,7 @@ ALGOS: List[Tuple[str, Callable, Tuple, Callable[[], int]]] = [
 METRICS: List[Tuple[str, Callable[[Sequence[L2Event]], int] | None]] = [
     ("space_dmd",       space_dmd),
     ("bytedmd_live",    bytedmd_live),
+    ("belady",          belady),
     ("manual",          None),
     ("bytedmd_classic", bytedmd_classic),
 ]
