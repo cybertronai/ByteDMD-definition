@@ -162,3 +162,12 @@ Research notes on **ByteDMD** (Byte-level Data Movement Distance): a concrete me
 | Report | Summary |
 |--------|---------|
 | [capacity-envelope.md](capacity-envelope.md) | Sleator–Tarjan Capacity Envelope: trace-specific O(N) lower bound from the live reuse distance histogram (MRC → MaxForward → 2D radial integral), recovering 70–90% of Live-DMD vs the loose 0.3849 constant |
+| [locality-measures.md](locality-measures.md) | Yuan et al. Relational Theory of Locality applied to matmul: RI/RD/footprint/MRC/eviction-time pipeline, convertibility via Xiang + Denning–HOTL, with naive-vs-tiled predictions |
+
+## April 24, 2026
+
+| Report | Summary |
+|--------|---------|
+| [belady-min-lower-bound.md](belady-min-lower-bound.md) | Proof that $d_{OPT} = \text{max\_rank}[V]$ is the absolute mathematical floor under sqrt(d): continuous 2D geometry decomposes into nested-cache misses, pigeonhole + Belady MIN gives the optimum even with free writes |
+| [spacedmd-pigeonhole.md](spacedmd-pigeonhole.md) | Active-footprint pigeonhole fails as a lower bound for dynamic allocators (Dormant Storage Loophole — OPT parks inactive live vars deep); Live Reuse Distance fixes it, and the footprint bound is tight for static scratchpads |
+| [optimal-static-floor.md](optimal-static-floor.md) | Dynamic optDMD is a loose bound for static allocators (gap diverges as √K on overlapping-lifetime phase traces); Static-optDMD via max-active-footprint pigeonhole gives a tight lower bound for static scratchpads |
