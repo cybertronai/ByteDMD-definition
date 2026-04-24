@@ -17,9 +17,27 @@ By plotting **Time** (operation sequence) on the X-axis and **1D Physical Memory
 
 Matrix B forms massive diagonal sweeps across its entire memory space (0 to N^2). The time gap between reusing the first row of B is O(N^2) operations — by then the cache has completely overwritten it. Almost every read of B is a slow RAM fetch.
 
-### Tiled (bottom panel)
+### Naive-tiled / output-partitioned (second panel)
 
-Instead of sweeping the entire matrix, accesses form tight, localized blocks ("clouds"). For hundreds of operations, the CPU is locked into a tiny vertical band of memory. Because the T x T block easily fits in cache, the CPU executes the math at near-lightspeed before moving to the next block.
+Same loop order as naive (`i → j → k`) but applied only within T×T output
+tiles. Each `C[i, j]` is still fully accumulated over the full N-length
+reduction in k before moving to the next output cell, so the full-column
+B sweeps persist inside every tile. Tiling the output alone — without
+interchanging the inner loops — delivers no cache benefit on the inputs.
+
+### 2D-tiled / output-stationary (third panel)
+
+Same tile partitioning as naive-tiled, but with `k` hoisted to the
+outermost position inside the tile (`bi → bj → k → i → j`). The T×T
+output block is pinned as an accumulator and A/B panels stream in rank-1
+per k. This is the standard output-stationary tiling.
+
+### 3D-tiled (bottom panel)
+
+Accesses form tight, localized blocks ("clouds"). For hundreds of
+operations, the CPU is locked into a tiny vertical band of memory.
+Because the T×T block easily fits in cache, the CPU executes the math at
+near-lightspeed before moving to the next block.
 
 ## Working-set size over time
 

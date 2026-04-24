@@ -65,6 +65,30 @@ def trace_tiled_matmul(N, T):
     return np.array(addr_A), np.array(addr_B)
 
 
+def trace_naive_tiled_matmul(N, T):
+    """Trace memory reads for naive matmul within output-partitioned tiles.
+
+    Partitions output matrix C into T×T tiles. Within each tile, uses
+    the naive inner order i → j → k: every C[i, j] is fully accumulated
+    over the entire k = 0..N-1 range before moving to the next output
+    element in the tile. Tiling is applied only to the output — each
+    individual output element is still computed with a full naive inner
+    product, so the full column of B is swept once per (i, j) pair.
+
+    Loop nest: bi → bj → i → j → k. This is "partitioned matrix tiling"
+    with no loop-interchange inside the tile.
+    """
+    addr_A, addr_B = [], []
+    for bi in range(0, N, T):
+        for bj in range(0, N, T):
+            for i in range(bi, min(bi + T, N)):
+                for j in range(bj, min(bj + T, N)):
+                    for k in range(N):
+                        addr_A.append(i * N + k)
+                        addr_B.append(j * N + k)
+    return np.array(addr_A), np.array(addr_B)
+
+
 def trace_tiled_2d_matmul(N, T):
     """Trace memory reads for 2D-tiled (output-stationary) C = A @ B.T.
 
@@ -93,6 +117,8 @@ def main():
 
     print(f"Tracing Naive Matmul (N={N})...")
     A_n, B_n = trace_naive_matmul(N)
+    print(f"Tracing Naive-Tiled / output-partitioned Matmul (N={N}, T={T})...")
+    A_nt, B_nt = trace_naive_tiled_matmul(N, T)
     print(f"Tracing 2D-Tiled / output-stationary Matmul (N={N}, T={T})...")
     A_2d, B_2d = trace_tiled_2d_matmul(N, T)
     print(f"Tracing 3D-Tiled Matmul (N={N}, T={T})...")
@@ -102,16 +128,19 @@ def main():
     scatter_kws = {'s': 4, 'alpha': 0.9, 'rasterized': False, 'linewidths': 0}
 
     print("Rendering plots...")
-    fig, axes = plt.subplots(3, 1, figsize=(12, 12), sharex=True, sharey=True)
+    fig, axes = plt.subplots(4, 1, figsize=(12, 16), sharex=True, sharey=True)
 
     panels = [
         (axes[0], A_n, B_n,
          rf"NAIVE Matrix Multiplication ($A \times B^T$), N={N}" "\n"
          "B is swept top-to-bottom for every output element (cache thrashing)"),
-        (axes[1], A_2d, B_2d,
-         rf"2D-TILED / output-stationary (N={N}, T={T}) — blocks $i, j$ only" "\n"
+        (axes[1], A_nt, B_nt,
+         rf"NAIVE-TILED / output-partitioned (N={N}, T={T}) — blocks $i, j$, inner order $i{{\to}}j{{\to}}k$" "\n"
+         f"each C[i,j] is still fully accumulated over all N values of k before moving on — B sweeps persist inside each tile"),
+        (axes[2], A_2d, B_2d,
+         rf"2D-TILED / output-stationary (N={N}, T={T}) — blocks $i, j$ with $k$ hoisted outside" "\n"
          f"T$\\times$T=$\\mathbf{{{T*T}}}$ accumulators pinned; k sweeps full N per tile, A and B panels stream"),
-        (axes[2], A_3d, B_3d,
+        (axes[3], A_3d, B_3d,
          rf"3D-TILED (N={N}, T={T}) — blocks $i, j, k$" "\n"
          f"each inner (bi, bj, bk) block reuses a {T}$\\times${T} tile of both A and B"),
     ]
