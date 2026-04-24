@@ -747,6 +747,101 @@ def lp_lower_bound(events: Sequence[L2Event]) -> float:
     return lb
 
 
+def static_opt_lb(
+    events: Sequence[L2Event],
+    input_arg_idx: Optional[Dict[int, int]] = None,
+) -> float:
+    """Totally-unimodular LP lower bound on optimal static-allocator cost
+    (see gemini/optimal-static-floor.md).
+
+    For each tick t, the minimum-energy fractional layout by the
+    Rearrangement Inequality places live vars at physical ranks
+    1, 2, ... in decreasing order of global density
+    ρ_V = reads(V) / lifespan(V), so the per-tick floor is
+
+        Floor(t) = Σ_{i=1}^{A_t} ρ_{(i)} * sqrt(i)
+
+    with ρ_{(i)} ≥ ρ_{(i+1)} over the vars live at t. Summing over all
+    ticks yields a strict fractional lower bound on any static
+    allocator — each variable pays at least ρ * sqrt(rank) per tick of
+    its lifetime, and total-over-lifetime = reads * sqrt(rank) is the
+    cost if the allocator pinned it to its globally optimal density-
+    rank slot. Continuous sqrt (not ceil) so the value is ≤ the
+    integer ceil-cost of any realized static layout.
+
+    Relation to dynamic optDMD (bytedmd_opt): optDMD can teleport
+    variables between reads for free, so its bound can be much lower
+    than this when the trace has long-dormant variables (the "phase"
+    counter-example in the reference). Therefore this bound can
+    *exceed* bytedmd_opt and is informative exactly for traces where
+    static allocation is the constraint (large overlapping lifetimes).
+
+    Includes input vars (first L2Load starts the interval) so the
+    floor accounts for every read in the trace.
+    """
+    starts: Dict[int, int] = {}
+    ends: Dict[int, int] = {}
+    reads: Dict[int, int] = {}
+    for i, ev in enumerate(events):
+        if isinstance(ev, L2Store):
+            if ev.var not in starts:
+                starts[ev.var] = i
+            if ev.var not in ends:
+                ends[ev.var] = i
+        elif isinstance(ev, L2Load):
+            if ev.var not in starts:
+                starts[ev.var] = i
+            ends[ev.var] = i
+            reads[ev.var] = reads.get(ev.var, 0) + 1
+
+    densities: Dict[int, float] = {}
+    for v, r in reads.items():
+        if r == 0:
+            continue
+        lifespan = max(1, ends[v] - starts[v] + 1)
+        densities[v] = r / lifespan
+    if not densities:
+        return 0.0
+
+    # Birth/death events as (time, rho, var_id) so ties on rho break
+    # by var_id — keeps the sorted list lookup unambiguous on removal.
+    births = sorted((starts[v], densities[v], v) for v in densities)
+    deaths = sorted((ends[v] + 1, densities[v], v) for v in densities)
+
+    # `active` sorted ascending by (rho, var_id); iterate reversed for
+    # descending ranks.
+    active: List[Tuple[float, int]] = []
+    total = 0.0
+    t_prev = 0
+    bi = di = 0
+    n = len(births)
+
+    while bi < n or di < n:
+        t_b = births[bi][0] if bi < n else float("inf")
+        t_d = deaths[di][0] if di < n else float("inf")
+        t_next = t_b if t_b <= t_d else t_d
+
+        if t_next > t_prev and active:
+            s = 0.0
+            for rank, (rho, _v) in enumerate(reversed(active), start=1):
+                s += rho * math.sqrt(rank)
+            total += (t_next - t_prev) * s
+
+        while bi < n and births[bi][0] == t_next:
+            _, rho, v = births[bi]
+            bisect.insort(active, (rho, v))
+            bi += 1
+        while di < n and deaths[di][0] == t_next:
+            _, rho, v = deaths[di]
+            pos = bisect.bisect_left(active, (rho, v))
+            active.pop(pos)
+            di += 1
+
+        t_prev = t_next
+
+    return total
+
+
 def greedy_freq_upper_bound(events: Sequence[L2Event]) -> float:
     """Achievable upper bound: frequency-first greedy static allocation.
 

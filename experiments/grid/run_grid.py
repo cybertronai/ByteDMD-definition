@@ -40,6 +40,7 @@ from bytedmd_ir import (
     bytedmd_opt,
     matmul_rmm,
     matmul_tiled,
+    static_opt_lb,
     trace,
 )
 
@@ -427,6 +428,7 @@ ALGOS: List[Tuple[str, Callable, Tuple, Callable[[], int]]] = [
 # from ALGOS[i][3]() rather than from a trace-based heuristic.
 METRICS: List[Tuple[str, Callable[[Sequence[L2Event]], int] | None]] = [
     ("bytedmd_opt",     bytedmd_opt),
+    ("static_opt_lb",   static_opt_lb),
     ("space_dmd",       space_dmd),
     ("copy_space_dmd",  copy_space_dmd),
     ("bytedmd_live",    bytedmd_live),
