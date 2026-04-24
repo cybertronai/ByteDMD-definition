@@ -900,6 +900,108 @@ def bytedmd_live(events: Sequence[L2Event],
                      input_arg_idx=input_arg_idx)
 
 
+def opt_reuse_distances(
+    events: Sequence[L2Event],
+    input_arg_idx: Optional[Dict[int, int]] = None,
+) -> Tuple[List[int], List[int]]:
+    """Bélády MIN stack distance per load (see gemini/belady-min-lower-bound.md).
+
+    For a load of V at time t_next with previous load at t_prev, the OPT
+    stack distance is 1 + max over τ ∈ (t_prev, t_next) of the number of
+    distinct live variables W whose next use at τ is strictly before
+    t_next. By the Pigeonhole theorem in the referenced proof, MIN misses
+    V at cache capacity c iff this max_rank exceeds c — so it simulates
+    the eviction decision of any offline oracle with perfect future
+    knowledge. Mattson's inclusion property makes this the smallest
+    possible reuse distance achievable by any caching policy.
+
+    First loads (no previous reference) pay the arg-stack position if the
+    variable is an input, matching the bytedmd_classic/live convention;
+    non-input cold stores are reported as distance 1.
+
+    Implementation: for each reuse pair (a, b) in the global trace, the
+    interval [max(a, t_prev+1), min(b-1, t_next-1)] is the span during
+    which its variable contributes to V's rank (given b < t_next). A
+    sweep-line over these intervals gives the peak overlap. Pairs are
+    indexed by b for an O(log N) range query per load.
+    """
+    import bisect as _bisect
+    from collections import defaultdict as _dd
+
+    input_arg_idx = input_arg_idx or {}
+
+    load_times: Dict[int, List[int]] = _dd(list)
+    for i, ev in enumerate(events):
+        if isinstance(ev, L2Load):
+            load_times[ev.var].append(i)
+
+    # All (b, a, var) reuse-interval endpoints, sorted by b.
+    pairs: List[Tuple[int, int, int]] = []
+    for var, times in load_times.items():
+        for j in range(len(times) - 1):
+            pairs.append((times[j + 1], times[j], var))
+    pairs.sort()
+    b_vals = [p[0] for p in pairs]
+
+    out_times: List[int] = []
+    out_dists: List[int] = []
+
+    for i, ev in enumerate(events):
+        if not isinstance(ev, L2Load):
+            continue
+        v = ev.var
+        vts = load_times[v]
+        pos = _bisect.bisect_left(vts, i)
+        if pos == 0:
+            out_times.append(i)
+            out_dists.append(input_arg_idx.get(v, 1))
+            continue
+        t_prev = vts[pos - 1]
+        lo = _bisect.bisect_right(b_vals, t_prev)
+        hi = _bisect.bisect_left(b_vals, i)
+        sw: List[Tuple[int, int]] = []
+        for b, a, W in pairs[lo:hi]:
+            if W == v:
+                continue
+            s = a if a > t_prev else t_prev + 1
+            e = b - 1 if b - 1 < i - 1 else i - 1
+            if s > e:
+                continue
+            sw.append((s, 1))
+            sw.append((e + 1, -1))
+        if not sw:
+            rank = 1
+        else:
+            sw.sort()
+            cur = 1
+            rank = 1
+            for _, d in sw:
+                cur += d
+                if cur > rank:
+                    rank = cur
+        out_times.append(i)
+        out_dists.append(rank)
+    return out_times, out_dists
+
+
+def bytedmd_opt(events: Sequence[L2Event],
+                input_arg_idx: Optional[Dict[int, int]] = None) -> int:
+    """ByteDMD-opt: Bélády MIN lower bound on 2D-Manhattan routing cost.
+
+    For each L2Load of V at time t_next, charges ceil(sqrt(max_rank[V]))
+    where max_rank is the Bélády stack distance from `opt_reuse_distances`.
+    By the proof in gemini/belady-min-lower-bound.md, this is a strict
+    lower bound on the total energy of any dynamic spatial allocator
+    (including bytedmd_live, bytedmd_classic, space_dmd, and the manual
+    hand-placed schedule) under ceil(sqrt(addr)) pricing.
+    """
+    _, dists = opt_reuse_distances(events, input_arg_idx)
+    total = 0
+    for d in dists:
+        total += math.isqrt(max(0, d - 1)) + 1
+    return total
+
+
 # ============================================================================
 # L3 cost evaluation
 # ============================================================================
