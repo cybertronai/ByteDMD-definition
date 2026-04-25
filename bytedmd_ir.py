@@ -1094,15 +1094,20 @@ def opt_reuse_distances(
     knowledge. Mattson's inclusion property makes this the smallest
     possible reuse distance achievable by any caching policy.
 
-    First loads (no previous reference) pay the arg-stack position if the
-    variable is an input, matching the bytedmd_classic/live convention;
-    non-input cold stores are reported as distance 1.
+    First loads of input variables (no preceding L2Store) pay the
+    arg-stack position. First loads of non-input variables ARE priced
+    via the same Pigeonhole sweep: the dormancy is [store_time,
+    first_load_time], during which other vars W can complete their own
+    reuse intervals and compete for V's slot. Two corresponding pair
+    types contribute to the global pair list:
 
-    Implementation: for each reuse pair (a, b) in the global trace, the
-    interval [max(a, t_prev+1), min(b-1, t_next-1)] is the span during
-    which its variable contributes to V's rank (given b < t_next). A
-    sweep-line over these intervals gives the peak overlap. Pairs are
-    indexed by b for an O(log N) range query per load.
+      * (first_load_W, store_time_W, W) — the "store-to-first-load"
+        pair, representing W being alive on the geom stack from its
+        store until its first read.
+      * (load_{j+1}, load_j, W) — the consecutive reload pair.
+
+    The sweep-line over these intervals gives the peak overlap. Pairs
+    are indexed by b for an O(log N) range query per load.
     """
     import bisect as _bisect
     from collections import defaultdict as _dd
@@ -1110,13 +1115,26 @@ def opt_reuse_distances(
     input_arg_idx = input_arg_idx or {}
 
     load_times: Dict[int, List[int]] = _dd(list)
+    store_times: Dict[int, int] = {}
     for i, ev in enumerate(events):
         if isinstance(ev, L2Load):
             load_times[ev.var].append(i)
+        elif isinstance(ev, L2Store):
+            if ev.var not in store_times:
+                store_times[ev.var] = i
 
     # All (b, a, var) reuse-interval endpoints, sorted by b.
     pairs: List[Tuple[int, int, int]] = []
     for var, times in load_times.items():
+        if not times:
+            continue
+        # Store-to-first-load: non-input var W is alive on the geom
+        # stack from store_time(W) until its first read; this period
+        # competes with anyone whose dormancy overlaps it.
+        s = store_times.get(var)
+        if s is not None and s < times[0]:
+            pairs.append((times[0], s, var))
+        # Consecutive reload pairs.
         for j in range(len(times) - 1):
             pairs.append((times[j + 1], times[j], var))
     pairs.sort()
@@ -1132,10 +1150,25 @@ def opt_reuse_distances(
         vts = load_times[v]
         pos = _bisect.bisect_left(vts, i)
         if pos == 0:
-            out_times.append(i)
-            out_dists.append(input_arg_idx.get(v, 1))
-            continue
-        t_prev = vts[pos - 1]
+            # First load of v.
+            if v in input_arg_idx:
+                # Input: priced against the arg stack at the moment of
+                # promotion, no geom-stack dormancy yet.
+                out_times.append(i)
+                out_dists.append(input_arg_idx[v])
+                continue
+            # Non-input: dormancy is [store_time, i]; fall through to
+            # the sweep with t_prev = store_time.
+            s = store_times.get(v)
+            if s is None or s >= i:
+                # Defensive: no L2Store recorded (shouldn't happen for
+                # an internal var) or store/load coincide.
+                out_times.append(i)
+                out_dists.append(1)
+                continue
+            t_prev = s
+        else:
+            t_prev = vts[pos - 1]
         lo = _bisect.bisect_right(b_vals, t_prev)
         hi = _bisect.bisect_left(b_vals, i)
         sw: List[Tuple[int, int]] = []
