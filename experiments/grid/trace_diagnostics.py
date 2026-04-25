@@ -231,6 +231,34 @@ def plot_opt_reuse_distance(times, distances, title, out_path):
     plt.close(fig)
 
 
+def plot_reuse_distance_combined(times, lru_d, opt_d, title, out_path):
+    """Overlay LRU and Bélády OPT reuse distances on the same axes.
+
+    LRU depth is upper-bounded by Mattson inclusion at OPT max-rank,
+    so OPT (green) sits at or below LRU (purple) at every load — the
+    visible green/purple gap is the locality slack that an offline
+    oracle would extract over LRU on this trace.
+    """
+    fig, ax = plt.subplots(figsize=(11, 3.6))
+    ax.scatter(times, lru_d, s=0.8, c="tab:purple", alpha=0.35,
+               linewidths=0, rasterized=True, label="LRU reuse distance")
+    ax.scatter(times, opt_d, s=0.8, c="tab:green", alpha=0.55,
+               linewidths=0, rasterized=True,
+               label="Bélády OPT reuse distance")
+    ax.set_xlabel("Access index (time)")
+    ax.set_ylabel("Reuse distance (rank at read)")
+    ax.set_title(title)
+    ax.grid(True, alpha=0.3)
+    if times:
+        ax.set_xlim(0, times[-1] + 1)
+    ax.set_ylim(bottom=0)
+    ax.legend(loc="upper right", markerscale=8, fontsize=8,
+              framealpha=0.85)
+    fig.tight_layout()
+    fig.savefig(out_path, dpi=200, bbox_inches="tight")
+    plt.close(fig)
+
+
 def main() -> None:
     traces_dir = os.path.join(HERE, "traces")
     os.makedirs(traces_dir, exist_ok=True)
@@ -255,24 +283,25 @@ def main() -> None:
         plot_liveset(ls_t, ls_s,
                      f"{name} — live working-set size (peak = {peak:,})",
                      os.path.join(traces_dir, f"{slug}_liveset.png"))
-        plot_reuse_distance(
-            rd_t, rd_d,
-            f"{name} — reuse distance per load (max = {mx:,})",
-            os.path.join(traces_dir, f"{slug}_reuse_distance.png"))
-        plot_wss(
-            wss_t, wss_s, window,
-            f"{name} — WSS over time (τ = {window:,}, max = {wss_max:,})",
-            os.path.join(traces_dir, f"{slug}_wss.png"))
 
         # Bélády OPT reuse distance per load for every algorithm.
         iidx = {v: i + 1 for i, v in enumerate(input_vars)}
         opt_t, opt_d = opt_reuse_distances(events, iidx)
         opt_mx = max(opt_d) if opt_d else 0
-        plot_opt_reuse_distance(
-            opt_t, opt_d,
-            f"{name} — Bélády OPT reuse distance per load "
-            f"(max = {opt_mx:,})",
-            os.path.join(traces_dir, f"{slug}_opt_reuse_distance.png"))
+
+        # Combined LRU + OPT scatter on a single panel so the
+        # locality-slack gap is visible at a glance. (rd_t and opt_t
+        # both run over every L2Load in trace order, so they align.)
+        plot_reuse_distance_combined(
+            rd_t, rd_d, opt_d,
+            f"{name} — reuse distance per load "
+            f"(LRU max = {mx:,}; OPT max = {opt_mx:,})",
+            os.path.join(traces_dir, f"{slug}_reuse_distance.png"))
+
+        plot_wss(
+            wss_t, wss_s, window,
+            f"{name} — WSS over time (τ = {window:,}, max = {wss_max:,})",
+            os.path.join(traces_dir, f"{slug}_wss.png"))
         summary.append((name, slug, peak, mx, med, window, wss_max))
         print(f"{name:<42} {len(events):>8,} {peak:>10,} "
               f"{mx:>8,} {med:>8,} {window:>8,} {wss_max:>8,}")
