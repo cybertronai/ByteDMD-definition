@@ -1395,11 +1395,20 @@ def space_dmd(events: Sequence[L2Event],
     if V == 0:
         return 0
 
-    # Pass 2: density-ranked ordering
+    # Pass 2: density-ranked ordering. Tie-breaker is a pseudo-random
+    # hash of the var id, NOT birth time / vid (gemini/fix-tiebreaker-
+    # spacedmd-bug.md). Chronological tie-breakers let space_dmd silently
+    # implement a "Tie-Breaker Teleportation" — equal-density vars whose
+    # births are sorted in FIFO order get sequentially evicted from
+    # rank 1 just as the next one is read, effectively a free dynamic
+    # conveyor belt that no true static allocator can perform. Hashing
+    # the vid scatters tied vars randomly across the live footprint and
+    # closes the loophole, restoring space_dmd ≥ static_opt_lb.
     def priority(vid: int) -> tuple:
         lifespan = last_use[vid] - birth[vid] + 1
         density = access_count[vid] / lifespan
-        return (-density, -access_count[vid], birth[vid], vid)
+        h = int(hashlib.md5(str(vid).encode()).hexdigest(), 16)
+        return (-density, -access_count[vid], h)
 
     sorted_vids = sorted(birth.keys(), key=priority)
     rank_map = {vid: i + 1 for i, vid in enumerate(sorted_vids)}
