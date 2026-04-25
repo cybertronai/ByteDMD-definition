@@ -154,9 +154,9 @@ def main():
         ax.set_ylabel("1D Physical Address", fontsize=10)
         ax.legend(loc='upper right', markerscale=3, framealpha=0.95, fontsize=9)
         ax.axhline(offset_B, color='black', lw=1, ls='--', alpha=0.5)
-        ax.set_yticks([0, N*N//2, N*N, offset_B + N*N//2, 2*N*N])
-        ax.set_yticklabels(['0', f'{N*N//2}', f'{N*N}\nA|B boundary',
-                            f'{offset_B + N*N//2}', f'{2*N*N}'], fontsize=9)
+        ax.set_yticks([0, N*N, 2*N*N])
+        ax.set_yticklabels(['0', f'{N*N}\nA|B boundary', f'{2*N*N}'],
+                           fontsize=9)
         ax.grid(True, alpha=0.3)
 
     axes[-1].set_xlabel("Time (Access Index)", fontsize=11)
