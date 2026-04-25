@@ -168,6 +168,14 @@ Research notes on **ByteDMD** (Byte-level Data Movement Distance): a concrete me
 
 | Report | Summary |
 |--------|---------|
-| [belady-min-lower-bound.md](belady-min-lower-bound.md) | Proof that $d_{OPT} = \text{max\_rank}[V]$ is the absolute mathematical floor under sqrt(d): continuous 2D geometry decomposes into nested-cache misses, pigeonhole + Belady MIN gives the optimum even with free writes |
+| [belady-min-lower-bound.md](belady-min-lower-bound.md) | Proof that `d_OPT = max_rank[V]` is the absolute mathematical floor under sqrt(d): continuous 2D geometry decomposes into nested-cache misses, pigeonhole + Belady MIN gives the optimum even with free writes |
 | [spacedmd-pigeonhole.md](spacedmd-pigeonhole.md) | Active-footprint pigeonhole fails as a lower bound for dynamic allocators (Dormant Storage Loophole — OPT parks inactive live vars deep); Live Reuse Distance fixes it, and the footprint bound is tight for static scratchpads |
 | [optimal-static-floor.md](optimal-static-floor.md) | Dynamic optDMD is a loose bound for static allocators (gap diverges as √K on overlapping-lifetime phase traces); Static-optDMD via max-active-footprint pigeonhole gives a tight lower bound for static scratchpads |
+
+## April 25, 2026
+
+| Report | Summary |
+|--------|---------|
+| [spatial-bypass.md](spatial-bypass.md) | Belady max-rank *overestimates* cost on Dally's spatial grid: an omniscient manual allocator can read cold data from deep orbits without forced promotion (Spatial Bypass), beating the LRU+GC stack model that ByteDMD-live simulates |
+| [arithmetic-intensity-visualizers.md](arithmetic-intensity-visualizers.md) | Four spatial-AI plots: rolling intensity heartbeat, cumulative compute-vs-energy roofline staircase, gravity-well fetch-cost scatter, and energy-per-FLOP histogram — diagnostics for showing tiled vs naive matmul dominance |
+| [fix-spacedmd-bug.md](fix-spacedmd-bug.md) | Why static_opt_lb (109,023) exceeded space_dmd (79,044): space_dmd dynamically reranks each tick (mid-life teleportation), and static_opt_lb's Fenwick prefix double-counted under a Two-Stack memory model — drop-in fix lands the bound at ~75,671, restoring static_opt_lb < space_dmd |

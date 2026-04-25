@@ -256,7 +256,7 @@ with-scratchpad variant that drops 35 % off this baseline.
 
 ---
 
-## naive_2d_tiled_matmul
+## naive_2d_tiled_matmul [(code)](scripts/naive_2d_tiled_matmul_n_16_t_4.py)
 `n=16, T=4`. **Algorithm.** Same triple-nested matmul as `naive_matmul`
 — $C = A \cdot B^{\mathsf T}$ with $C[i][j] = \Sigma_k A[i][k] \cdot
 B[j][k]$ — but with `(i, j)` iterated in tile-blocked order
