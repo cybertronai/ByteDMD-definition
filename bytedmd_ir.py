@@ -747,12 +747,22 @@ def lp_lower_bound(events: Sequence[L2Event]) -> float:
     return lb
 
 
-def _static_opt_intervals(events: Sequence[L2Event]):
+def _static_opt_intervals(
+    events: Sequence[L2Event],
+    input_arg_idx: Optional[Dict[int, int]] = None,
+):
     """Yield (t_start, t_end, floor) for each stable interval where the
     set of live vars and their density ranking is constant. floor =
-    Σ_i ρ_{(i)} · sqrt(i) over currently-live vars. Both static_opt_lb
-    (sum (t_end - t_start) * floor) and the per-tick step curve consume
-    this stream."""
+    Σ_i ρ_{(i)} · sqrt(i) over currently-live vars. This is the
+    *geometric-stack* contribution; under the Two-Stack model the
+    compulsory arg-stack first-load cost is added separately by
+    `static_opt_lb`. Inputs are scoped [first L2Load, last L2Load]
+    here — they live on the (free) arg stack before first use, and
+    only enter the geometric stack on promotion. Their first read is
+    excluded from the density (`reads -= 1`) since it is paid against
+    the arg stack, not the geometric stack.
+    """
+    input_arg_idx = input_arg_idx or {}
     starts: Dict[int, int] = {}
     ends: Dict[int, int] = {}
     reads: Dict[int, int] = {}
@@ -766,13 +776,26 @@ def _static_opt_intervals(events: Sequence[L2Event]):
                 ends[ev.var] = i
         elif isinstance(ev, L2Load):
             if ev.var not in starts:
-                starts[ev.var] = 0 if ev.var not in stored else i
+                if ev.var in input_arg_idx:
+                    # Two-Stack: input vars are born on the geometric
+                    # stack at the moment of their first load; before
+                    # that they sit (free) on the arg stack.
+                    starts[ev.var] = i
+                else:
+                    starts[ev.var] = 0 if ev.var not in stored else i
             ends[ev.var] = i
             reads[ev.var] = reads.get(ev.var, 0) + 1
 
+    # The compulsory first read of each input is charged against the
+    # arg stack by `static_opt_lb`, so drop it from the geometric
+    # density to avoid double-counting.
+    for v in input_arg_idx:
+        if v in reads:
+            reads[v] -= 1
+
     densities: Dict[int, float] = {}
     for v, r in reads.items():
-        if r == 0:
+        if r <= 0:
             continue
         lifespan = max(1, ends[v] - starts[v] + 1)
         densities[v] = r / lifespan
@@ -815,16 +838,20 @@ def static_opt_floor_curve(
     events: Sequence[L2Event],
     input_arg_idx: Optional[Dict[int, int]] = None,
 ) -> Tuple[List[int], List[float]]:
-    """Per-tick amortized read-cost floor (the integrand of static_opt_lb).
+    """Per-tick geometric-stack TU LP floor (the integrand of the geometric
+    portion of `static_opt_lb`).
 
     Returns (times, floors) suitable for a `drawstyle="steps-post"` plot:
-    floors[k] is held over [times[k], times[k+1]) so the area under the
-    curve equals static_opt_lb. See gemini/optimal-static-floor.md.
+    floors[k] is held over [times[k], times[k+1]). The area under the
+    curve equals the geometric-stack portion of `static_opt_lb`; the
+    compulsory arg-stack first-load cost is reported separately by
+    `static_opt_lb`. See gemini/optimal-static-floor.md and
+    gemini/fix-spacedmd-bug.md.
     """
     times: List[int] = []
     floors: List[float] = []
     last_end = 0
-    for t_start, t_end, s in _static_opt_intervals(events):
+    for t_start, t_end, s in _static_opt_intervals(events, input_arg_idx):
         if not times:
             times.append(t_start)
             floors.append(s)
@@ -868,14 +895,35 @@ def static_opt_lb(
     *exceed* bytedmd_opt and is informative exactly for traces where
     static allocation is the constraint (large overlapping lifetimes).
 
-    Input vars (those whose first trace appearance is an L2Load) occupy
-    a physical slot from t=0 until their last use — they are pre-placed
-    by the caller and compete for addresses throughout their entire
-    "in-scope" window, even before their first read. Temporaries are
-    scoped [first L2Store, last L2Load] as usual.
+    Two-Stack semantics (gemini/fix-spacedmd-bug.md): inputs sit on the
+    free arg stack until their first load, at which point they enter
+    the geometric stack with the rest of the live set. Their compulsory
+    first read is priced at the arg-stack position (matching
+    bytedmd_live / bytedmd_classic / space_dmd) and is added on top of
+    the LP floor; the first read is not counted in the density used
+    inside the LP, so the geometric Pigeonhole sum does not double-
+    charge for it.
     """
-    return sum((t_end - t_start) * s
-               for t_start, t_end, s in _static_opt_intervals(events))
+    input_arg_idx = input_arg_idx or {}
+
+    # Compulsory arg-stack cost: first load of each input pays
+    # ceil(sqrt(arg_idx)) at the moment of promotion. Matches
+    # _lru_cost's first-load handling.
+    first_load_cost = 0.0
+    seen: set = set()
+    for ev in events:
+        if isinstance(ev, L2Load) and ev.var in input_arg_idx \
+                and ev.var not in seen:
+            first_load_cost += math.isqrt(
+                max(0, input_arg_idx[ev.var] - 1)) + 1
+            seen.add(ev.var)
+
+    geom_cost = sum(
+        (t_end - t_start) * s
+        for t_start, t_end, s in _static_opt_intervals(
+            events, input_arg_idx))
+
+    return first_load_cost + geom_cost
 
 
 def greedy_freq_upper_bound(events: Sequence[L2Event]) -> float:

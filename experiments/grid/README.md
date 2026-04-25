@@ -29,7 +29,7 @@ same sum, evaluated under six different placement strategies / bounds:
 | column            | meaning                                                         |
 |-------------------|-----------------------------------------------------------------|
 | `bytedmd_opt`     | Bélády MIN lower bound (see [gemini/belady-min-lower-bound.md](../../gemini/belady-min-lower-bound.md)): per load charges ceil(sqrt(max_rank[V])) where max_rank is the peak count of live variables with earlier next-use during V's dormancy. By Pigeonhole + Mattson inclusion, this is a strict lower bound on any demand-fetched allocator's cost (LRU, manual without prefetching). Compacting/pre-placing allocators that exploit free writes — `space_dmd`, `copy_space_dmd`, and scratchpad-heavy manual schedules — can occasionally dip below this value. |
-| `static_opt_lb`   | Totally-unimodular LP lower bound on the optimal **static** allocator (see [gemini/optimal-static-floor.md](../../gemini/optimal-static-floor.md)). Per tick, the Rearrangement Inequality places live vars at physical ranks 1, 2, … in decreasing density ρ = reads/lifespan; the per-tick floor is Σ ρ_{(i)} · sqrt(i) summed over currently-live vars. Totalled over all ticks using continuous sqrt. Complementary to `bytedmd_opt`: that bound dominates when short-dormancy reuse is the bottleneck; this one dominates when the phase / overlap structure forces many simultaneously-live vars into distinct permanent slots (the "phase counter-example" in the reference). |
+| `static_opt_lb`   | Totally-unimodular LP lower bound on the optimal **static** allocator (see [gemini/optimal-static-floor.md](../../gemini/optimal-static-floor.md); Two-Stack patch in [gemini/fix-spacedmd-bug.md](../../gemini/fix-spacedmd-bug.md)). Per tick, the Rearrangement Inequality places geom-stack-live vars at physical ranks 1, 2, … in decreasing density ρ = reads/lifespan; the per-tick floor is Σ ρ_{(i)} · sqrt(i) over currently-live vars (continuous sqrt). Inputs sit on the free arg stack until first load and pay the compulsory `⌈√(arg_idx)⌉` at promotion; the LP integral covers only the geometric-stack residency. Note that `space_dmd` can dip below this value because its compacting policy slides vars closer when neighbors die — a free-write move that a *true* static allocator cannot perform (the "Cheat 1" loophole in the reference). |
 | `space_dmd`       | Density-ranked spatial liveness: variables globally sorted by `accesses/lifespan`, read cost = ceil(sqrt(rank among currently live vars)). Models an ahead-of-time (AOT) static compiler / TPU scratchpad allocator. See [gemini/space-dmd.md](../../gemini/space-dmd.md). |
 | `copy_space_dmd`  | Auto-DMA enhancement of `space_dmd` ([gemini/copy-spacedmd.md](../../gemini/copy-spacedmd.md)): partitions each variable's reads into "bursts" separated by gap > G, inserts one synthetic L2Load(base) + L2Store(copy) per burst (paying a single deep-memory DMA cost), routes all in-burst reads to the local scratch copy, and returns the minimum `space_dmd` across a sweep of G ∈ {16, 64, 256, 1024, 4096}. Models what an ideal DMA compiler would achieve with explicit burst copies. |
 | `bytedmd_live`    | LRU with liveness compaction; dead variables dropped on last load (recency lower-envelope heuristic) |
@@ -62,54 +62,54 @@ DAGs are identical, so `bytedmd_live` / `bytedmd_classic` match — only
 
 | algorithm                                                   | bytedmd_opt | static_opt_lb | space_dmd | copy_space_dmd | bytedmd_live |  manual | bytedmd_classic |
 |------------------------------------------------------------|------------:|--------------:|----------:|---------------:|-------------:|--------:|----------------:|
-| [naive_matmul(n=16)](#naive_matmul)                         |     102,289 |       109,023 |    79,044 |         79,044 |      109,217 | 177,744 |         181,258 |
-| [naive_2d_tiled_matmul(n=16,T=4)](#naive_2d_tiled_matmul)   |      85,807 |       112,966 |    89,358 |         77,547 |       95,634 | 177,744 |         163,817 |
-| [naive_tiled_matmul(n=16)](#naive_tiled_matmul)             |     102,289 |       109,023 |    79,044 |         79,044 |      109,217 | 161,084 |         181,258 |
-| [naive_matmul_cached(n=16)](#naive_matmul_cached)           |     102,289 |       109,023 |    79,044 |         79,044 |      109,217 | 114,838 |         181,258 |
-| [tiled_matmul(n=16)](#tiled_matmul)                         |      61,171 |       118,539 |    93,369 |         61,918 |       78,708 |  67,758 |         143,812 |
-| [tiled_matmul_explicit(n=16,T=4)](#tiled_matmul_explicit)   |      62,948 |        80,281 |    73,927 |         73,927 |       99,006 |  67,758 |         201,547 |
-| [rmm(n=16)](#rmm)                                           |      52,919 |       131,636 |   107,058 |         71,947 |       83,196 | 106,835 |         151,375 |
-| [naive_strassen(n=16)](#naive_strassen)                     |     103,651 |       147,449 |   135,273 |        131,774 |      175,157 | 251,486 |         343,737 |
-| [fused_strassen(n=16)](#fused_strassen)                     |     103,651 |       147,449 |   135,273 |        131,774 |      175,157 | 135,740 |         343,737 |
-| [naive_attn(N=64,d=2)](#naive_attn)                         |     399,056 |       985,259 |   816,325 |        816,325 |      898,030 | 532,805 |       1,873,534 |
-| [flash_attn(N=64,d=2,Bk=8)](#flash_attn)                    |     417,201 |       399,165 |   353,721 |        353,721 |      476,067 | 610,154 |         842,854 |
-| [matvec_row(n=64)](#matvec_row)                             |     221,204 |       155,430 |   217,053 |        217,053 |      229,527 | 218,552 |         266,353 |
-| [matvec_col(n=64)](#matvec_col)                             |     193,120 |       176,870 |   197,719 |        197,719 |      229,716 | 217,952 |         270,193 |
-| [matvec_blocked(n=64,B=8)](#matvec_blocked)                 |     203,977 |       147,032 |   207,179 |        207,179 |      214,377 | 208,832 |         250,463 |
-| [fft_iterative(N=256)](#fft_iterative)                      |       9,496 |        38,548 |    35,400 |         35,400 |       47,088 |  55,516 |          71,317 |
-| [fft_recursive(N=256)](#fft_recursive)                      |      11,304 |        26,932 |    28,170 |         28,170 |       33,110 |  52,704 |          62,417 |
-| [stencil_naive(32x32)](#stencil_naive)                      |      43,184 |        85,972 |    61,258 |         55,645 |       65,937 |  78,968 |         109,401 |
-| [stencil_recursive(32x32,leaf=8)](#stencil_recursive)       |      38,612 |        85,423 |    54,599 |         53,344 |       58,764 |  78,968 |         101,657 |
-| [spatial_conv(32x32,K=5)](#spatial_conv)                    |     348,899 |       426,110 |   344,389 |        319,499 |      402,858 | 595,987 |         681,253 |
-| [regular_conv(16x16,K=3,Cin=4,Cout=4)](#regular_conv)       |     728,917 |       844,051 |   724,678 |        570,313 |      778,473 | 648,300 |       1,290,500 |
-| [fft_conv(N=256)](#fft_conv)                                |      28,157 |       121,318 |   110,194 |        110,194 |      148,641 |  91,922 |         233,158 |
-| [quicksort(N=64)](#quicksort)                               |       2,319 |         2,792 |     2,470 |          2,131 |        2,852 |   4,718 |           4,292 |
-| [heapsort(N=64)](#heapsort)                                 |       3,020 |         3,493 |     3,597 |          3,591 |        4,696 |   5,523 |           7,889 |
-| [mergesort(N=64)](#mergesort)                               |       1,267 |         2,233 |     2,474 |          2,474 |        3,148 |   3,386 |           4,411 |
-| [lcs_dp(32x32)](#lcs_dp)                                    |      26,298 |        30,101 |    23,497 |         23,497 |       29,980 |  27,192 |          44,575 |
-| [lu_no_pivot(n=32)](#lu_no_pivot)                           |     129,969 |       597,763 |   482,123 |        341,438 |      407,042 | 405,592 |         705,126 |
-| [blocked_lu(n=32,NB=8)](#blocked_lu)                        |     218,226 |       419,913 |   365,960 |        224,248 |      283,294 | 250,767 |         515,134 |
-| [recursive_lu(n=32)](#recursive_lu)                         |     224,499 |       415,389 |   398,310 |        237,958 |      304,365 | 355,751 |         546,679 |
-| [lu_partial_pivot(n=32)](#lu_partial_pivot)                 |     142,279 |       631,175 |   510,278 |        343,771 |      420,780 | 440,237 |         730,673 |
-| [cholesky(n=32)](#cholesky)                                 |      73,923 |       244,331 |   176,488 |        131,256 |      176,313 | 251,039 |         293,328 |
-| [householder_qr(32x32)](#householder_qr)                    |     306,253 |       775,856 |   781,325 |        660,863 |      605,876 | 768,959 |       1,131,740 |
-| [blocked_qr(32x32,NB=8)](#blocked_qr)                       |     467,267 |       639,798 |   549,811 |        501,161 |      610,248 | 554,900 |       1,068,832 |
-| [tsqr(64x16,br=8)](#tsqr)                                   |     149,845 |       381,116 |   380,689 |        258,440 |      267,962 | 315,433 |         546,266 |
-| [transpose_naive(n=32)](#transpose_naive)                   |      23,376 |        35,825 |    44,704 |         44,704 |       44,704 |  44,704 |          62,799 |
-| [transpose_blocked(n=32)](#transpose_blocked)               |      23,376 |        35,779 |    43,296 |         43,296 |       43,873 |  44,704 |          62,341 |
-| [transpose_recursive(n=32)](#transpose_recursive)           |      23,376 |        35,620 |    41,434 |         41,434 |       42,513 |  44,704 |          61,688 |
-| [stencil_time_naive(16x16,T=4)](#stencil_time_naive)        |      30,760 |        55,223 |    42,332 |         38,001 |       55,466 |  67,258 |          88,017 |
-| [stencil_time_diamond(16x16,T=4)](#stencil_time_diamond)    |     139,945 |       205,742 |   178,875 |        168,332 |      230,387 | 136,095 |         414,232 |
-| [floyd_warshall_naive(V=16)](#floyd_warshall_naive)         |      39,214 |        88,072 |    82,119 |         78,800 |      104,528 |  85,514 |         168,288 |
-| [floyd_warshall_recursive(V=16)](#floyd_warshall_recursive) |      27,227 |        48,179 |    48,445 |         41,897 |       47,495 |  63,334 |          95,871 |
-| [layernorm_unfused(N=256)](#layernorm_unfused)              |      14,172 |        16,082 |    16,823 |         15,710 |       19,022 |  14,571 |          30,891 |
-| [layernorm_fused(N=256)](#layernorm_fused)                  |      10,339 |        13,709 |    13,485 |         13,811 |       15,172 |  15,329 |          24,400 |
-| [matrix_powers_naive(n=16,s=4)](#matrix_powers_naive)       |      22,131 |        17,145 |    17,249 |         17,249 |       24,085 |  27,198 |          37,513 |
-| [matrix_powers_ca(n=16,s=4)](#matrix_powers_ca)             |      22,450 |        17,346 |    17,467 |         17,467 |       24,377 |  27,198 |          38,702 |
-| [cholesky_left_looking(n=32)](#cholesky_left_looking)       |     146,608 |       207,990 |   212,125 |        150,949 |      190,103 | 257,289 |         352,335 |
-| [spmv_csr_banded(n=32,bw=3)](#spmv_csr_banded)              |       1,480 |         3,469 |     2,318 |          2,318 |        4,219 |   6,190 |           7,164 |
-| [spmv_csr_random(n=32,nnz=7)](#spmv_csr_random)             |       1,790 |         3,876 |     3,158 |          3,154 |        4,984 |   6,676 |           8,649 |
-| [bitonic_sort(N=64)](#bitonic_sort)                         |       3,124 |         8,933 |     8,512 |          8,512 |       13,418 |  17,384 |          20,363 |
+| [naive_matmul(n=16)](#naive_matmul)                         |     102,289 |        75,671 |    79,044 |         79,044 |      109,217 | 177,744 |         181,258 |
+| [naive_2d_tiled_matmul(n=16,T=4)](#naive_2d_tiled_matmul)   |      85,807 |        88,791 |    89,358 |         77,547 |       95,634 | 177,744 |         163,817 |
+| [naive_tiled_matmul(n=16)](#naive_tiled_matmul)             |     102,289 |        75,671 |    79,044 |         79,044 |      109,217 | 161,084 |         181,258 |
+| [naive_matmul_cached(n=16)](#naive_matmul_cached)           |     102,289 |        75,671 |    79,044 |         79,044 |      109,217 | 114,838 |         181,258 |
+| [tiled_matmul(n=16)](#tiled_matmul)                         |      61,171 |        94,537 |    93,369 |         61,918 |       78,708 |  67,758 |         143,812 |
+| [tiled_matmul_explicit(n=16,T=4)](#tiled_matmul_explicit)   |      62,948 |        75,034 |    73,927 |         73,927 |       99,006 |  67,758 |         201,547 |
+| [rmm(n=16)](#rmm)                                           |      52,919 |       110,833 |   107,058 |         71,947 |       83,196 | 106,835 |         151,375 |
+| [naive_strassen(n=16)](#naive_strassen)                     |     103,651 |       145,059 |   135,273 |        131,774 |      175,157 | 251,486 |         343,737 |
+| [fused_strassen(n=16)](#fused_strassen)                     |     103,651 |       145,059 |   135,273 |        131,774 |      175,157 | 135,740 |         343,737 |
+| [naive_attn(N=64,d=2)](#naive_attn)                         |     399,056 |       878,493 |   816,325 |        816,325 |      898,030 | 532,805 |       1,873,534 |
+| [flash_attn(N=64,d=2,Bk=8)](#flash_attn)                    |     417,201 |       330,267 |   353,721 |        353,721 |      476,067 | 610,154 |         842,854 |
+| [matvec_row(n=64)](#matvec_row)                             |     221,204 |       212,304 |   217,053 |        217,053 |      229,527 | 218,552 |         266,353 |
+| [matvec_col(n=64)](#matvec_col)                             |     193,120 |       212,183 |   197,719 |        197,719 |      229,716 | 217,952 |         270,193 |
+| [matvec_blocked(n=64,B=8)](#matvec_blocked)                 |     203,977 |       203,485 |   207,179 |        207,179 |      214,377 | 208,832 |         250,463 |
+| [fft_iterative(N=256)](#fft_iterative)                      |       9,496 |        39,049 |    35,400 |         35,400 |       47,088 |  55,516 |          71,317 |
+| [fft_recursive(N=256)](#fft_recursive)                      |      11,304 |        27,237 |    28,170 |         28,170 |       33,110 |  52,704 |          62,417 |
+| [stencil_naive(32x32)](#stencil_naive)                      |      43,184 |        58,041 |    61,258 |         55,645 |       65,937 |  78,968 |         109,401 |
+| [stencil_recursive(32x32,leaf=8)](#stencil_recursive)       |      38,612 |        51,529 |    54,599 |         53,344 |       58,764 |  78,968 |         101,657 |
+| [spatial_conv(32x32,K=5)](#spatial_conv)                    |     348,899 |       312,818 |   344,389 |        319,499 |      402,858 | 595,987 |         681,253 |
+| [regular_conv(16x16,K=3,Cin=4,Cout=4)](#regular_conv)       |     728,917 |       684,503 |   724,678 |        570,313 |      778,473 | 648,300 |       1,290,500 |
+| [fft_conv(N=256)](#fft_conv)                                |      28,157 |       121,959 |   110,194 |        110,194 |      148,641 |  91,922 |         233,158 |
+| [quicksort(N=64)](#quicksort)                               |       2,319 |         2,791 |     2,470 |          2,131 |        2,852 |   4,718 |           4,292 |
+| [heapsort(N=64)](#heapsort)                                 |       3,020 |         3,584 |     3,597 |          3,591 |        4,696 |   5,523 |           7,889 |
+| [mergesort(N=64)](#mergesort)                               |       1,267 |         2,261 |     2,474 |          2,474 |        3,148 |   3,386 |           4,411 |
+| [lcs_dp(32x32)](#lcs_dp)                                    |      26,298 |        25,098 |    23,497 |         23,497 |       29,980 |  27,192 |          44,575 |
+| [lu_no_pivot(n=32)](#lu_no_pivot)                           |     129,969 |       600,081 |   482,123 |        341,438 |      407,042 | 405,592 |         705,126 |
+| [blocked_lu(n=32,NB=8)](#blocked_lu)                        |     218,226 |       420,494 |   365,960 |        224,248 |      283,294 | 250,767 |         515,134 |
+| [recursive_lu(n=32)](#recursive_lu)                         |     224,499 |       415,862 |   398,310 |        237,958 |      304,365 | 355,751 |         546,679 |
+| [lu_partial_pivot(n=32)](#lu_partial_pivot)                 |     142,279 |       632,866 |   510,278 |        343,771 |      420,780 | 440,237 |         730,673 |
+| [cholesky(n=32)](#cholesky)                                 |      73,923 |       245,659 |   176,488 |        131,256 |      176,313 | 251,039 |         293,328 |
+| [householder_qr(32x32)](#householder_qr)                    |     306,253 |       762,977 |   781,325 |        660,863 |      605,876 | 768,959 |       1,131,740 |
+| [blocked_qr(32x32,NB=8)](#blocked_qr)                       |     467,267 |       548,829 |   549,811 |        501,161 |      610,248 | 554,900 |       1,068,832 |
+| [tsqr(64x16,br=8)](#tsqr)                                   |     149,845 |       364,696 |   380,689 |        258,440 |      267,962 | 315,433 |         546,266 |
+| [transpose_naive(n=32)](#transpose_naive)                   |      23,376 |        38,614 |    44,704 |         44,704 |       44,704 |  44,704 |          62,799 |
+| [transpose_blocked(n=32)](#transpose_blocked)               |      23,376 |        38,573 |    43,296 |         43,296 |       43,873 |  44,704 |          62,341 |
+| [transpose_recursive(n=32)](#transpose_recursive)           |      23,376 |        38,441 |    41,434 |         41,434 |       42,513 |  44,704 |          61,688 |
+| [stencil_time_naive(16x16,T=4)](#stencil_time_naive)        |      30,760 |        55,543 |    42,332 |         38,001 |       55,466 |  67,258 |          88,017 |
+| [stencil_time_diamond(16x16,T=4)](#stencil_time_diamond)    |     139,945 |       206,570 |   178,875 |        168,332 |      230,387 | 136,095 |         414,232 |
+| [floyd_warshall_naive(V=16)](#floyd_warshall_naive)         |      39,214 |        88,583 |    82,119 |         78,800 |      104,528 |  85,514 |         168,288 |
+| [floyd_warshall_recursive(V=16)](#floyd_warshall_recursive) |      27,227 |        48,816 |    48,445 |         41,897 |       47,495 |  63,334 |          95,871 |
+| [layernorm_unfused(N=256)](#layernorm_unfused)              |      14,172 |        16,213 |    16,823 |         15,710 |       19,022 |  14,571 |          30,891 |
+| [layernorm_fused(N=256)](#layernorm_fused)                  |      10,339 |        13,167 |    13,485 |         13,811 |       15,172 |  15,329 |          24,400 |
+| [matrix_powers_naive(n=16,s=4)](#matrix_powers_naive)       |      22,131 |        17,239 |    17,249 |         17,249 |       24,085 |  27,198 |          37,513 |
+| [matrix_powers_ca(n=16,s=4)](#matrix_powers_ca)             |      22,450 |        17,442 |    17,467 |         17,467 |       24,377 |  27,198 |          38,702 |
+| [cholesky_left_looking(n=32)](#cholesky_left_looking)       |     146,608 |       214,439 |   212,125 |        150,949 |      190,103 | 257,289 |         352,335 |
+| [spmv_csr_banded(n=32,bw=3)](#spmv_csr_banded)              |       1,480 |         2,923 |     2,318 |          2,318 |        4,219 |   6,190 |           7,164 |
+| [spmv_csr_random(n=32,nnz=7)](#spmv_csr_random)             |       1,790 |         3,640 |     3,158 |          3,154 |        4,984 |   6,676 |           8,649 |
+| [bitonic_sort(N=64)](#bitonic_sort)                         |       3,124 |         9,012 |     8,512 |          8,512 |       13,418 |  17,384 |          20,363 |
 
 ## Run
 
@@ -282,6 +282,7 @@ see the reordering:
 | metric            | naive_matmul | naive_2d_tiled | Δ |
 |-------------------|-------------:|---------------:|---:|
 | `bytedmd_opt`     | 102,289      | **85,807**     | −16 % |
+| `static_opt_lb`   | 75,671       | **88,791**     | +17 % |
 | `bytedmd_live`    | 109,217      | **95,634**     | −12 % |
 | `bytedmd_classic` | 181,258      | **163,817**    | −10 % |
 | `copy_space_dmd`  | 79,044       | **77,547**     | −2 % |
