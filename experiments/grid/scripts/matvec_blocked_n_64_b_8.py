@@ -918,6 +918,133 @@ def static_opt_lb(
     return first_load_cost + geom_cost
 
 
+def splitting_lower_bound(
+    events: Sequence[L2Event],
+    input_arg_idx: Optional[Dict[int, int]] = None,
+) -> float:
+    """Splitting Lower Bound (gemini/fractional-lp-splitting.md).
+
+    Severs each variable's lifespan into independent inter-access intervals.
+    For a non-input variable stored at s and read at t_1 < t_2 < ... < t_k,
+    k virtual intervals are created with local density 1/gap:
+
+        [s,   t_1]        density  1 / (t_1 - s)
+        [t_1, t_2]        density  1 / (t_2 - t_1)
+        ...
+        [t_{k-1}, t_k]    density  1 / (t_k - t_{k-1})
+
+    Each virtual interval has exactly one read at its right endpoint.
+    At every clock tick t, the currently-active virtual intervals are sorted
+    by local density (descending) and the fractional Rearrangement Inequality
+    floor is computed:
+
+        Floor(t) = Σ_{i=1}^{A_t}  ρ_(i) · √i
+
+    Integrating over all ticks (plus compulsory arg-stack first-read costs
+    for inputs, matching the Two-Stack semantics of static_opt_lb) gives a
+    strict lower bound on any allocator that supports variable splitting /
+    explicit DMA copies.
+
+    Key difference vs static_opt_lb: that bound uses one global interval per
+    variable with density = reads/lifespan; this bound uses one interval per
+    inter-access gap with density = 1/gap.  On phase-structured programs a
+    variable's local density drops to near zero during dormancy, allowing
+    competing hot intervals to claim low ranks, producing a tighter (lower)
+    bound than the globally-averaged static floor.
+
+    Reference: gemini/fractional-lp-splitting.md.
+    """
+    input_arg_idx = input_arg_idx or {}
+
+    # ── Pass 1: per-variable store times and ordered read timestamps ──────────
+    store_times: Dict[int, int] = {}
+    var_reads: Dict[int, List[int]] = {}
+    for idx, ev in enumerate(events):
+        if isinstance(ev, L2Store):
+            if ev.var not in store_times:
+                store_times[ev.var] = idx
+        elif isinstance(ev, L2Load):
+            var_reads.setdefault(ev.var, []).append(idx)
+
+    # ── Pass 2: compulsory arg-stack first-read cost for inputs (Two-Stack) ───
+    first_load_cost = 0.0
+    for v, arg_idx in input_arg_idx.items():
+        if var_reads.get(v):
+            first_load_cost += math.isqrt(max(0, arg_idx - 1)) + 1
+
+    # ── Pass 3: build virtual intervals ───────────────────────────────────────
+    # Each virtual interval (vi) is half-open [start, end): active during
+    # ticks start … end-1.  Density = 1/gap, gap = end - start.
+    #
+    # For non-inputs: k intervals, starting with the cold-miss interval
+    #   [store_time, first_read].
+    # For inputs: (k-1) intervals; the first read is the arg-stack cost.
+    #
+    # uid is just the index in the vi_* lists, used to break ties in bisect
+    # when two intervals happen to share the same floating-point density.
+    vi_starts: List[int] = []
+    vi_ends:   List[int] = []
+    vi_dens:   List[float] = []
+
+    for var, rtimes in var_reads.items():
+        if var in input_arg_idx:
+            pairs = [(rtimes[i - 1], rtimes[i]) for i in range(1, len(rtimes))]
+        else:
+            s = store_times.get(var, rtimes[0])
+            pairs = [(s, rtimes[0])] + [
+                (rtimes[i - 1], rtimes[i]) for i in range(1, len(rtimes))
+            ]
+        for t_s, t_e in pairs:
+            gap = t_e - t_s
+            if gap > 0:
+                vi_starts.append(t_s)
+                vi_ends.append(t_e)
+                vi_dens.append(1.0 / gap)
+
+    if not vi_starts:
+        return float(first_load_cost)
+
+    n = len(vi_starts)
+
+    # ── Pass 4: event-driven fractional sweep ─────────────────────────────────
+    # Build one birth event and one death event per virtual interval.
+    # Sorting key: (time, kind) where kind=0 (death) < kind=1 (birth).
+    # Deaths-before-births at equal time ensures that when an interval ends
+    # and a successor interval begins at the same tick, the old interval
+    # leaves the active set before the new one enters — so no variable is
+    # simultaneously in two intervals.
+    sweep: List[Tuple] = []
+    for i in range(n):
+        sweep.append((vi_starts[i], 1, vi_dens[i], i))  # birth
+        sweep.append((vi_ends[i],   0, vi_dens[i], i))  # death
+    sweep.sort()
+
+    # `active` is sorted ascending by (density, uid).
+    # Reversed iteration gives descending density → rank 1 = highest density.
+    active: List[Tuple[float, int]] = []
+    geom_cost = 0.0
+    t_prev = 0
+
+    for t_ev, kind, rho, uid in sweep:
+        # Accumulate cost for the half-open interval [t_prev, t_ev).
+        if t_ev > t_prev and active:
+            s = 0.0
+            for rank, (r, _) in enumerate(reversed(active), start=1):
+                s += r * math.sqrt(rank)
+            geom_cost += (t_ev - t_prev) * s
+
+        if kind == 0:  # death
+            pos = bisect.bisect_left(active, (rho, uid))
+            if pos < len(active) and active[pos] == (rho, uid):
+                active.pop(pos)
+        else:          # birth
+            bisect.insort(active, (rho, uid))
+
+        t_prev = t_ev
+
+    return first_load_cost + geom_cost
+
+
 def greedy_freq_upper_bound(events: Sequence[L2Event]) -> float:
     """Achievable upper bound: frequency-first greedy static allocation.
 
