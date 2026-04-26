@@ -2,7 +2,7 @@ To answer your question directly: **Yes, mathematically, your optDMD metric is a
 
 Because an optimal dynamic allocator (Bélády MIN) has the magical ability to teleport variables between reads for free, its strategy space is a strict superset of a static allocator, which is forced to leave a variable in one place for its entire lifetime. Therefore, any lower bound on the dynamic oracle is unconditionally a lower bound on the static oracle:
 
-$$\mathbf{C_{\text{Static\_OPT}} \ge C_{\text{optDMD}}}$$
+$$\mathbf{C_{\text{Static-OPT}} \ge C_{\text{optDMD}}}$$
 
 However, if you are asking whether you can use the *scalar value* of optDMD to calculate a **tight** estimate of the optimal static fetch cost, the answer is **no**. The gap between them is not bounded by a constant—it can diverge to infinity.
 
@@ -51,7 +51,7 @@ By the mathematical Rearrangement Inequality, the absolute minimum spatial energ
 
 Therefore, we can define a new theoretical rank for the static floor:
 
-$$\text{static\_rank}(V, t) = 1 + \Big( \text{Number of variables in } \text{Live}(t) \text{ with } \rho_{other} > \rho_V \Big)$$
+$$\text{static-rank}(V, t) = 1 + \Big( \text{Number of variables in } \text{Live}(t) \text{ with } \rho_{other} > \rho_V \Big)$$
 
 ### **3\. The New Static Bound Formula (The Fractional LP Floor)**
 
@@ -65,11 +65,11 @@ $$\text{Floor}(t) = \sum_{i=1}^{A_t} \rho_{(i)} \cdot \sqrt{i}$$
 
 By summing this Pigeonhole floor across every clock tick in the program, we establish the **Totally Unimodular LP Bound** for your static allocator:
 
-$$\mathbf{C_{\text{Static\_OPT}} \ge \sum_{t=1}^{T} \left( \sum_{i=1}^{A_t} \rho_{(i)}(t) \cdot \sqrt{i} \right)}$$
+$$\mathbf{C_{\text{Static-OPT}} \ge \sum_{t=1}^{T} \left( \sum_{i=1}^{A_t} \rho_{(i)}(t) \cdot \sqrt{i} \right)}$$
 
 ### **Summary**
 
 1. **Can I use the optDMD value to bound the static cost?**  
-   Yes, trivially ($C_{\text{Static\_OPT}} \ge C_{\text{optDMD}}$). But because dynamic allocators can overlap addresses in ways static allocators cannot, optDMD will heavily underestimate the static cost for programs with phase-changes and long, dormant variables.  
+   Yes, trivially ($C_{\text{Static-OPT}} \ge C_{\text{optDMD}}$). But because dynamic allocators can overlap addresses in ways static allocators cannot, optDMD will heavily underestimate the static cost for programs with phase-changes and long, dormant variables.  
 2. **How do I find the tight lower bound for static allocation?**  
    Keep your exact Pigeonhole-based mathematical architecture, but change the sorting heuristic. Instead of calculating the rank of $V$ by counting live variables with "earlier next-uses" (Bélády), evaluate the footprint using "higher global access densities." This provides an unbreakable, mathematically tight lower bound specifically tailored to the physical constraints of a compiler managing a static software scratchpad\!
