@@ -191,3 +191,4 @@ Research notes on **ByteDMD** (Byte-level Data Movement Distance): a concrete me
 | Report | Summary |
 |--------|---------|
 | [interval-graph-construction.md](interval-graph-construction.md) | Reduce optimal static spatial allocation to Weighted Minimum Chromatic Sum on an interval graph: vertices = read-to-read dormancy intervals, edges = time overlaps, weights = √color cost — graph coloring exposes spatial loopholes that Belady's sort cannot find |
+| [polymatroid-relaxation.md](polymatroid-relaxation.md) | Why the Max Weight c-Colorable LP is exact (not a relaxation): consecutive-ones constraints → totally unimodular → integer vertices; interval graphs are perfect (chromatic = clique number) so c-clique feasibility implies c-coloring; polymatroid relaxation gives a tight ByteDMD floor without dropping the ceiling |
